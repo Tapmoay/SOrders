@@ -12,8 +12,9 @@
 > 不负责记录「跑到哪了」（那会变成第二份真相）。
 > ⛔ 另：R3/R4 那两次 A **只发布后端**（源码部署，SHA 就是它的标识）。**2026-10-06/07 的 0.2.6 这一次后端与 Android 一起发** ——
 > 下面 §一 里的 APK 校验和已经是这次真发出去的包（`sorders-0.2.6-2026100701.apk`，线上 `version.json` 已指向它）。
+> ⛔ **2026-10-08 00:4x CST 的 0.2.7 同样是后端与 Android 一起发**：后端八步 `--all --go` 全过（迁移跑到 **28**）、APK `sorders-0.2.7-2026100801.apk` 上传后线上 `version.json` 已指向它 —— §一 各格已按 0.2.7 再重填一次。
 >
-> 生成日期：2026-09-26（§一 的发布点与运行时指纹行在 A 阶段开始时更新）；**2026-10-07 00:3x CST 发布 0.2.6 之后整张表现取重填**（Git SHA / 迁移版本 / Android 与 Backend 版本 / 两个 checksum 全是发布后从本地与生产现读的）。
+> 生成日期：2026-09-26（§一 的发布点与运行时指纹行在 A 阶段开始时更新）；**2026-10-07 00:3x CST 发布 0.2.6 之后整张表现取重填**（Git SHA / 迁移版本 / Android 与 Backend 版本 / 两个 checksum 全是发布后从本地与生产现读的）。 **2026-10-08 00:4x CST 发布 0.2.7 之后又整张表现取重填一次**（Git SHA `fd43e1d` / 迁移 28 / Android 与 Backend 0.2.7 / 新 APK 校验和）。
 
 ---
 
@@ -21,16 +22,16 @@
 
 | 字段 | 值 | 现取命令（可复现） |
 |---|---|---|
-| **Git SHA** | `acda0cedeac22b153b5415515b6eb616927751ec`（**0.2.6 当前发布点**：生产 `git rev-parse HEAD` 现读；⚠️ 2026-10-07 00:3x 给这两条发版/修复提交的标题补上了可回溯编号，`f488a52`→`03bde4b`、`bd818eb`→`acda0ce`（**树内容一字未动**，重跑 `git diff <新> <旧>` 为空；生产机上 checkout 的还是老对象，内容一致）；这一版含台账 L-01…L-32 的 23 张单（`72f141f` 那一刀）＋ `024` 迁移的 MySQL 兼容性修复；分支 `p` → `origin/new`，已推。⛔ 上一个发布点是 `448dbb3e743c4b96b238d009a2c6ca46a68f441a`（R4）） | `git rev-parse HEAD` |
-| **运行时代码指纹**（⛔ 这条比 SHA 本身更要紧） | 发布点之后还可能推**只改文档/工具**的提交 ⇒ 真正要核的是「运行时代码没变」：`git diff --stat <Git SHA>..<发布点> -- backend/` **必须为空**。⚠️ 发布点落位之后若又推过**只改工具/文档**的提交，这个 diff **不为空**是正常的 —— 判据是「`backend/` 下没有差异」，工具与文档不算运行时。✅ 0.2.6 发布时 `git diff --stat acda0ce..HEAD -- backend/` **为空**（发布点就是当前生产代码） | `git diff --stat <Git SHA>..HEAD -- backend/` |
-| 提交时刻 | 2026-10-07T00:18:37+08:00 | `git log -1 --format=%cI` |
-| **DB migration version** | **28**（⛔ 这是**仓库头**，不是生产现状：生产上 0.2.6 停在 **26**，027/028 要等下一次发版 `--step migrate` 才会跑；`027_shipper_prices` ＋ `028_order_product_shipper_price` 是 CHG-0077 / 台账 L-38（下游定价）：**新建** `shipper_prices` 一张表（三层价：默认价 `contact_id IS NULL` / 按人定价；唯一键 `(shipper_id, contact_id, product_id)` 管不住 NULL 档 ⇒ 默认价唯一由服务层归一）＋ 给 `order_products` 加一格 `shipper_unit_price`（可空、⛔ 无默认值、**不回填**：NULL = 「下单那一刻他没给这个客户定价」⇒ 下游应收逐字退回订单口径，⛔ 不是 0）；两条都可重跑。此前 `001_baseline` … `026_user_downstream_ledger`：CHG-0076 / 台账 L-39 给 `users` 加一格 `downstream_ledger_enabled`（`BOOLEAN NOT NULL DEFAULT 1`：批发商在「我的 → 管下游的账」里自己决定要不要管下游货主的账，关掉 ⇒ 那本账的收入侧恒 0、核销读端点返空、三个写端点 403，⛔ 不是 403 整页；老库回填 true）；此前 `001_baseline` … `025_order_discount`：CHG-0071 给 `orders` 加七格折扣快照（`discount_kind` / `discount_value` / `discount_amount` / `discount_lines`(JSON，每项 `{line_id, before, after}`) / `discount_reason` / `discount_by_id` / `discount_at`）、给 `products` 加一格 `no_discount`（商品「不参与打折」：打折时**自动跳过**这些行、显式勾中则 4xx ⛔ 不静默过滤）；八格全部可空、**不回填**、老单全 NULL = 「这一单没打过折」；折扣钱落在行金额 `order_products.line_total` 上（`services/order_discount.py` 是唯一算法）；`001_baseline` … `024_product_visibility_targets`：FEAT-0009 给 `shipper_addresses` 加一格 `category` + 索引；FEAT-0010 给 `users` / `vehicles` 各加一格 `category` + 各自索引；BUG-0006 给 `users` 加四格（`session_revoked_reason` / `session_revoked_at` / `session_revoked_version` / `last_login_at`，被顶号/被停用/改密码/过期四种原因落库可查）；BUG-0007 给 `driver_settlements` 加两格（`bill_ids` / `adjustment`：建单当刻把明细锁进单里、手工改额只记差额，恒等式 `amount == 明细合计 + adjustment`）；FEAT-0012 给 `vehicles` 加四格（`purchase_price` / `purchase_date` / `useful_life_years` / `residual_rate`：折旧的四个输入，折旧额本身**不进库**）；FEAT-0013 **新建** `purchase_orders` 与 `purchase_order_items` 两张表（采购单据：把「库存流水 ＋ 成本价 ＋ 供应商应付」绑进同一个事务，⛔ 不拿历史入库流水反推单据）；FEAT-0014 **新建** `invoices` ＋ `invoice_purchase_orders` ＋ `invoice_ledgers` 三张表（发票台账：销项 / 进项共用一张票头，进项票挂采购单、销项票挂账本条目；⛔ 不回填历史的 `shipper_receipts.invoiced`，过去没有票的期间不凭空补票）；FEAT-0015 给 `arrears_units` 加一格 `credit_limit`（挂账单位的信用额度上限：NULL = 不限额、0 = 一点都不许赊，它只作**比较门槛**——⛔ 不参与应收/已收/欠款的任何加减，那三个数全部来自 `order_money`）CHG-0039 给 `orders` 加一格 `shipper_status_hold`（**货主可见状态的冻结值**：派单员把已派的单**静默退回派单池**时，真实状态必须真的回到 `PENDING_DISPATCH`（池子/计数/批量派单全部复用），而货主那一侧仍显示被收回那一刻的状态 —— 出参只对货主覆写、货主档位查询对冻结值感知；重新派出时 `assign_driver` 的 CAS 把它一起清成 NULL；可空、不回填、不加索引）；CHG-0048 给 `shipper_contacts` 加一格 `remark`（联系人自己的备注：**只有本人看得见**，`""` = 没写；选联系人时**只在地点备注还空着时**带进地点备注，带出之后以地点那一行为准、⛔ 不做联动；不回填、不加索引）；024 给 `user_product_visibility` 加两格 `category_name`（分类维；空串 = 「未分类」）/ `mode`（allow｜deny），把 `product_id` 改成 **`NULL` 可写**（分类行要 `product_id IS NULL`），唯一键从 `(user_id, product_id)` 扩成 `uq_upv_category(user_id, category_name, mode)`，旧约束 `uq_user_product_visibility` 原样保留（CHG-0062 / 台账 L-23：可见范围从「只认单品」扩成「分类 ＋ 单品、授权 ＋ 排除」；⚠️ 这条第一次上生产时挂在 `CREATE UNIQUE INDEX IF NOT EXISTS` 上 —— SQLite 认、**MySQL 不认**，报 `(1064, "... near 'IF NOT EXISTS uq_upv_category ON ...'")`，把库留在「两列已加、索引没建、没记账」的半截状态；修成 `_indexes(engine)` 先判存在再建之后原地重跑跑通，老行一行没动、`product_id` 变可空）—— 一事一迁移、十二笔都只加列或只建表、不回填。名册表 `route_categories` / `user_categories` / `vehicle_categories` 都由 `create_all` 建，不在这条链上。⚠️ 本行记的是**仓库 head**；生产上跑到哪一版以 `-m app.migrations status` 为准） | `python -c "import sys;sys.path.insert(0,'_tools/ops');import _prod_smoke as s;print(s.repo_migration_head())"` |
-| **Android 版本** | 产品 **0.2.6**（唯一来源＝仓库根 `VERSION`）＋构建号 **2026100701**（日期式 `yyyyMMdd * 100 + 当日序号`；这就是本次包的 `versionCode`） | `Get-Content VERSION` ／ `android/app/build.gradle.kts` |
-| **Backend 版本** | `app_version` = **0.2.6**（`config._repo_version()` 现读同一个 `VERSION`；发布后 `/health` 实测 `{"status":"ok","version":"0.2.6","redis":"ok",...}`）；⚠️ OpenAPI `info.version` 仍是 `0.1.0`（没跟产品版本走，如实记） | `backend/app/config.py` |
+| **Git SHA** | `fd43e1d8b51bcca6b093902e5d7ea8107d9bd3e4`（**0.2.7 当前发布点**：生产 `git rev-parse HEAD` 现读；这一版含台账 L-33…L-44 ＋ L-47/L-48 ＋ L-49/L-50 共 **16 条**单，自 0.2.6 的发布点 `a31299e` 起 **39 个提交 / 18 份新增变更单**（BUG-0016、BUG-0017、CHG-0065…CHG-0080）；分支 `p` → `origin/new`，已推。⛔ 上一个发布点是 `acda0cedeac22b153b5415515b6eb616927751ec`（0.2.6）） | `git rev-parse HEAD` |
+| **运行时代码指纹**（⛔ 这条比 SHA 本身更要紧） | 发布点之后还可能推**只改文档/工具**的提交 ⇒ 真正要核的是「运行时代码没变」：`git diff --stat <Git SHA>..<发布点> -- backend/` **必须为空**。✅ 0.2.7 发布时 `git diff --stat fd43e1d..HEAD -- backend/` **为空**；生产侧同一条判据由 `_prod_smoke.py --readonly` 现读通过（发布前它是 ❌「生产代码 ≠ HEAD」，本次发布把它消掉） | `git diff --stat <Git SHA>..HEAD -- backend/` |
+| 提交时刻 | 2026-10-08T00:43:52+08:00 | `git log -1 --format=%cI` |
+| **DB migration version** | **28**（⚠️ 这一格从 0.2.7 起**仓库头 = 生产现状**：本次 `--step migrate` 把 **025_order_discount → 028_order_product_shipper_price** 四条跑掉了，生产 `-m app.migrations status --json` 实测「当前版本 28 == 本仓库迁移头 28；待跑 0 / 漂移 0 / 陌生版本 0」；0.2.6 时生产停在 **24**。这四条的字段口径见历史记录：025 = `orders` 七格折扣快照 ＋ `products.no_discount`；026 = `users.downstream_ledger_enabled`；027 = **新建** `shipper_prices`（三层价）；028 = `order_products.shipper_unit_price`（可空、⛔ 无默认值、不回填）—— 四条都可重跑） | `python _tools/ops/_prod_smoke.py --readonly` |
+| **Android 版本** | 产品 **0.2.7**（唯一来源＝仓库根 `VERSION`）＋构建号 **2026100801**（日期式 `yyyyMMdd * 100 + 当日序号`；这就是本次包的 `versionCode`） | `Get-Content VERSION` ／ `android/app/build.gradle.kts` |
+| **Backend 版本** | `app_version` = **0.2.7**（`config._repo_version()` 现读同一个 `VERSION`；发布后 `/health` 实测 `{"status":"ok","version":"0.2.7","redis":"ok","pricing":{"canary_percent":30,"resolver":"PricingContract v2 @ extensions.pricing"}}`）；⚠️ OpenAPI `info.version` 仍是 `0.1.0`（没跟产品版本走，如实记） | `backend/app/config.py` |
 | **Frontend 版本** | ⛔ **没有**：`frontend/`（Vue3 旧 H5）已不在工作区，本轮不发布前端 | `git ls-files frontend`（0 个文件） |
-| **requirements lock** | ⛔ **没有 lock** —— R3-07d 决策②「本轮不锁」（保持开区间）；改用**生产真实 freeze 指纹**当基准 | `docs/DEPENDENCY_DECISION.md` §七 |
-| **config checksum** | systemd unit **`7450d600ccfa8b86`**（`systemctl cat <enabled 的 sorders-api*.service>` 的 sha256 前 16 位，发布后现取）；nginx 配置 **`98dd5c2f1ee050630048ffa356cf754b`**（`nginx -T` 的 sha256 前 32 位，发布后现取）；`backend/requirements.txt` `4f6f3ad341928200`（本地文件 sha256 前 16 位，本次未变） | `python _tools/ops/_prod_smoke.py --readonly` |
-| **artifact checksum** | `app-phone-release.apk` → 线上 `sorders-0.2.6-2026100701.apk`：**45,178,533 字节 / `48C6F388B247FC6E`**（sha256 前 16 位；2026-10-07 00:21 CST 上传，`version.json` 记 `version 0.2.6 / versionCode 2026100701 / size 45178533`，HTTP 探包 206 + `Content-Type=application/vnd.android.package-archive`）；⛔ 上一版是 0.2.5 的 44,490,405 字节 / `e7823ffeedf5f3fb`（2026-09-23）；后端**没有独立产物**（源码部署，SHA 就是它的标识） | `Get-FileHash android/app/build/outputs/apk/phone/release/*.apk` |
+| **requirements lock** | ⛔ **没有 lock** —— R3-07d 决策②「本轮不锁」（保持开区间）；改用**生产真实 freeze 指纹**当基准（0.2.7 现读 `dcfad65fe4b3823f`，49 个包） | `docs/DEPENDENCY_DECISION.md` §七 |
+| **config checksum** | systemd unit **`7450d600ccfa8b86`**（`systemctl cat <enabled 的 sorders-api*.service>` 的 sha256 前 16 位，发布后现取 —— 与 0.2.6 同值，本次没动 unit）；nginx 配置 **`98dd5c2f1ee050630048ffa356cf754b`**（`nginx -T` 的 sha256 前 32 位，发布后现取 —— 同值）；`backend/requirements.txt` `4f6f3ad341928200`（本地文件 sha256 前 16 位，本次未变） | `python _tools/ops/_prod_smoke.py --readonly` |
+| **artifact checksum** | `app-phone-release.apk` → 线上 `sorders-0.2.7-2026100801.apk`：**45,309,605 字节 / `2957723DCD3416E6`**（sha256 前 16 位；2026-10-08 00:5x CST 上传；`version.json` 记 `version 0.2.7 / versionCode 2026100801 / size 45309605`；HTTP 探包 `206` ＋ `Content-Type=application/vnd.android.package-archive` ＋ `Content-Range=bytes 0-1023/45309605`；APK 签名指纹 `8AAC1B5778F8DDCF` 与线上旧包一致 ⇒ 老用户能覆盖安装）；⛔ 上一版是 0.2.6 的 45,178,533 字节 / `48C6F388B247FC6E`；后端**没有独立产物**（源码部署，SHA 就是它的标识） | `Get-FileHash android/app/build/outputs/apk/phone/release/*.apk` |
 
 ---
 
@@ -75,6 +76,24 @@
 ⛔ **本次后端与 Android 一起发**：八步（backup → stage → migrate → verify → start → health → smoke → business）全过、`release-exit=0`；
 只读烟测 `_prod_smoke.py --readonly`：**ERROR 0 条 / 未批准告警 0 条 / 已批准告警 3 条**（Redis 设了口令；MySQL 时区口径是 UTC；生产路由数 = 仓库最近一次快照）。
 ⚠️ 第 8 步 business 是**人工有限写烟测**（脚本故意不自动化）—— 本次**尚未逐条做**，要按 `docs/PRODUCTION_ACCEPTANCE.md` §三 走一遍并留痕。
+
+### 0.2.7 发布（2026-10-08 00:4x CST，只读采集）
+
+| 项 | 值 |
+|---|---|
+| 生产当前提交 | `fd43e1d8b51bcca6b093902e5d7ea8107d9bd3e4`（＝ 发布点；发布前是 `bd818eb7`，即 0.2.6 的老对象 `acda0ce`） |
+| 服务 | `sorders-api-a.service`(8111) ＋ `sorders-api-b.service`(8112) 滚动重启后**都 `is-active=active`**、各自 `/health` 200、经 nginx 入口 401（＝有活上游）、两台 effective config 指纹都 `canary_percent=30`（与 `.env` 一致） |
+| 结构版本 | 发布前 **24** → `--step migrate` 跑掉 **025 / 026 / 027 / 028** → `-m app.migrations status --json`：**当前 28 == 仓库迁移头 28，待跑 0 / 漂移 0 / 陌生版本 0** |
+| 库 / 盘 | 13.6 MB / **58 张表**（0.2.6 时 57）；上传 2119 文件 / 189M；磁盘 66%（可用 13G）；备份 36 份 / 2.2G |
+| 运行环境 | 生产 venv Python **3.11.13** / **49 个包**（freeze `dcfad65fe4b3823f`）；MySQL 8.0.44；Redis 6.2.20；nginx 1.20.1 |
+| 本次的备份 | `/opt/sorders-backup/pre_release/20261007T164408Z`（`db.sql.gz` 537,533 B ＋ `uploads.tar.gz` 108,179,142 B / 2119 文件，sha256 校验通过；清单 `_tools/backup/manifests/20261007T164419Z-pre_release.json`，库行数 orders=2460 / ledgers=4656 / users=63 / products=37 / tables=57） |
+| 只读烟测 | `_prod_smoke.py --readonly`：**31 通过 / 3 已批准告警 / 0 不一致**（发布前是「29 通过 / 3 告警 / **2 不一致**」—— 那两条「生产代码 ≠ HEAD」「库结构 ≠ 28」正是本次消掉的）；已批准告警仍是 Redis 设口令 / MySQL 时区 UTC / 生产路由数 202 ≠ 快照 167 |
+
+⛔ **本次后端与 Android 一起发**：八步（backup → stage → migrate → verify → start → health → smoke → business）全过、`release-exit=0`（日志 `_tmp/release_027.txt`）。
+⚠️ 第 8 步 business 是**人工有限写烟测**（脚本故意不自动化）—— 本次**仍未逐条做**，要按 `docs/PRODUCTION_ACCEPTANCE.md` §三 走一遍并留痕。
+
+**APK 这一次**（0.2.7 / 2026100801）：`assemblePhoneRelease`（Gradle 8.9 ＋ `-PapiBaseUrl=https://8.145.40.22`，⛔ 没改 `android/local.properties`）→ `check_phone_apk.py` ✅（versionName 0.2.7 / versionCode 2026100801 / 含 `arm64-v8a` 与 `armeabi-v7a` / 编译进包的 BuildConfig 是生产地址）→ `publish_apk.py` 上传 `sorders-0.2.7-2026100801.apk` ＋ 刷新 `sorders-latest.apk` ＋ 重写 `version.json`，回读 `version 0.2.7 / versionCode 2026100801 OK`、探包 `206`。
+⚠️ **这一趟踩到一个坑（发布后已修）**：`publish_apk.py --note` 的中文说明在 **Windows PowerShell 5.1** 下被 `Get-Content` 按 **gb2312** 解码 ⇒ 写进线上 `version.json` 的 `note` 是乱码；发现后用 base64 直写线上文件修正、经 HTTP 回读**逐字一致**（0.2.6 那份 note 也呈同类乱码特征）。治本（给脚本加 `--note-file`／写盘前编码自检）记入台账待拍板。
 
 ### R4 发布前（2026-09-27 01:5xZ）
 
@@ -202,3 +221,11 @@ systemctl start sorders-api
 2. ✅ 生产**就在发布点** `acda0cedeac22b153b5415515b6eb616927751ec`，`/health` version `0.2.6`、结构版本 `24`；
 3. ✅ `_tools/deploy/_release.py` 已在生产真跑过（本次即一次；R3/R4 也跑过）；
 4. ⚠️ 第 8 步 business 的**有限写烟测仍是人工**、本次**尚未做**（脚本故意不自动化）—— 见 §三「0.2.6 发布」那段末尾。
+
+### 2026-10-08 复核（0.2.7 发布之后）
+
+1. ✅ **发布已执行**：`python _tools/deploy/_release.py --all --go` 八步全过、`release-exit=0`（后端与 Android 一起发）；
+2. ✅ 生产**就在发布点** `fd43e1d8b51bcca6b093902e5d7ea8107d9bd3e4`，`/health` version `0.2.7`、结构版本 **28**（仓库头 = 生产现状：待跑 0 / 漂移 0 / 陌生版本 0）；
+3. ✅ 更新链现读：线上 `version.json` = `0.2.7` / `2026100801` / `sorders-0.2.7-2026100801.apk`，`_tools/deploy/_check_update_flow.py` **43/43**；
+4. ⚠️ 第 8 步 business 的**有限写烟测仍是人工**、本次**尚未做**（脚本故意不自动化）；仓库里有带硬限制的 `_tools/ops/_canary_live_write.py`（只肯动 R4 演练单、撤销不删除），待用户点头再跑；
+5. ⚠️ 新增一条已知坑：线上 `version.json` 的 `note` 中文在 **Windows PowerShell 5.1** 下会被 `Get-Content` 的 gb2312 解码打乱（本次已用 base64 直写修正，治本待定）。

@@ -7597,3 +7597,21 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 **验证**：全量静检 **202 脚本 / 201 ✅ / 1 ❌**（唯一那条红是 `_tools/qa/_check_backend_fresh.py` —— 注入式反向验证还原时会刷新 mtime，脚本自己的注里就写着「跑过反向验证后必然报」；本机 uvicorn PID 3052 起于 23:22:50，重启即消）；可达性 **183 / 183**；`release-exit=0`；`check_phone_apk.py` ✅；生产 `/health` `{"status":"ok","version":"0.2.6","redis":"ok",…}`。
 
 **实现提交**：`03bde4b`（版本号）＋ `acda0ce`（024 迁移修复）＋ `5712703`（CHG-0064 判据边界声明 ＋ 提示目录重生成）＋ `ccab098`（迁移方言红线 ＋ 守卫线随动）＋ `7c503cb`（本次发布台账与声明页）。
+
+---
+
+### [2026-10-08 00:0x → 01:0x CST 已完成] 会话：**发版 0.2.7：台账 L-33…L-50 的 16 条单上线（后端八步 ＋ 手机包上传 ＋ 发布台账回填）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**：「你开代理然后推送并且你要新建一个新的版本号不然。其他的无法更新了」（ref **m26523**）。
+
+**两个决定**（问定）：范围 = **全套发布（后端 ＋ APK）**；版本号 = **0.2.7**（补丁；线上当时是 0.2.6 / 2026100701，不含这批）。
+
+**改法（四件，产品代码一行未写）**：① 先起代理（Clash 内核监听 `127.0.0.1:7899`，`git push` 才通）；② `VERSION` 0.2.6 → **0.2.7**（`fd43e1d`，只改仓库根一个文件）并推送 —— 生产 `--step stage` 要能 `git fetch` 到这个对象；③ 后端八步 `python _tools/deploy/_release.py --all --go`：backup（`/opt/sorders-backup/pre_release/20261007T164408Z`）→ stage（生产 HEAD = `fd43e1d`）→ migrate（**025/026/027/028** 跑掉）→ verify（28 == 28，待跑 0 / 漂移 0 / 陌生 0）→ start（两个 unit 滚动重启，全 active ＋ /health 200 ＋ nginx 全程有活上游 ＋ 两台 canary 指纹 30% 一致）→ health → smoke（ERROR 0 / 未批准告警 0）→ business（人工那一步，见下）；④ APK：`assemblePhoneRelease`（Gradle 8.9，versionName 0.2.7 / versionCode **2026100801** / `-PapiBaseUrl=https://8.145.40.22`）→ `check_phone_apk.py` ✅ → `publish_apk.py` 上传 `sorders-0.2.7-2026100801.apk` ＋ 重写 `version.json`（回读 OK ＋ 探包 206）。
+
+**判据 / 证据**：`docs/RELEASE_CANDIDATE.md` 整张表现取重填（Git SHA `fd43e1d`、迁移 **28**、Android ＋ Backend **0.2.7**、config checksum systemd `7450d600ccfa8b86` ／ nginx `98dd5c2f1ee050630048ffa356cf754b` ／ requirements `4f6f3ad341928200`、artifact **45,309,605 字节 / `2957723DCD3416E6`**）＋ 新增「0.2.7 发布（只读采集）」与「2026-10-08 复核」两小节；`_tools/deploy/_check_update_flow.py` **43/43**；发布后 `_prod_smoke.py --readonly` **31 通过 / 3 已批准告警 / 0 不一致**（发布前那两条不一致已消）；`/health` 实测 `{"status":"ok","version":"0.2.7",…}`。
+
+**⚠️ 已知局限**：① §三 的**人工有限写烟测本次仍未做**（`_release.py` 的 business 步故意不自动化；仓库里现成的 `_tools/ops/_canary_live_write.py` 带「只肯动 R4 演练单」硬限制，未跑）；② 发布后发现线上 `version.json` 的 `note` 是乱码 —— 本次用 `Get-Content` 读 UTF-8 备注文件，**Windows PowerShell 5.1 按 gb2312 解码**后传给了 `--note`（0.2.6 那份 note 也呈同类乱码特征）；已用 base64 直写线上 `version.json` 修正、回读逐字一致，治本（`--note-file` / 写盘前编码自检）记入台账待拍板；③ 真机核验只装过模拟器 emu 包，release 包只做包内校验。
+
+**明确不碰**：业务代码与库表结构（本刀上线的是 0.2.6 之后那 39 个提交早已提交的实现）；`docs/PRODUCTION_ACCEPTANCE.md` §三 的人工清单本身。
+
+**实现提交**：`fd43e1d`（版本号 0.2.7）。
