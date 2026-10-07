@@ -6221,7 +6221,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **验证（2026-10-07 全部跑完）**：✅ 新增判据 `_tools/qa/_check_driver_ledger_merge.py` **47/47**；✅ 新增反验 `_tools/qa/_reverse_verify_driver_ledger_merge.py` **20/20** 注入全部被抓；✅ `_check_ledger_dashboard.py` **152/152**（改 LEDGER_TILES 第 2 格 / `dispatcherLedger(` 3 处 / ①b 块反转 / 核销门 `tab == 0`）＋它的反验 **39/39**；✅ `_check_freight_settlement_ui.py` **30/30**（§③ 反转成「必须走 `DateFilterDialogs`、不许 `MonthPickerSheet`」；`MIN_CALL_SITES = 2` 实测仍有 4 处调用点、未动）＋它的反验 **25/25**；✅ 编译 `:app:compileEmuDebugKotlin` / `:app:assembleEmuDebug` BUILD SUCCESSFUL；✅ 单测 `:app:testEmuDebugUnitTest` **1293 项 / 1 失败 / 2 跳过** —— 唯一失败 `AiHabitTest > recognisesCommonPeriodsFromToolArguments` 是**既有日期型 flake**（`ai/AiHabit.kt:115` 的「本月」分支排在「近 7 天」之前，今天恰好让 Oct 1→Oct 7 同时命中；本单没碰这两个文件）；✅ 真机 emulator-5554（派单员端）从「工作台没有第二入口 → 账本管理 7 格 → 司机账 · 运费结算 → 档位清单（本月/上月）→ 某人两个数 → 明细就地展开 → 司机结算（按月）可达」全部走通，八张截图 `shots/chg0075_01…08_*.png`；✅ 相关判据逐本重跑：`_check_freight_pricing_clarity.py` 25 项 0 失败、`_check_roster_cards.py` 60/60、`_check_page_truncation_wiring.py` 19/19；✅ 全量静检 `python _tools/qa/_check_all.py` **213/213 全部通过**（EXIT=0，末次复跑 318.5s）；＋ `_check_hint_key_explain.py` **59 项 0 失败**（账本页司机那一档里那句「司机那笔钱的口径」随合并**搬家到合并页**、仍然常显 `Text` —— 它一度随那一档被删掉，正是这条判据报红抓回来的）＋ 它的反验 `_reverse_verify_hint_key_explain.py` **17/17**；⛔ `backend/scripts/check_reachability.py` 与后端 pytest **未跑**（本单后端零改动，Diff 里 `backend/**` 一个文件都没有）。
 
-- 状态：✅ **已完成并关闭**（2026-10-07 立项 · 2026-10-07 关闭；变更单 `docs/changes/CHG-0075.md`；Blast Radius L2；提交 @@COMMIT@@）
+- 状态：✅ **已完成并关闭**（2026-10-07 立项 · 2026-10-07 关闭；变更单 `docs/changes/CHG-0075.md`；Blast Radius L2；提交 `86bd9b6`）
 
 ---
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
