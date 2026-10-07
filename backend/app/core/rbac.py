@@ -55,6 +55,9 @@ class Permission(str, Enum):
     ORDER_UPLOAD_DELIVERY = "order:upload_delivery"
     PRODUCT_MANAGE = "product:manage"
     PRICE_RULE_MANAGE = "price_rule:manage"
+    # 批发商给下游定价（CHG-0077 / 台账 L-38）：定的是**他自己那本下游账**的价 ——
+    # 只对他名下、他下过单的商品生效，写进口只有 shipper_prices 这一张表。
+    SHIPPER_PRICE_MANAGE = "shipper_price:manage"
     LEDGER_READ_OWN = "ledger:read_own"
     LEDGER_READ_ALL = "ledger:read_all"
     LEDGER_EDIT = "ledger:edit"
@@ -83,6 +86,9 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
             Permission.ORDER_EDIT_CONTACT,
             Permission.ORDER_DELETE_CANCELLED,
             Permission.LEDGER_READ_OWN,
+            # 给自己名下的商品定价、给不同的人不同的价（CHG-0077 / 台账 L-38）：
+            # 这是他自己那本下游账的事，⛔ 与他欠派单员那本账无关（那本走 PRICE_RULE_MANAGE）。
+            Permission.SHIPPER_PRICE_MANAGE,
             Permission.NOTIFICATION_READ,
         }
     ),
@@ -176,6 +182,12 @@ SCOPES: dict[Permission, tuple[str, str]] = {
     Permission.ORDER_UPLOAD_DELIVERY: ("assigned", "送达照片只能传到派给自己的那张单上（行级过滤按 driver_id）"),
     Permission.PRODUCT_MANAGE: ("all", "商品是全局主数据，不分归属"),
     Permission.PRICE_RULE_MANAGE: ("all", "专属价按批发商维度，管理动作是全局的"),
+    # ⚠️ 理由必须与 `capabilities.py` 里那条 `Capability(permission="SHIPPER_PRICE_MANAGE")`
+    #    的 `scope_why` **逐字相同**（判据 `_check_capability_registry.py` 双向对账）。
+    Permission.SHIPPER_PRICE_MANAGE: (
+        "own",
+        "他只能定自己名下那几件商品、只对自己那本下游账生效（行级过滤按 shipper_id）",
+    ),
     Permission.LEDGER_READ_OWN: ("own", "货主看自己的账（行级过滤）"),
     Permission.LEDGER_READ_ALL: ("all", "派单员看全部账：账本页是仪表盘"),
     Permission.LEDGER_EDIT: ("all", "手工记账写的是全局账本，不挂在某一个人的名下"),

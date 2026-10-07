@@ -54,6 +54,7 @@ from app.models.product_category import ProductCategory
 from app.models.product_visibility import UserProductVisibility
 from app.models.purchase import PurchaseOrder, PurchaseOrderItem
 from app.models.shipper import ShipperAddress, ShipperContact, ShipperLocation
+from app.models.shipper_price import ShipperPrice
 from app.models.shipper_settlement import ShipperSettlement, ShipperSettlementLine
 from app.models.supplier import Supplier, SupplierPayable
 from app.models.unit_conversion import UnitConversion
@@ -119,6 +120,7 @@ __all__ = [
     "ShipperAddress",
     "ShipperContact",
     "ShipperLocation",
+    "ShipperPrice",
     "ShipperSettlement",
     "ShipperSettlementLine",
     "Supplier",

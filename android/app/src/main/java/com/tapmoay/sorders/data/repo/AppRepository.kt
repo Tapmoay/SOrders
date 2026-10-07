@@ -110,6 +110,36 @@ class AppRepository(private val api: ApiBundle) {
     /** 把撤掉的核销放回来。 */
     suspend fun restoreMySettlement(id: Long) = api.shipperLedgerApi.restoreSettlement(id)
 
+    // ---- 他自己那一层价：给下游客户定价（CHG-0077 / 台账 L-38，2026-10-07）----
+    //
+    // ⛔ 与上面 [priceRules]（派单员给他的专属价）是**两层价**：这里写的是他给下游的价，
+    //    只进他自己那本下游账；也**不改任何历史订单**（下单那一刻快照，改价不追改）。
+    // ⛔ 入参里没有「谁」—— 写的永远是登录人自己，所以这几个方法都不带 shipperId。
+
+    /** 他**可定价**的商品（他下过单的 ∪ 派单员给他设过专属价的）。 */
+    suspend fun priceableProducts() = api.shipperPriceApi.priceableProducts()
+
+    /** 他那本下游价目表（`includeDeleted = true` 连回收站里的一起回）。 */
+    suspend fun shipperPrices(
+        productId: Long? = null,
+        contactId: Long? = null,
+        includeDeleted: Boolean? = null,
+    ) = api.shipperPriceApi.listPrices(
+        productId = productId,
+        contactId = contactId,
+        includeDeleted = includeDeleted,
+    )
+
+    /** 设 / 改一条下游价（`contactId` 留空 = 这个商品的**默认价**）。 */
+    suspend fun setShipperPrice(body: com.tapmoay.sorders.data.remote.api.ShipperPriceSetRequest) =
+        api.shipperPriceApi.setPrice(body)
+
+    /** 删一条下游价（**软删**，回收站里能恢复）。 */
+    suspend fun deleteShipperPrice(id: Long) = api.shipperPriceApi.deletePrice(id)
+
+    /** 把删掉的下游价放回来。 */
+    suspend fun restoreShipperPrice(id: Long) = api.shipperPriceApi.restorePrice(id)
+
     /** 把订单从回收站恢复（仅派单员）。 */
     suspend fun restoreOrder(orderId: Long) = api.orderApi.restoreOrder(orderId)
 

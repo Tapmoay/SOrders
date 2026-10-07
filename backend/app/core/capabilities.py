@@ -209,6 +209,14 @@ CAPABILITIES: tuple[Capability, ...] = (
         kind="write",
     ),
     Capability(
+        permission="SHIPPER_PRICE_MANAGE",
+        what="给下游客户定自己的价（一件商品的默认价 + 按人定价）",
+        scope="own",
+        scope_why="他只能定自己名下那几件商品、只对自己那本下游账生效（行级过滤按 shipper_id）",
+        roles=("shipper",),
+        kind="write",
+    ),
+    Capability(
         permission="LEDGER_READ_OWN",
         what="看自己那本账",
         scope="own",

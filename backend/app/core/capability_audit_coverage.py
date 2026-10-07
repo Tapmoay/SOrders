@@ -86,6 +86,9 @@ AUDIT_COVERAGE: dict[str, tuple[str, ...]] = {
                     'TAX_INVOICE_CREATE', 'TAX_INVOICE_UPDATE', 'TAX_INVOICE_ISSUE',
                     'TAX_INVOICE_VOID', 'TAX_INVOICE_DELETE', 'TAX_INVOICE_RESTORE'),
     'price_rule:manage': ('PRICE_RULE_UPSERT',),
+    # 批发商自己那本下游账的价（CHG-0077 / 台账 L-38）：与上一行是**两层价、两个人、两本账**，
+    # 所以另立一个动作码（审计页上要能一眼分出「派单员改了批发价」与「他自己给下游定了价」）。
+    'shipper_price:manage': ('SHIPPER_PRICE_UPSERT',),
     # ---- 商品 / 库存 ----
     'product:manage': ('PRODUCT_CREATE', 'PRODUCT_UPDATE', 'PRODUCT_DELETE', 'PRODUCT_RESTORE',
                        'PRODUCT_VISIBILITY_SET', 'PRODUCT_CATEGORY_UPSERT', 'PRODUCT_CATEGORY_DELETE',

@@ -204,6 +204,27 @@ FIGURES: tuple[Figure, ...] = (
         # 转出会把「打折」变成跨域接口；详情页要的折后单价走 order_money.line_unit_price。
         forbid=(),
     ),
+    Figure(
+        key="downstream_receivable",
+        name="批发商那本下游账的应收（他自己定的价）",
+        meaning=(
+            "下游应收 = 订单行上的**下游单价快照**（`order_products.shipper_unit_price`）× (数量 − 已退)；"
+            "他从没定过价的行（快照为空）原样沿用订单口径 `line_receivable` —— "
+            "两本账互不写，差额归批发商（CHG-0077 / 台账 L-38）"
+        ),
+        impls=("services/order_money.py::line_downstream_receivable",),
+        consumers=(
+            # ⚠️ `services/shipper_settle.py` **不在**这里：它是钱的口径层（TIER0），
+            #    口径层之间直接互相 import（同它今天 import line_receivable 那样），
+            #    走契约会让 `_check_money_dependency` 的口径层白名单多出一个例外。
+            "api/v1/shipper_ledger.py",
+        ),
+        forbid=((
+            "shipper_unit_price_arith",
+            r"\bshipper_unit_price\b\s*[-+*/]|[-+*/]=\s*[\w.]{0,24}\bshipper_unit_price\b",
+            "拿下游单价自己乘除 —— 下游应收只有 order_money.line_downstream_receivable 一处算",
+        ),),
+    ),
 )
 
 # ---------------------------------------------------------------- 接口（转出）
@@ -221,6 +242,8 @@ REEXPORTS: dict[str, tuple[str, str]] = {
     "money_of": ("app.services.order_money", "money_of"),
     "money_map": ("app.services.order_money", "money_map"),
     "line_receivable": ("app.services.order_money", "line_receivable"),
+    # 下游那本账的应收（批发商自己定的价 × 没退的数量；CHG-0077 / 台账 L-38）
+    "line_downstream_receivable": ("app.services.order_money", "line_downstream_receivable"),
     # driver_pay：司机应得（每单 / 工资 / 提成）
     "order_pay": ("app.services.driver_pay", "order_pay"),
     "pay_for_order": ("app.services.driver_pay", "pay_for_order"),

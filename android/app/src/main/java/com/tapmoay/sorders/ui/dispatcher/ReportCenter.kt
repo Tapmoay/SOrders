@@ -1129,6 +1129,10 @@ private fun actionLabel(action: String): String = when (action) {
     "PRODUCT_DELETE" -> "删除商品"
     "PRODUCT_RESTORE" -> "恢复商品"
     "PRICE_RULE_UPSERT" -> "修改批发价"
+    // 批发商给自己那本下游账定价（CHG-0077 / 台账 L-38）：与上一行**不是同一个价** ——
+    // 上一行是"派单员给他定的批发价"，这一行是"他自己给下游客户定的价"。
+    // 两层价、两个人、两本账，审计页上必须分得开（⛔ 不许共用一个中文名）。
+    "SHIPPER_PRICE_UPSERT" -> "改下游定价"
     "USER_CREATE" -> "新建账号"
     "USER_UPDATE" -> "修改账号"
     // ⚠️ 下面四条是**第二遍真机**补上的：它们在库里出现过，而这张表漏了 →

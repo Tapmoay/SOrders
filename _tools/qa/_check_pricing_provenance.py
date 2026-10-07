@@ -224,6 +224,17 @@ CONFIG = {
     # ⚠️ 为什么它算"钱列"要登记：列是 Numeric 且语义就是金额 —— 判据第 1 组按列类型收，
     #    不登记就是"新增钱列没交代凭什么"，那正是这条红要拦的。
     "arrears_units.credit_limit": "挂账单位信用额度（配置口径的上限：人给进来的数，只作比较门槛，不参与任何加减）",
+    # ---- 下游定价（2026-10-07 · CHG-0077 / 台账 L-38）：批发商**自己给下游定的价** ——
+    # 与 `products.default_unit_price` / `price_rules.special_unit_price` 同一档（人给进来的配置），
+    # ⛔ 不是系统按规则算出来的。
+    # ⚠️ 它算出来的那个数（下游应收 = 这条价 × 没退的数量）**不落库**：只在
+    #    `services/order_money.py::line_downstream_receivable` 一处现算（money_contract 的
+    #    `downstream_receivable` 那条契约钉着），所以这里没有对应的 RULED 条目。
+    "shipper_prices.unit_price": "给下游定的下游单价（配置：他自己设的默认价 / 给某位下游的专人价）",
+    # 订单行上那份**快照**：下单建行时从 `shipper_prices.unit_price` 定格
+    # （`services/shipper_price.py::snapshot_order_lines`），与 `order_products.cost_price_snapshot` 同一档。
+    # ⛔ 之后改价 / 删价都不追改它 —— 老单按下单那一刻的价算（CHG-0077 的三条铁律之一）。
+    "order_products.shipper_unit_price": "下游单价快照（下单当时定格的那条价；它自己就是快照）",
 }
 
 #: 坐标：名字是 lat/lng 的那几个，与钱无关。

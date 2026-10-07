@@ -73,6 +73,7 @@ import com.tapmoay.sorders.ui.shipper.AddressScreen
 import com.tapmoay.sorders.ui.shipper.OrderCreateScreen
 import com.tapmoay.sorders.ui.shipper.ShipperLedgerScreen
 import com.tapmoay.sorders.ui.shipper.ShipperOrdersScreen
+import com.tapmoay.sorders.ui.shipper.ShipperPricesScreen
 import com.tapmoay.sorders.ui.shipper.ShipperReturnRequestsScreen
 import com.tapmoay.sorders.ui.common.UnitConversionsScreen
 
@@ -262,6 +263,11 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 onBack = { navController.popBackStack() },
                 onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
             )
+        }
+        // 「下游定价」（CHG-0077）：与上面那本账是一对 —— 账本记"谁欠我多少"，这一页定"我卖他多少"。
+        // ⛔ 写的人永远是登录人自己（请求体里没有 shipper_id），所以这条路由不带任何身份入参。
+        composable(Routes.SHIPPER_PRICES) {
+            ShipperPricesScreen(container = container, onBack = { navController.popBackStack() })
         }
         // 「我的退货申请」（2026-09-21）：货主在订单上提的申请在这里看进展、可以撤回。
         // ⛔ 货主只能申请 —— 真正退货在下面派单端那条路由上。

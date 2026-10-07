@@ -40,6 +40,14 @@ object Routes {
     const val ADDRESSES = "shipper/addresses"
     const val SHIPPER_LEDGER = "shipper/ledger"
     /**
+     * 「下游定价」（2026-10-07 CHG-0077 / 台账 L-38）：批发商给自己名下的商品定价、
+     * 并**给不同的人不同的价**（走 `shipper-prices` 那一组端点）。
+     *
+     * ⛔ 这一页与 [SHIPPER_LEDGER] 不是一回事：账本记的是"谁欠我多少"，这一页定的是"我卖他多少"。
+     * ⛔ 路由上**没有「谁」**：写的永远是登录人自己（后端入参里也没有 `shipper_id`）。
+     */
+    const val SHIPPER_PRICES = "shipper/prices"
+    /**
      * 「我的退货申请」（2026-09-21）：货主在订单上提的退货申请在这里看进展、可以撤回。
      *
      * ⛔ 货主**只能申请**（申请阶段库存与账本一分不动）；真正执行退货的是派单端的

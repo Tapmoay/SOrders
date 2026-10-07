@@ -163,6 +163,16 @@ EXCLUDED: dict[str, str] = {
     # 属于**账号与凭据**那一类 —— AI 不碰（与登录/登出同一条理由，见 `_write_coverage.EXCLUDED`）。
     "shipper PATCH users/{}": "账号与凭据：改自己的资料/密码在「我的」页，AI 不碰凭据这一类（v3.7 永久排除）",
     "dispatcher PATCH users/{}": "账号与凭据：同上（派单员那条路由 `users.update` 覆盖，这里指的是只改自己那一半）",
+    # 下游定价（CHG-0077，2026-10-07 / 台账 L-38）：**本轮不开放**（不是永久排除）。
+    # 三条都是改"下游该收多少钱"的动作；口径见 `_write_coverage.EXCLUDED` 里同一族那三条
+    # （用户 m13365 第五问「AI 先不开」）。键写 `shipper` 即可覆盖批发商那一档 ——
+    # ② 那条判据先查 `shipper+member`、再查 `shipper`（见下面的 missing 过滤）。
+    "shipper POST shipper-prices": (
+        "改钱数：下游定价本轮不给 AI 开（台账 L-38 五问之四「AI 先不开」）——"
+        "要人工在「下游定价」页一件一件确认"
+    ),
+    "shipper DELETE shipper-prices/{}": "同上（软删一条价：改的是往后每一单按什么价算的依据）",
+    "shipper POST shipper-prices/{}/restore": "同上（把删掉的那条价放回来）",
 }
 
 

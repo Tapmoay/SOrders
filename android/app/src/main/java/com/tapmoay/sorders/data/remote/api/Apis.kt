@@ -1841,6 +1841,115 @@ data class ShipperSettlementCreateRequest(
     val source: String = "app",
 )
 
+/**
+ * 批发商**自己那一层价**（「下游定价」）—— CHG-0077 / 台账 L-38。
+ *
+ * ## 三层价，这个接口只碰第三层
+ * | 层 | 谁定的 | 存在哪 | 算进哪本账 |
+ * | --- | --- | --- | --- |
+ * | ① 商品目录价 | 派单员 | `products.default_unit_price` | 公司那本账 |
+ * | ② 给他的专属价（[PriceRuleApi]） | 派单员 | `price_rules.special_unit_price` | 公司那本账（他进货实付） |
+ * | ③ **他给下游的价（本接口）** | **批发商自己** | `shipper_prices` | **他自己那本下游账** |
+ *
+ * ⛔ 这一层价**只在下单建行时定格**到 `order_products.shipper_unit_price`：改价 / 删价都
+ *    **不追改历史订单**（口径 m13365 第⑤问），也一个字节都不动商品目录价、订单行金额、
+ *    公司那本账（`ledger` / `cash_flows`）—— 两层价之间的差额归他。
+ * ⛔ 端点里**没有「谁」（`shipper_id`）**：写的永远是登录人自己，所以这一层既不许、
+ *    也没法替别人定价（不是批发商货主的账号由后端 `_require_member` 拦下）。
+ * ⚠️ 不是批发商货主（`users/me` 的 `isMember` 为假）、或把下游这本账关掉了
+ *    （`downstreamLedgerEnabled` 为假）的账号调它一律 403，**后端会给一句中文说明** ——
+ *    界面原样显示（`ApiClient.httpMessage` 已经这么做了），不要自己编文案。
+ */
+interface ShipperPriceApi {
+    /** 他**可定价**的商品：他自己下过单的 ∪ 派单员给他设过专属价的（⛔ 不是平台上全部商品）。 */
+    @GET("shipper-prices/products")
+    suspend fun priceableProducts(): List<ShipperPriceProductDto>
+
+    /**
+     * 他自己那本价目表。
+     *
+     * `productId` 留空 = 全部商品；`contactId` 留空 = 全部人（含默认价那几行）；
+     * `includeDeleted = true` 连**回收站**里的一起回（「恢复」那一步要用）。
+     * 后端按「商品编号、行编号」排 —— **刻意不接常用度**（这里是价目表，不是"选一条"）。
+     */
+    @GET("shipper-prices")
+    suspend fun listPrices(
+        @Query("product_id") productId: Long? = null,
+        @Query("contact_id") contactId: Long? = null,
+        @Query("include_deleted") includeDeleted: Boolean? = null,
+    ): List<ShipperPriceDto>
+
+    /** 设 / 改一条下游价：`contactId` 留空 = 这个商品的**默认下游价**。已有则覆盖，软删过的**复活**。 */
+    @POST("shipper-prices")
+    suspend fun setPrice(@Body body: ShipperPriceSetRequest): ShipperPriceDto
+
+    /** 删一条下游价（**软删**：行留着，[restorePrice] 能原样放回来）。 */
+    @DELETE("shipper-prices/{priceId}")
+    suspend fun deletePrice(@Path("priceId") priceId: Long)
+
+    /** 把删掉的下游价放回来（⛔ **不放回任何已经算过的钱**，只让这条价重新生效）。 */
+    @POST("shipper-prices/{priceId}/restore")
+    suspend fun restorePrice(@Path("priceId") priceId: Long): ShipperPriceDto
+}
+
+/**
+ * 一条下游价（`GET /shipper-prices` 的一行）。
+ *
+ * `contactId == null` ⇒ 这是该商品的**默认下游价**（对全部下游生效）；
+ * 有值 ⇒ 只对那一个联系人生效、并**覆盖**默认价。
+ */
+@Serializable
+data class ShipperPriceDto(
+    val id: Long,
+    @SerialName("product_id") val productId: Long,
+    /** null = 默认价那一行（配置上它是"没有这个联系人"，不是"没取到"）。 */
+    @SerialName("contact_id") val contactId: Long? = null,
+    @SerialName("unit_price") @Serializable(with = FlexibleStringSerializer::class) val unitPrice: String = "0",
+    /** 名字是后端补的（编号在界面上没有意义）。 */
+    @SerialName("product_name") val productName: String? = null,
+    @SerialName("contact_name") val contactName: String? = null,
+    /** 软删的行只在 `includeDeleted=true` 时出现（回收站里那几行）。 */
+    @SerialName("is_deleted") val isDeleted: Boolean = false,
+)
+
+/**
+ * 「可定价商品」一行：他名下的商品、他拿货什么价、他给下游定过什么价。
+ *
+ * ⛔ `supplyUnitPrice` **只作参考**（填下游价时别填亏了），不参与任何计算：
+ *    钱只有一套算法（后端 `services/order_money.py`）。
+ */
+@Serializable
+data class ShipperPriceProductDto(
+    @SerialName("product_id") val productId: Long,
+    @SerialName("product_name") val productName: String = "",
+    /** 单位（后端缺省给「件」）。 */
+    val unit: String? = null,
+    /** 他拿货的价 = 派单员给他的专属价 → 回落商品目录价（可能一个都没有 = null）。 */
+    @SerialName("supply_unit_price")
+    @Serializable(with = NullableFlexibleStringSerializer::class) val supplyUnitPrice: String? = null,
+    /** 他给**全部**下游定的默认价（没定过 = null ⇒ 下单时快照留空、回落订单行单价）。 */
+    @SerialName("default_unit_price")
+    @Serializable(with = NullableFlexibleStringSerializer::class) val defaultUnitPrice: String? = null,
+    /** 他**单独**定过价的联系人数（> 0 就是"给不同的人不同的价"）。 */
+    @SerialName("contact_price_count") val contactPriceCount: Int = 0,
+)
+
+/**
+ * 设一条下游价的入参。
+ *
+ * ⛔ 没有 `order_id`（这一层价不挂在订单上）、也**没有「谁」**（写的永远是登录人自己）。
+ * 单价走 String（与全库金额同一条接法）：后端是 `Decimal`，用 Double 会让 12.30 变成
+ * 12.299999999999999 —— 而这一格是会原样显示给用户的。
+ */
+@Serializable
+data class ShipperPriceSetRequest(
+    @SerialName("product_id") val productId: Long,
+    /** 留空 = 这个商品的默认下游价；填了 = 只对这一个联系人生效。 */
+    @SerialName("contact_id") val contactId: Long? = null,
+    /** 单价（元），必须 > 0（0 元的价目行看着像"设过了"，实际等于白送）。 */
+    @SerialName("unit_price") val unitPrice: String,
+)
+
 // ===== 单位换算（一车 = 8 方）=====
 
 /**

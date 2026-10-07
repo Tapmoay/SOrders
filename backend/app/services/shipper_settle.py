@@ -4,7 +4,8 @@
 
 对**每一行商品**（`order_products`）：
 
-    行应收     = `order_money.line_receivable(op)`      ← 复用已有那一份，**不另算一套**
+    行应收     = `order_money.line_downstream_receivable(op)`   ← 复用已有那一份，**不另算一套**
+                 （= 订单行上的**下游单价快照** × (数量 − 已退)；他从没定过价的行退回订单口径）
     行已核销   = Σ 未删核销记录里这一行的金额（`shipper_settlement_lines`）
     行还可核销 = 行应收 − 行已核销            （≤ 0 = 这一行收齐了）
 
@@ -22,6 +23,10 @@
 `order_money`（应收/已收/欠款）是**公司 ↔ 货主**的账；
 本模块是**批发商 ↔ 他的下游货主**的账。两者**共用一张订单**，但一个字段都不交叉：
 本模块只**读**订单行金额（那是我卖给他的货值），一个字节都不写回订单、账本或资金流水。
+
+自 2026-10-07（CHG-0077 / 台账 L-38）起，"我卖给他的货值"用的是**他自己给下游定的价**
+（订单行上的快照 `order_products.shipper_unit_price`），不再是公司那本账上的价 ——
+差额归他，见 `order_money.line_downstream_receivable`。
 
 ## ⛔ 同一笔钱不许被记两遍（2026-09-23 第 16 轮补的两道防线）
 
@@ -51,7 +56,7 @@ from sqlalchemy.orm import Session
 from app.models import Order, OrderProduct
 from app.models.enums import OrderStatus
 from app.models.shipper_settlement import ShipperSettlement, ShipperSettlementLine
-from app.services.order_money import line_receivable, q2
+from app.services.order_money import line_downstream_receivable, q2
 
 ZERO = Decimal("0")
 
@@ -101,7 +106,7 @@ def settled_line_map(
 
 def line_remaining(op: OrderProduct, settled: Decimal) -> Decimal:
     """这一行**现在还能核销多少**（= 行应收 − 已核销；不会小于 0）。"""
-    left = q2(line_receivable(op) - Decimal(settled or 0))
+    left = q2(line_downstream_receivable(op) - Decimal(settled or 0))
     return left if left > ZERO else ZERO
 
 
@@ -128,7 +133,7 @@ class CeilingBreach:
     """
 
     op: OrderProduct
-    #: 这一行现在该收多少（`line_receivable`：行金额 − 已退）
+    #: 这一行现在该收多少（`line_downstream_receivable`：他自己定的价 × 没退的数量）
     receivable: Decimal
     #: 算上"马上要记的那一笔"之后，这一行一共记了多少
     settled: Decimal
@@ -161,7 +166,7 @@ def over_settled_lines(
     for op in ops:
         want = q2(Decimal(add.get(op.id, ZERO) or 0))
         got = q2(settled.get(op.id, ZERO) + want)
-        recv = line_receivable(op)
+        recv = line_downstream_receivable(op)
         if got > recv:
             out.append(
                 CeilingBreach(
@@ -176,7 +181,7 @@ def settle_blocker(order: Order) -> str | None:
 
     三道门，都是"这笔钱现在还不该存在"的情形：
     · 单子还没送达 / 已撤销：货没到客户手上，他还没向客户收钱；
-    · 单子已整单退货：应收被红冲冲平了（`line_receivable` = 0），没得收；
+    · 单子已整单退货：应收被红冲冲平了（`line_downstream_receivable` = 0），没得收；
     · 单子已软删（在回收站里）：它连自己的列表都进不去，别在它上面记账。
     """
     if order.deleted_at is not None:

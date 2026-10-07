@@ -196,6 +196,13 @@ class OrderProduct(Base, TimestampMixin):
     quantity: Mapped[int] = mapped_column(default=1)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(14, 4))
     line_total: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    # **下单当时的「下游单价」快照**（CHG-0077 / 台账 L-38）：批发商自己给下游客户定的价，
+    # 下单那一刻定格在这里；没有就是 NULL（当时他没给这个商品定价）。
+    # ⚠️ 它**不是**公司给他的价（那是 unit_price），也**不参与**公司那本账的任何金额 ——
+    #    只有他自己那本下游账的收入侧按它算（算法出口 services/order_money.py）。
+    # ⛔ 一旦写下就是历史事实：改价 / 改单 / 拆单 / 转单 / 派单员加行**都不许回改它**
+    #    （与 unit_price / line_total 同一条纪律）；判据 _tools/qa/_check_shipper_pricing.py。
+    shipper_unit_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)
     # 下单时这一行的单位快照（件/箱/斤…）。空串 = 老数据 → 出参回退商品单位。
     # ⚠️ 用户在选品弹窗里能**改单位**（"数量后面是要有对应的单位的"），
     #    所以它必须跟着行存下来：不存的话界面上选了「3 箱」、订单和送货单上还是「3 件」。

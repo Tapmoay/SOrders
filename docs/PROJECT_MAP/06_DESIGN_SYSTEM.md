@@ -1229,8 +1229,9 @@ val netTotal = netOrderMoneyText(order)                       // 合计同理（
 实现只有一份：`ui/common/FieldSelection.kt` 的 `selectedAll` / `fieldAtEnd` / `Modifier.selectAllOnFocus`
 （两个纯函数有 JVM 单测 `FieldSelectionTest`）。`QtyStepper` 把它挂在数量框上，框里显示的那一串从此用
 `TextFieldValue` 受控（**只有它能表达"选中了哪几个字"**）；`Components.kt::SoTextField` 与
-`FormRows.kt::FormInputRow` 各带一个**默认关闭**的 `selectAllOnFocus` 开关，只有数量类字段打开
-（账本「记一笔账」的数量 / 采购单行数量）⇒ 其余几十个普通字段行为一个字不变。
+`FormRows.kt::FormInputRow` 各带一个**默认关闭**的 `selectAllOnFocus` 开关，只有"点进去就是要重打一个数"
+的字段打开（账本「记一笔账」的数量 / 采购单行数量 / 下游定价的单价框 —— 2026-10-07 CHG-0077 登记的
+第三个使用者：价框与数量框同类，`888` 改 `999` 不整串选中就成了 `888999`）⇒ 其余几十个普通字段行为一个字不变。
 退货页那一行（`OrderReturnLines`）体内**没有输入框**，所以不在其列。
 
 ⛔ **不许再各写一份**。改之前这一组东西在两个弹窗里各写了一遍，而长得不一样：

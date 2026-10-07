@@ -136,6 +136,36 @@ def line_receivable(op: OrderProduct) -> Decimal:
     return q2(Decimal(total) - returned)
 
 
+def line_downstream_receivable(op: OrderProduct) -> Decimal:
+    """这一行在**批发商 ↔ 他的下游货主**那本账上值多少钱（CHG-0077 / 台账 L-38）。
+
+    与 [line_receivable] 的关系：那是**公司 ↔ 他**的账（这一单真正卖了多少、退回来多少）；
+    这里是**他 ↔ 他的下游客户**的账 —— 同一张订单上两本账，差额归他自己，两边的数互不写。
+
+    单价取 `op.shipper_unit_price` ＝ **下单当时**他自己定的价（订单行上的快照，
+    定价与快照写在 `services/shipper_price.py`）：
+
+    · 有快照 ⇒ `下游单价 × (数量 − 已退数量)`；
+    · **没有快照 ⇒ 原样退回 [line_receivable]**（老单、以及他从没给他定过价的商品）。
+
+    ⛔ 为什么"没有快照"必须**逐字**退回旧口径，而不是"拿 unit_price 现算一遍"：
+       老单不该因为这个功能上线而变一个数（用户口径 ref m13365：改价后的老单一律按下单当时的
+       快照、老单不追改）。退回 [line_receivable] 让"没有自己定价的行"在前后两个版本里
+       **一分钱都不差** —— 这条不变量是判据在钉的。
+
+    ⛔ 为什么不查**现在的** `shipper_prices` 表：那张表说的是"从现在起多少钱"，订单行快照说的是
+       "当时说好多少钱"。改一次价把历史账单一起改掉，是本项目最贵的那一类错
+       （同 `orders.freight_fee` 与 `freight_rule_snapshot` 那条纪律）。
+
+    退货按**下游单价**冲：客户退回来的货，他也不再向下游收那部分钱。
+    """
+    price = op.shipper_unit_price
+    if price is None:
+        return line_receivable(op)
+    left = Decimal(int(op.quantity or 0) - int(op.returned_quantity or 0))
+    return q2(Decimal(price) * left) if left > ZERO else q2(ZERO)
+
+
 def money_map(db: Session, orders: list[Order], *, lock: bool = False) -> dict[int, OrderMoney]:
     """一批订单的钱（**4 条分组查询，与订单条数无关**）。
 

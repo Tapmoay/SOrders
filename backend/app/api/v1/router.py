@@ -48,6 +48,7 @@ from app.api.v1 import (
     return_requests,
     shipper,
     shipper_ledger,
+    shipper_prices,
     stats,
     system,
     unit_conversions,
@@ -72,6 +73,9 @@ api_router.include_router(shipper.router)
 # 批发商自己那一本账（他给下游货主核销）：与 `ledger.router`（派单员开的账）是两本账，
 # 谁都不写谁 —— 见 `api/v1/shipper_ledger.py` 开头。
 api_router.include_router(shipper_ledger.router)
+# 批发商**自己给下游**定的价（第三层价）：⛔ 与 `price_rules.router`（派单员给他定的第二层价）
+# 不是一回事 —— 谁定的、进哪本账、差额归谁全不一样，见 `api/v1/shipper_prices.py` 开头那张对照表。
+api_router.include_router(shipper_prices.router)
 api_router.include_router(orders.router)
 # orders 的**查询组**（列表 / 待派计数 / 详情）：2026-09-24 整改阶段 4 从 `orders.py` 纯搬迁到
 # `api/v1/orders_query.py`（那个文件已经 2000+ 行）。两条 router **各自带** prefix="/orders"，

@@ -1,8 +1,8 @@
 {
  "generated_by": "_gen_capability_snapshot.py",
- "source_hash": "sha256:76070137d858777ed0417cc2767a1de709ca7c08bbe7751e5e35c0a57f43ec0c",
- "source_commit": "795c732",
- "generated_at": "2026-10-07T01:00:15Z",
+ "source_hash": "sha256:2fbdacb0f7f1b1a65bbdd6bdb56072ce776ba1ea7273b887115472743725d284",
+ "source_commit": "d154298",
+ "generated_at": "2026-10-07T05:39:25Z",
  "source_files": [
   "backend/app/core/capabilities.py",
   "backend/app/core/role_capabilities.py",
@@ -222,6 +222,17 @@
    "kind": "write"
   },
   {
+   "key": "shipper_price:manage",
+   "member": "SHIPPER_PRICE_MANAGE",
+   "what": "给下游客户定自己的价（一件商品的默认价 + 按人定价）",
+   "scope": "own",
+   "scope_why": "他只能定自己名下那几件商品、只对自己那本下游账生效（行级过滤按 shipper_id）",
+   "roles": [
+    "shipper"
+   ],
+   "kind": "write"
+  },
+  {
    "key": "ledger:read_own",
    "member": "LEDGER_READ_OWN",
    "what": "看自己那本账",
@@ -428,6 +439,7 @@
    "order:return_request",
    "place:manage",
    "shipper_ledger:read_own",
+   "shipper_price:manage",
    "unit_conversion:manage"
   ]
  },
@@ -535,6 +547,9 @@
   "price_rule:manage": [
    "PRICE_RULE_UPSERT"
   ],
+  "shipper_price:manage": [
+   "SHIPPER_PRICE_UPSERT"
+  ],
   "product:manage": [
    "PRODUCT_CREATE",
    "PRODUCT_UPDATE",
@@ -604,10 +619,10 @@
   "order:upload_delivery": "司机上传送达照片：留痕是**图片本体**（`delivery_photos` 表）与订单状态，不是操作日志。**什么时候删掉这一条**：如果照片要做「谁在什么时候传的第几张」这类追溯。"
  },
  "counts": {
-  "capabilities": 27,
+  "capabilities": 28,
   "role_capabilities": 5,
-  "write_capabilities": 19,
-  "audited_action_codes": 120,
+  "write_capabilities": 20,
+  "audited_action_codes": 121,
   "audit_exceptions": 1
  }
 }

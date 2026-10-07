@@ -125,7 +125,8 @@ def main() -> int:
     c.present("「应付」取 `receivable`（订单金额 − 已退）", summary_body, r"payable \+= m\.receivable")
     c.present("「已付」取净已收（现场收现金没有流水，只有它算得对）", summary_body, r"paid \+= m\.net_collected")
     c.present("「还欠」取 `arrears`（与订单出参同一个数）", summary_body, r"unpaid \+= m\.arrears")
-    c.present("下游侧「应收」走 `line_receivable`（不另写一套公式）", summary_body, r"line_receivable\(op\)")
+    c.present("下游侧「应收」走 `line_downstream_receivable`（他自己定的价 × 没退的数量，不另写一套公式）",
+              summary_body, r"line_downstream_receivable\(op\)")
     c.present("下游侧「已收」只数**未撤销**的核销",
               summary_body, r"ShipperSettlement\.is_deleted\.is_\(False\)")
     c.present("「待收」= 应收 − 已收（减法只有这一处）", summary_body, r"unreceived=q2\(receivable - received\)")
@@ -178,7 +179,7 @@ def main() -> int:
     c.present("抽屉里「全部」那一行也用服务端的数", screen, r'formatMoney\(vm\.summary\?\.unreceived')
 
     # ---- ⑤ 两本账不许串：断言在服务层的唯一实现上 ----
-    c.present("下游那本账的口径只有一处实现", read(SETTLE_SVC), r"行应收     = `order_money\.line_receivable")
+    c.present("下游那本账的口径只有一处实现", read(SETTLE_SVC), r"行应收     = `order_money\.line_downstream_receivable")
     c.present("订单侧的钱只有一处实现", read(MONEY_SVC), r'"""一批订单的钱')
     c.absent("⛔ 统计端点**不写**任何东西（它是只读的）",
              summary_body, r"db\.add\(|db\.commit\(|write_log\(")

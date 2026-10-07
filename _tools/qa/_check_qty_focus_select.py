@@ -47,6 +47,7 @@ COMPONENTS = AND / "ui/common/Components.kt"
 FORMROWS = AND / "ui/common/FormRows.kt"
 LEDGER = AND / "ui/dispatcher/LedgerCreateScreen.kt"
 PURCHASE = AND / "ui/dispatcher/PurchaseOrderFormScreen.kt"
+SHIPPER_PRICES = AND / "ui/shipper/ShipperPricesScreen.kt"
 DOC = ROOT / "docs/PROJECT_MAP/06_DESIGN_SYSTEM.md"
 
 TEST = TESTDIR / "ui/common/FieldSelectionTest.kt"
@@ -55,6 +56,9 @@ STEPPER_TEST = TESTDIR / "ui/common/QtyStepperTest.kt"
 REVERSE = "_tools/qa/_reverse_verify_qty_focus_select.py"
 
 #: 认识 selectAllOnFocus 这个标识符的界面文件（**只有这些** —— 抄到别处就是又开了一份）
+#: ⚠️ 三个是共用件（实现与两个包装件），另外三个是**使用者**：账本数量、采购单行数量、
+#:    下游定价的单价框（2026-10-07 CHG-0077 登记的第三个使用者 —— 价框与数量框同类，都是
+#:    "点进去就是要重打一个数"：`888` 改 `999` 不整串选中就成了 `888999`）。
 OWNERS = (
     "Components.kt",
     "FieldSelection.kt",
@@ -62,6 +66,7 @@ OWNERS = (
     "LedgerCreateScreen.kt",
     "PurchaseOrderFormScreen.kt",
     "QtyStepper.kt",
+    "ShipperPricesScreen.kt",
 )
 
 #: 挂上去的地方（步进器 / SoTextField / FormInputRow）—— 恰好 3 处
@@ -311,7 +316,7 @@ def main() -> int:
             "文本状态没换成 TextFieldValue（光标又只能落末尾）",
         )
 
-    # ---- 6. 三处数量字段都打开了开关 ----
+    # ---- 6. 打开开关的字段：两处数量 ＋ 一处理价（都恰好一处）----
     led = code(LEDGER)
     c.ok(
         "账本「记一笔账」数量框打开了开关（就在 vm.qty 那个框上）",
@@ -326,6 +331,14 @@ def main() -> int:
         and "selectAllOnFocus = true"
         in after(pur, "onValueChange = { onQty(InputRules.intInput(it, 7)) },", 300),
         f"采购单里开了 {subs(pur, 'selectAllOnFocus = true')} 处",
+    )
+    sp = code(SHIPPER_PRICES)
+    c.ok(
+        "下游定价的单价框打开了开关（就在 vm.draftFor 那个框上）",
+        subs(sp, "selectAllOnFocus = true") == 1
+        and "selectAllOnFocus = true"
+        in after(sp, "onValueChange = { vm.setDraft(draftKey, InputRules.priceInput(it)) },", 400),
+        f"下游定价里开了 {subs(sp, 'selectAllOnFocus = true')} 处",
     )
 
     # ---- 7. 默认值没被动过（用户：「没去改的话就是 1」）----

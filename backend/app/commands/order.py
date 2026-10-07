@@ -48,7 +48,7 @@ from app.models.enums import OperationAction, OrderStatus, UserRole
 from app.models.order import OrderProduct
 from app.schemas.order import OrderCreate, OrderUpdate
 from app.schemas.product_visibility import product_visible_to
-from app.services import place_service, usage_service
+from app.services import place_service, shipper_price, usage_service
 from app.services.auth_service import new_order_no
 from app.services.driver_pay import money
 from app.services.inventory_service import resync_reservations
@@ -197,6 +197,10 @@ def create_order(db: Session, *, actor: User, body: OrderCreate) -> Order:
     )
     db.add(order)
     db.flush()
+    # 下游单价快照（CHG-0077 / 台账 L-38）：他自己给这个人定过价才写，写的是**当时**的价。
+    # ⛔ 只填还没有快照的行 ⇒ 老单、改单、转单、拆单、派单员加行一律不追改
+    #（口径⑤ m13365；三层价、匹配顺序、为什么留 NULL 全在 services/shipper_price.py）。
+    shipper_price.snapshot_order_lines(db, order, picked_contact_id=body.contact_id)
     write_log(
         db,
         operator_id=actor.id,

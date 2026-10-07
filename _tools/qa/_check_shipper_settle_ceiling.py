@@ -104,8 +104,8 @@ def main() -> int:
     # ---- ① 服务层：上限只有一处实现，且算它的时候能加锁读 ----
     c.ok("取到三个关键函数的函数体（取不到下面几条就是空转）",
          len(create) > 800 and len(restore) > 600 and len(breaches) > 400)
-    c.present("「还可核销」仍然是**一处**实现（行应收 − 已核销，夹到 0）",
-              svc_nc, r"def line_remaining\(op: OrderProduct, settled: Decimal\)[\s\S]{0,300}?line_receivable\(op\)")
+    c.present("「还可核销」仍然是**一处**实现（下游行应收 − 已核销，夹到 0）",
+              svc_nc, r"def line_remaining\(op: OrderProduct, settled: Decimal\)[\s\S]{0,300}?line_downstream_receivable\(op\)")
     c.present("算「已核销多少」的那条查询**能**加锁读（`lock=True`）",
               settled_map, r"if lock:\s*\n\s*stmt = stmt\.with_for_update\(\)")
     c.present("加锁读的注释写明了为什么（REPEATABLE READ 下普通 SELECT 读的是快照）",

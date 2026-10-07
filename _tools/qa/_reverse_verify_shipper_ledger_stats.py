@@ -79,11 +79,11 @@ MUTATIONS = [
         "「已付」取净已收",
     ),
     (
-        "⑦ 下游「应收」自己写一套公式（不走 line_receivable）",
+        "⑦ 下游「应收」退回订单口径（不认他自己定的价）",
         API,
-        "            receivable += sum((line_receivable(op) for op in o.order_products), ZERO_D)",
+        "            receivable += sum((line_downstream_receivable(op) for op in o.order_products), ZERO_D)",
         "            receivable += sum(((op.unit_price or ZERO_D) * Decimal(op.quantity or 0) for op in o.order_products), ZERO_D)",
-        "下游侧「应收」走 `line_receivable`",
+        "下游侧「应收」走 `line_downstream_receivable`",
     ),
     (
         "⑧ 「已收」把已撤销的核销也算进去",

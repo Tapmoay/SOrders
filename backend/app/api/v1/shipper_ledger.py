@@ -50,7 +50,7 @@ from app.schemas.shipper_settlement import (
 from app.services.money_text import money_text
 from app.services.operation_log_service import write_log
 from app.services.order_flow import lock_order_row
-from app.services.money_contract import line_receivable, money_map
+from app.services.money_contract import line_downstream_receivable, money_map
 from app.services.money_contract import over_settled_lines, settle_blocker
 from app.services.order_money import q2
 from app.services.shipper_settle import (
@@ -271,7 +271,8 @@ def ledger_summary(
     ## 口径一律复用，不另算一套
     · 订单侧三个数走 `services/order_money.py::money_map`（"一张单的钱"唯一实现，
       与订单出参里的 `settled_amount` / `arrears_amount` 同源）；
-    · 下游侧三个数走 `order_money.line_receivable` + 未撤销的核销行（`services/shipper_settle.py`）。
+    · 下游侧三个数走 `order_money.line_downstream_receivable`（他自己定的价，CHG-0077）
+  + 未撤销的核销行（`services/shipper_settle.py`）。
     """
     stmt = (
         select(Order)
@@ -318,9 +319,10 @@ def ledger_summary(
     received = ZERO_D
     settle_count = 0
     if is_member and downstream:
-        # 收入侧（只有批发商有）：应收货款 → 行应收之和（退掉的部分 `line_receivable` 里已经扣了）
+        # 收入侧（只有批发商有）：应收货款 → 行应收之和
+        # （单价是**他自己定的价**的快照、退掉的部分 `line_downstream_receivable` 里已经扣了）
         for o in orders:
-            receivable += sum((line_receivable(op) for op in o.order_products), ZERO_D)
+            receivable += sum((line_downstream_receivable(op) for op in o.order_products), ZERO_D)
         order_ids = [o.id for o in orders]
         if order_ids:
             # 已收 = **未撤销**的核销合计。⚠️ 窗口在这条查询上按**这些单**（而不是按核销时间）：

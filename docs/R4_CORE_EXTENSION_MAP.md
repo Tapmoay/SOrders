@@ -647,6 +647,18 @@ pending: no
 ```
 
 ```capability
+id: pricing.shipper_downstream_price
+中文名: 下游价目（批发商卖给下游多少钱）
+class: EXTENSION_IMPL
+domain: money
+owns: shipper_prices
+contract: PricingContract v1
+why: 它是 PricingContract 在"按人定价"这一维上、**下游方向**的实现：批发商给自己的下游货主/仓店报价，与上游的 pricing.price_rule.special 并列（一个管"我进货多少"，一个管"我卖出去多少"）；下单那一刻把这层价**快照**进订单行，之后改价/删价都不回头改已经算过的钱
+impl: services/shipper_price.py, api/v1/shipper_prices.py
+pending: no
+```
+
+```capability
 id: pricing.tiered
 中文名: 阶梯价（契约 v2 的第一个实现）
 class: EXTENSION_IMPL

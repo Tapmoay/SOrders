@@ -96,6 +96,7 @@ object ApiClient {
             unitConversionsApi = retrofit.create(UnitConversionsApi::class.java),
             ledgerApi = retrofit.create(LedgerApi::class.java),
             shipperLedgerApi = retrofit.create(ShipperLedgerApi::class.java),
+            shipperPriceApi = retrofit.create(ShipperPriceApi::class.java),
             notificationApi = retrofit.create(NotificationApi::class.java),
             productApi = retrofit.create(ProductApi::class.java),
             arrearsApi = retrofit.create(ArrearsApi::class.java),
@@ -250,6 +251,8 @@ data class ApiBundle(
     val ledgerApi: LedgerApi,
     /** 货主**自己那一本账**（批发商给下游货主的核销）：与 [ledgerApi] 是两本账，见接口注释。 */
     val shipperLedgerApi: ShipperLedgerApi,
+    /** 批发商**自己定的下游价**（CHG-0077 / 台账 L-38）：`shipper-prices` 那一组端点。 */
+    val shipperPriceApi: ShipperPriceApi,
     val notificationApi: NotificationApi,
     val productApi: ProductApi,
     val arrearsApi: ArrearsApi,

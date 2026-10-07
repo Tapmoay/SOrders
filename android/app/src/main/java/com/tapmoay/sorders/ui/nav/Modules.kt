@@ -268,6 +268,13 @@ object Modules {
         // ⚠️ 位置是**唯一可选的那一格**：本文件的两条单测钉着「消息中心」必须在第 4 格
         //    （`shipperEntries[4]`）、「AI 助手」必须在最后一格 —— 所以插在消息中心与 AI 之间。
         ModuleEntry("退货申请", Routes.SHIPPER_RETURN_REQUESTS, Icons.Default.AssignmentReturn, color = 0xFFB3492FL),
+        // 下游定价（2026-10-07 CHG-0077 / 台账 L-38）：**批发商给自己名下的商品定价**、
+        // 并且能**给不同的人不同的价**（走 `shipper-prices` 那一组端点）。
+        // ⛔ 与「我的账本」不是一回事：账本记的是"谁欠我多少"，这一格定的是"我卖他多少"。
+        // ⚠️ 能力 `shipper_price:manage` 后端只给了 shipper 角色 —— 普通货主也能看见这一格，
+        //    点进去由页面显示后端那句中文说明（"只有批发商（高级货主）需要给下游货主核销…"），
+        //    ⛔ 不在这一层按身份藏格子（身份要问一次 `users/me`，工作台是同步画的）。
+        ModuleEntry("下游定价", Routes.SHIPPER_PRICES, Icons.Default.PriceChange, color = 0xFF7B1FA2L),
         // ⛔ 单位换算**已从货主/批发商的工作台移除**（CHG-0001，用户 2026-09-27）：
         //    原话「我们还要改的就是货主也就是批发商和货主啊，他那个**单位换算是不需要有的**，
         //    也不要有啊」。⛔ 这不是"藏起来"：那一格本来就在工作台网格里，删掉它 = 他看不到这个入口。
@@ -370,6 +377,7 @@ object Modules {
         Routes.ORDER_CREATE to "order:create",
         Routes.SHIPPER_LEDGER to "ledger:read_own",
         Routes.SHIPPER_RETURN_REQUESTS to "order:return_request",
+        Routes.SHIPPER_PRICES to "shipper_price:manage",
         // ---- 司机端 ----
         Routes.DRIVER_ORDERS to "order:read_assigned",
     )

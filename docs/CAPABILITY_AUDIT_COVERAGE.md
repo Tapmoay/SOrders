@@ -3,7 +3,7 @@
 > **本文件由 `_tools/ai/_gen_capability_snapshot.py` 生成，不要手改。**
 > 重新生成：`python _tools/ai/_gen_capability_snapshot.py`
 >
-> `source_hash = sha256:76070137d858777ed0417cc2767a1de709ca7c08bbe7751e5e35c0a57f43ec0c`
+> `source_hash = sha256:2fbdacb0f7f1b1a65bbdd6bdb56072ce776ba1ea7273b887115472743725d284`
 
 这张表回答：**一个写能力会留下哪些审计动作码**（指南 §R3-02-C：不要假设一一对应）。
 
@@ -31,6 +31,7 @@
 | `price_rule:manage` | `PRICE_RULE_UPSERT` |
 | `product:manage` | `PRODUCT_CREATE`, `PRODUCT_UPDATE`, `PRODUCT_DELETE`, `PRODUCT_RESTORE`, `PRODUCT_VISIBILITY_SET`, `PRODUCT_CATEGORY_UPSERT`, `PRODUCT_CATEGORY_DELETE`, `PRODUCT_CATEGORY_REORDER`, `INVENTORY_ADJUST`, `PURCHASE_ORDER_CREATE`, `PURCHASE_ORDER_UPDATE`, `PURCHASE_ORDER_DELETE`, `PURCHASE_ORDER_RESTORE` |
 | `shipper_ledger:read_own` | — |
+| `shipper_price:manage` | `SHIPPER_PRICE_UPSERT` |
 | `unit_conversion:manage` | `UNIT_CONVERSION_UPSERT`, `UNIT_CONVERSION_DELETE`, `UNIT_CONVERSION_RESTORE` |
 | `user:manage` | `USER_CREATE`, `USER_UPDATE`, `USER_DELETE`, `USER_RESTORE`, `CUSTOMER_MERGE`, `USER_CATEGORY_UPSERT`, `USER_CATEGORY_DELETE`, `USER_CATEGORY_REORDER`, `VEHICLE_CATEGORY_UPSERT`, `VEHICLE_CATEGORY_DELETE`, `VEHICLE_CATEGORY_REORDER` |
 | `vehicle:manage` | `VEHICLE_UPSERT`, `VEHICLE_DRIVER_SET` |

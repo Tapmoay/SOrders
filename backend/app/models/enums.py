@@ -161,6 +161,10 @@ class OperationAction(str, enum.Enum):
     PRODUCT_DELETE = "PRODUCT_DELETE"
     PRODUCT_RESTORE = "PRODUCT_RESTORE"
     PRICE_RULE_UPSERT = "PRICE_RULE_UPSERT"
+    # 批发商给下游定自己的价（CHG-0077 / 台账 L-38）：改的是**他自己那本下游账**的单价，
+    # 与上面那条（派单员改批发价）是两层价、两个人、两本账 —— 审计页上必须分得开，
+    # 所以单独一个码（payload 里带 mode=set/delete/restore，与 price_rules.py 同一套写法）。
+    SHIPPER_PRICE_UPSERT = "SHIPPER_PRICE_UPSERT"
     USER_CREATE = "USER_CREATE"
     USER_UPDATE = "USER_UPDATE"
     USER_DELETE = "USER_DELETE"
