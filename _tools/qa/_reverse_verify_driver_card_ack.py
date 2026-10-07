@@ -87,14 +87,14 @@ MUTATIONS = [
     (
         "状态门换成硬写 DISPATCHED（后端状态改名时两处不再同一把尺）",
         SCREEN,
-        "order.status in OrderStatusModel.ACKABLE && !order.isNewForDriver",
-        'order.status == "DISPATCHED" && !order.isNewForDriver',
+        "order.status in OrderStatusModel.ACKABLE",
+        'order.status == "DISPATCHED"',
         "状态门取自 OrderStatusModel.ACKABLE",
     ),
     (
         "把状态门整个删掉（已完成那一栏的单也长出一颗接单键）",
         SCREEN,
-        "if (vm.ordersTab == 0 && order.status in OrderStatusModel.ACKABLE && !order.isNewForDriver) {\n",
+        "if (vm.ordersTab == 0 && order.status in OrderStatusModel.ACKABLE) {\n",
         "if (true) {\n",
         "条件带『进行中那一栏",
     ),
@@ -105,12 +105,15 @@ MUTATIONS = [
         "if (vm.tab == 0 && order.status in OrderStatusModel.ACKABLE",
         "用 ordersTab，不是 tab",
     ),
+    # 2026-10-08 改：原来这条是「删掉那道冗余门」（那时的代码里有 `!order.isNewForDriver`）。
+    # 真机取证证明那道门是**错的**（新单全被它挡掉），代码里已删、判据也改成 absent。
+    # 所以这条注入反过来 —— 把初版那个 bug **加回去**，它必须让判据变红。
     (
-        "删掉『新任务标还在时不给接单键』那道冗余门",
+        "把初版那个 bug 加回去：门上再挂 `!order.isNewForDriver`（真需要接的新单全没按钮）",
         SCREEN,
-        "&& !order.isNewForDriver",
-        "",
-        "新任务标还在时也不给接单键",
+        "if (vm.ordersTab == 0 && order.status in OrderStatusModel.ACKABLE) {",
+        "if (vm.ordersTab == 0 && order.status in OrderStatusModel.ACKABLE && !order.isNewForDriver) {",
+        "门上**没有** `!order.isNewForDriver`",
     ),
     (
         "点下去不调 ack（按钮变成装饰）",

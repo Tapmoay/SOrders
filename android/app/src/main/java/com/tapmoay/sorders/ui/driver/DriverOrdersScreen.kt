@@ -161,11 +161,15 @@ fun DriverOrdersScreen(
                                     //  · 「进行中」那一栏才画（`vm.ordersTab == 0`）：已完成档里全是送达/退货的单，
                                     //    按定义接不了（用 `ordersTab` 而不是 `tab` —— 见 `ordersTab` 的 KDoc：
                                     //    切栏那一瞬间 `tab` 已经变了、屏幕上的数据还没变）；
-                                    //  · `!order.isNewForDriver` 是**冗余**的一道（后端那个字段就是
-                                    //    "已派单且还没接过"），留着是因为这颗按钮会改状态：
-                                    //    万一哪天 ACKABLE 放宽，也不至于在"新任务"标还在时就给一颗接单键。
+                                    //  · **到这里为止**。⛔ 不要再加 `!order.isNewForDriver`（CHG-0081 初版加过，
+                                    //    2026-10-08 真机取证当场打脸）：那个字段的语义正是"已派单且这个司机还没接过"
+                                    //    （`services/order_response.py` 按 `driver_acknowledged_at is None` 算），
+                                    //    而 ACKABLE 就是 `DISPATCHED` —— 两个条件互斥，加上它等于
+                                    //    「凡是真需要接的新单都不画按钮」，按钮只剩"已经接过又被退回来"的病态单可见，
+                                    //    整个需求白做。真机上那两张带「新任务」标的单就是这么没有按钮的。
+                                    //    重复接单由 `ACKABLE` 与后端 CAS 一起挡（见 `DriverOrdersViewModel.ack`）。
                                     bottomAction = {
-                                        if (vm.ordersTab == 0 && order.status in OrderStatusModel.ACKABLE && !order.isNewForDriver) {
+                                        if (vm.ordersTab == 0 && order.status in OrderStatusModel.ACKABLE) {
                                             // 语义绿 = 「已送达/成功」那一支（`0xFF00B578`），与详情页那颗
                                             // 逐像素同色同高（56dp）——同一个动作在两个页面上不该长得不一样。
                                             // 高 56dp 是刻意的例外：`06_DESIGN_SYSTEM.md §4.2` 那排 40dp 是

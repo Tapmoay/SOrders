@@ -148,8 +148,15 @@ def main() -> int:
               screen, r"if \(vm\.ordersTab == 0 && order\.status in OrderStatusModel\.ACKABLE")
     c.present("状态门取自 OrderStatusModel.ACKABLE（与详情页同一把尺）",
               screen, r"order\.status in OrderStatusModel\.ACKABLE")
-    c.present("冗余那道：新任务标还在时也不给接单键",
-              screen, r"&& !order\.isNewForDriver")
+    # 2026-10-08 真机取证后改的这一条：初版在门上多加了 `!order.isNewForDriver`，
+    # 而那个字段的语义正是「已派单且这个司机还没接过」→ 与 ACKABLE（DISPATCHED）互斥，
+    # 结果是**真需要接的新单一颗按钮都没有**（真机两张带「新任务」标的单当场证实）。
+    # ⚠️ 必须查 `code_only(screen)`：这句在注释里也出现（就是下面那条"理由"），
+    #    拿原文本查会把「注释里提到它」误判成「代码里还挂着它」。
+    c.absent("门上**没有** `!order.isNewForDriver`（加了它＝新单永远没有按钮）",
+             code_only(screen), r"!order\.isNewForDriver")
+    c.present("那条『别再加它』的理由留在注释里（下一个人不会再犯）",
+              screen, r"不要再加 `!order\.isNewForDriver`")
     c.present("点它调 vm.ack(order)",
               screen, r"onClick = \{ vm\.ack\(order\) \}")
     c.present("留了指路注释（原话 + 三个判据各有出处）",

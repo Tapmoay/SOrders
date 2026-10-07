@@ -339,17 +339,19 @@ container = 30.dp)`）—— 真机核对过：那一页的观感与改前**完�
    ⚠️ **默认值必须为空**：其它三张列表（派单员待派单池 / 订单管理 / 我的订单）与以前**逐像素一样**，
    谁能用这个槽由**调用方**决定，`OrderCard` 自己不判角色、不判状态。
 4. **第一个用户：司机端「任务列表」卡片底下的「确认接单」**（`ui/driver/DriverOrdersScreen.kt`）。
-   三条闸门缺一不可：`vm.ordersTab == 0`（只在「待处理」档）、
-   `order.status in OrderStatusModel.ACKABLE`（＝今天的 `setOf("DISPATCHED")`，`core/OrderStatusModel.kt:71`；⛔ 不许硬写字面量 `"DISPATCHED"` —— 那等于把后端口径抄成第二份）、
-   `!order.isNewForDriver`（后端 `is_new_for_driver` 派生的"新任务"标；接单成功后它自然变 false，
-   标与按钮一起消失）。**同页老入口一律保留**：点卡片仍然进订单详情，详情页那颗「确认接单」逐字不动。
+   **闸门只有两条**：`vm.ordersTab == 0`（只在「待处理」档）、
+   `order.status in OrderStatusModel.ACKABLE`（＝今天的 `setOf("DISPATCHED")`，`core/OrderStatusModel.kt:71`；⛔ 不许硬写字面量 `"DISPATCHED"` —— 那等于把后端口径抄成第二份）。
+   ⛔ **别再往上挂第三个条件**（2026-10-08 真机教训，`docs/changes/CHG-0083.md`）：初版曾多加一条 `!order.isNewForDriver`，
+   而它的语义**正是**「已派单、这个司机还没接过」⇒ 与 `ACKABLE` **互斥** ⇒ **真要接的新单永远不摆按钮**，需求在真机上等于没做。
+   "手滑点两下"不需要界面来防：接单成功后 `ACKABLE` 当场变假（按钮同时消失）＋ `ackingOrderId` 单值锁 ＋ 后端 CAS 兜底。
+   **同页老入口一律保留**：点卡片仍然进订单详情，详情页那颗「确认接单」逐字不动。
    ⚠️ 点一下之后必须**当场置灰/转圈**（`ackingOrderId` 单值锁）：后端 `accept_order` 是条件 UPDATE，
    重复点第二下必然回 **400**（界面上不能让人有机会点到第二下）。
    ⚠️ **失败的错画在那张卡上**（`ackError` + `ackErrorOrderId` 配 `FormErrorLine`），
    ⛔ **不许**塞进页面级 `error` —— 那一格会把整张列表顶掉（§4.8「错误的落点」）。
 
-**判据**：`_tools/qa/_check_driver_card_ack.py`（**46 项**：签名默认值为空 / 全卡**恰好一处**调用且排在动作行之后 /
-调用点的三条闸门与 `vm.ack(order)` / 详情页那颗逐字未动 / VM 的并发锁与错误落点 / 全仓 `Text("确认接单"` **恰好两处**）
+**判据**：`_tools/qa/_check_driver_card_ack.py`（**47 项**：签名默认值为空 / 全卡**恰好一处**调用且排在动作行之后 /
+调用点的两条闸门与 `vm.ack(order)` / **门上没有 `!order.isNewForDriver`**（查去注释后的代码）＋ 那条理由留在注释里 / 详情页那颗逐字未动 / VM 的并发锁与错误落点 / 全仓 `Text("确认接单"` **恰好两处**）
 ＋ 反向验证 `_tools/qa/_reverse_verify_driver_card_ack.py`（**22 条注入**，含"整句搬到卡片最上面""第三处「确认接单」冒出来"）。
 
 ### 4.2b 商品卡本身：大图 + **售价在上、库存在售价下面**（2026-09-21，同日第二轮改）
