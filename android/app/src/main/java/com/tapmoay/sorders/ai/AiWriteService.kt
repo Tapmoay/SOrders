@@ -1108,7 +1108,10 @@ class AiWriteService(
             //    多记一堆没发生的事。
             //    ⚠️ 它必须是 ThreadLocal 级的作用域（见 `core/ClientOrigin.kt`）：
             //    用一个普通全局变量开关的话，这个窗口里**任何别的请求**都会被标成 ai。
-            ClientOrigin.asAi { handler.commit(p.payload, "ai-" + token) }
+            //    ⚠️ 2026-10-08（CHG-0082）起把 **动作 id** 也一起带下去（`X-SOrders-Ai-Action`）：
+            //    后端那本「AI 操作流水」要写得下「AI 干的是哪件事」，而不是只有一个 URL 路径 ——
+            //    而动作 id 这一行正好就在手上（`p.actionId`，上面刚用它查出 handler）。
+            ClientOrigin.asAi(p.actionId) { handler.commit(p.payload, "ai-" + token) }
             // 批量动作（按表格调价）会在这里补一句**逐行结果**；其余动作返回 null，行为不变。
             // 少了这一句，20 行里失败的 2 行会被"已完成"盖住——那正是最坏的一种反馈。
             val note = handler.commitNote()

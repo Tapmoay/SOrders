@@ -416,6 +416,18 @@ pending: no
 ```
 
 ```capability
+id: ai.operation_trail
+中文名: AI 操作流水（AI 用你的身份动过的每一次请求）
+class: CORE
+domain: ai
+owns: ai_operation_logs
+contract: -
+why: 这是 AI 侧请求流水这条独立事实（谁 / 何时 / 哪个动作 / 成没成 / 后端给的原因），与 audit 域的业务动作审计刻意分开：⛔ 可扩展的是模型与动作清单，不是这条记录链本身（判定规则 1）
+impl: core/ai_operation.py, api/v1/ai_operations.py, models/ai_operation_log.py
+pending: no
+```
+
+```capability
 id: ai.write_gate
 中文名: AI 写闸门（preview → 确认卡 → execute 的唯一写入口）
 class: CORE

@@ -1,4 +1,5 @@
 from app.models.ai_call_daily import AiCallDaily
+from app.models.ai_operation_log import AiOperationLog
 from app.models.arrears import ArrearsUnit
 from app.models.cash_flow import CashFlow
 from app.models.customer import Customer
@@ -63,6 +64,8 @@ from app.models.user import User
 from app.models.user_category import UserCategory
 
 __all__ = [
+    "AiCallDaily",
+    "AiOperationLog",
     "ArrearsUnit",
     "BillingMode",
     "CashFlow",

@@ -35,6 +35,7 @@ import com.tapmoay.sorders.ai.AiMemories
 import com.tapmoay.sorders.ai.AiMemoryItem
 import com.tapmoay.sorders.ai.AiProviders
 import com.tapmoay.sorders.ai.AiReads
+import com.tapmoay.sorders.ai.AiRole
 import com.tapmoay.sorders.ai.AiRolePrompt
 import com.tapmoay.sorders.ai.AiTools
 import com.tapmoay.sorders.ai.LlmClient
@@ -64,6 +65,13 @@ import com.tapmoay.sorders.ui.common.Hint
 fun AiSettingsScreen(
     ai: AiContainer,
     onBack: () -> Unit,
+    /**
+     * 打开「AI 操作流水」（台账 L-52 / CHG-0082）。
+     *
+     * ⚠️ 这一格**只对派单员渲染**（见下面那张卡的注释）：能读这本账的只有派单员，
+     *    给别的角色一个"点了一定 403"的入口，正是本项目列为最坏的一类 bug。
+     */
+    onOpenOperations: () -> Unit = {},
 ) {
     val vm: AiSettingsViewModel = appViewModel { AiSettingsViewModel(ai) }
     val snackbar = remember { SnackbarHostState() }
@@ -132,6 +140,41 @@ fun AiSettingsScreen(
                             ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            // ---------------- AI 操作流水（管理端；台账 L-52 / CHG-0082） ----------------
+            // 用户 2026-10-08（m26776）要的是「AI 干的每一件事都要留痕，管理端单独一页看」——
+            // 这一格就是那一页的入口。
+            //
+            // ⚠️ 只给派单员画：这本账读的是 `GET /api/v1/ai/operations`，后端要 OPERATION_LOG_READ
+            //    （货主/司机 403）。画给别的角色 = 一个点下去必然失败的入口，
+            //    而"能看见但用不了"在本项目里是被红线钉住的最坏一类 bug。
+            if (ai.currentActor?.role == AiRole.DISPATCHER) {
+                SectionCard {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onOpenOperations() }.padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "AI 操作流水",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                "AI 用你的身份动过的每一次请求（谁、何时、什么动作、成没成），按时间倒序。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = "打开 AI 操作流水",
+                            tint = MaterialTheme.colorScheme.outline,
                         )
                     }
                 }

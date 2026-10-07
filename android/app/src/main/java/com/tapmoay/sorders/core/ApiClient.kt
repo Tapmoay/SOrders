@@ -114,6 +114,7 @@ object ApiClient {
             systemApi = retrofit.create(SystemApi::class.java),
             usageApi = retrofit.create(UsageApi::class.java),
             aiTelemetryApi = retrofit.create(AiTelemetryApi::class.java),
+            aiOperationsApi = retrofit.create(AiOperationsApi::class.java),
             fileApi = retrofit.create(FileApi::class.java),
             rawApi = retrofit.create(RawApi::class.java),
         )
@@ -274,6 +275,8 @@ data class ApiBundle(
     val usageApi: UsageApi,
     /** AI 调用计数上报（报告 §15 ② 的 AI_calls）：见 [AiTelemetryApi] 的说明。 */
     val aiTelemetryApi: AiTelemetryApi,
+    /** AI 操作流水（审计，CHG-0082）：见 [AiOperationsApi] 的说明。 */
+    val aiOperationsApi: AiOperationsApi,
     /** AI 助手「挂载文件」：上传表格让服务端读成文本（不保存文件）。 */
     val fileApi: FileApi,
     /** 动态 GET（只给 AI 通用读工具用，路径来自编译期白名单，见 [RawApi]）。 */
@@ -300,8 +303,10 @@ internal class OriginAwareCallFactory(
     override fun newCall(request: okhttp3.Request): okhttp3.Call {
         // 不在 AI 写入的那一段里时**原样透传**（不加头 → 后端按 human 记）。
         val origin = ClientOrigin.current() ?: return delegate.newCall(request)
-        return delegate.newCall(
-            request.newBuilder().header(ClientOrigin.HEADER, origin).build(),
-        )
+        val builder = request.newBuilder().header(ClientOrigin.HEADER, origin)
+        // 动作名（2026-10-08 CHG-0082）：有就带上，后端那本「AI 操作流水」据此写下
+        // `ai_operation_logs.action`（＝AI 干的是哪件事）；没有就不带（后端存 NULL）。
+        ClientOrigin.currentAction()?.let { builder.header(ClientOrigin.ACTION_HEADER, it) }
+        return delegate.newCall(builder.build())
     }
 }

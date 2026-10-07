@@ -245,8 +245,10 @@
 | `price_freight` | 写 | `POST /api/v1/orders/{order_id}/price-freight` | 派单员**手动定价**：没匹配到价目的单，由人给一个数。 |  |
 | `assign_order` | 写 | `POST /api/v1/orders/{order_id}/assign` |  |  |
 | `split_order_endpoint` | 写 | `POST /api/v1/orders/{order_id}/split` | 把待派单拆分为 N 个子单（按比例拆分件数），分别派单。 |  |
+| `transfer_order_lines_endpoint` | 写 | `POST /api/v1/orders/{order_id}/transfer` | 把这张单里的货转给**另一个货主**（或并进目标货主已经在途的那张单）。 |  |
 | `update_order_freight` | 写 | `POST /api/v1/orders/{order_id}/freight` | 派单员补录/修改司机运费（送达/撤销/退货后锁定；传 null 清空回待定）。 |  |
 | `recall_order` | 写 | `POST /api/v1/orders/{order_id}/recall` |  |  |
+| `release_order` | 写 | `POST /api/v1/orders/{order_id}/release` | 把一张已派出去的单**静默**退回派单池（CHG-0039，2026-10-05 用户要求）。 |  |
 | `complete_order_with_upload` | 写 | `POST /api/v1/orders/{order_id}/complete-with-upload` |  |  |
 | `driver_ack_view` | 写 | `POST /api/v1/orders/{order_id}/driver-ack` |  |  |
 | `driver_append_internal_note` | 写 | `POST /api/v1/orders/{order_id}/driver-note` |  |  |
@@ -256,6 +258,7 @@
 | `delete_cancelled_order` | 写 | `DELETE /api/v1/orders/{order_id}` | 软删除订单 → 进入隔离区 30 天（用户不可见；派单员可恢复；到期物理清理）。 |  |
 | `create_order` | 写 | `POST /api/v1/orders` | 创建订单，初始状态为派单中（PENDING_DISPATCH）。 |  |
 | `update_order` | 写 | `PATCH /api/v1/orders/{order_id}` |  |  |
+| `update_order_contact` | 写 | `PATCH /api/v1/orders/{order_id}/contact` | 货主 / 批发商补**自己那一单**的联系信息（台账 L-27）。 |  |
 | `patch_order_exception` | 写 | `PATCH /api/v1/orders/{order_id}/exception` |  |  |
 | `restore_order` | 写 | `POST /api/v1/orders/{order_id}/restore` | 派单员：从隔离区恢复订单（软删除后 30 天内可恢复）。 |  |
 | `upload_order_address_image` | 写 | `POST /api/v1/orders/{order_id}/address-image` | 上传收货地址参考图（定位不清时辅助找路）。 |  |
@@ -266,6 +269,13 @@
 | `pending_dispatch_count` | 只读 | `GET /api/v1/orders/pending-dispatch-count` | 派单工作台：当前「派单中」订单数量，用于底部 Tab / 铃铛角标。 |  |
 | `get_order` | 只读 | `GET /api/v1/orders/{order_id}` |  |  |
 | `return_order_endpoint` | 写 | `POST /api/v1/orders/{order_id}/return` | **订单退货**（2026-09-20 用户要求）。 |  |
+
+## 订单打折（`orders_discount`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `apply_order_discount` | 写 | `POST /api/v1/orders/{order_id}/discount` | 给这一单打个折（**幂等替换**：再打一次＝按新值重算，不叠加）。 |  |
+| `clear_order_discount` | 写 | `DELETE /api/v1/orders/{order_id}/discount` | 取消折扣：每一行按快照里的 `before` **精确还原**（⛔ 不去猜"单价 × 数量"）。 |  |
 
 ## 地点分类（`place_categories`）
 
@@ -307,7 +317,7 @@
 |---|---|---|---|---|
 | `list_categories` | 只读 | `GET /api/v1/product-categories` | 分类名册（按显示顺序）。**任何登录角色都能读** —— 下单页要用它排左侧那一列。 |  |
 | `create_category` | 写 | `POST /api/v1/product-categories` |  |  |
-| `update_category` | 写 | `PATCH /api/v1/product-categories/{category_id}` | 改名 / 改顺序。**改名会级联改掉挂在它下面的商品**（同一事务，见模块注释）。 |  |
+| `update_category` | 写 | `PATCH /api/v1/product-categories/{category_id}` | 改名 / 改顺序。**改名会级联**：挂在它下面的商品、以及商品可见范围里的分类名， |  |
 | `reorder_categories` | 写 | `POST /api/v1/product-categories/reorder` | 整份顺序一次提交：`ids[0]` 排最前。 |  |
 | `delete_category` | 写 | `DELETE /api/v1/product-categories/{category_id}` | 删除分类名册里的一行。**还有商品挂着时拒绝**（告诉有几个）。 |  |
 
@@ -404,6 +414,14 @@
 | `delete_settlement` | 写 | `DELETE /api/v1/shipper-ledger/settlements/{settlement_id}` | **撤掉核销**（软删：行留着，`POST /{id}/restore` 逐字段放回来）。 |  |
 | `restore_settlement` | 写 | `POST /api/v1/shipper-ledger/settlements/{settlement_id}/restore` | 把撤掉的核销放回来（`DELETE` 的逆操作）。 |  |
 
+## 下游定价（`shipper_prices`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `set_shipper_price` | 写 | `POST /api/v1/shipper-prices` | 设 / 改一条下游价（`contact_id` 留空 = 这个商品的**默认价**）。 |  |
+| `delete_shipper_price` | 写 | `DELETE /api/v1/shipper-prices/{price_id}` | 删一条下游价（**软删**：行留着，`POST /{price_id}/restore` 逐字段放回来）。 |  |
+| `restore_shipper_price` | 写 | `POST /api/v1/shipper-prices/{price_id}/restore` | 把删掉的下游价放回来（`DELETE` 的逆操作）。 |  |
+
 ## 统计口径（`stats`）
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
@@ -467,11 +485,12 @@
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
 |---|---|---|---|---|
 | `read_me` | 只读 | `GET /api/v1/users/me` |  |  |
+| `set_my_downstream_ledger` | 写 | `PATCH /api/v1/users/me/downstream-ledger` | 「我的 → 管下游的账」那颗开关（CHG-0076 / 台账 L-39）。 |  |
 | `list_users` | 只读 | `GET /api/v1/users` |  |  |
 | `create_user` | 写 | `POST /api/v1/users` |  |  |
 | `get_user` | 只读 | `GET /api/v1/users/{user_id}` |  |  |
 | `get_product_visibility` | 只读 | `GET /api/v1/users/{user_id}/product-visibility` | 某个货主/批发商能看到哪些商品（白名单）。派单员在用户编辑页回显它。 |  |
-| `set_product_visibility` | 写 | `PUT /api/v1/users/{user_id}/product-visibility` | 整份设置某个货主/批发商的可见商品（**白名单**：勾了的才给他看）。 |  |
+| `set_product_visibility` | 写 | `PUT /api/v1/users/{user_id}/product-visibility` | 整份设置某个货主/批发商的可见范围（分类 + 单品，**授权** + **排除**）。 |  |
 | `update_user` | 写 | `PATCH /api/v1/users/{user_id}` |  |  |
 | `swap_shipper_driver` | 写 | `POST /api/v1/users/{user_id}/swap-shipper-driver` | 货主 ↔ 司机身份切换（派单员操作）。派单员账号不可切换。 |  |
 | `delete_user` | 写 | `DELETE /api/v1/users/{user_id}` |  |  |

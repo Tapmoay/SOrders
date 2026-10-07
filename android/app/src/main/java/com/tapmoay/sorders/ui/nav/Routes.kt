@@ -246,6 +246,14 @@ object Routes {
     // AI 助手（派单员端）
     const val AI_CHAT = "ai/chat"
     const val AI_SETTINGS = "ai/settings"
+    /**
+     * AI 操作流水（台账 L-52 / CHG-0082）—— **管理端**的一页。
+     *
+     * 为什么挂在设置页下面而不是工作台：它是"回看 AI 干过什么"的账，属于**查看**，
+     * 不是每天要用的功能格；而且能读它的只有派单员（后端 `OPERATION_LOG_READ`，
+     * 货主问这一页必然 403 —— 入口那一格按角色渲染，见 `AiSettingsScreen`）。
+     */
+    const val AI_OPERATIONS = "ai/operations"
 
     const val REPORT_HOME = "report/home"
 const val REPORT_TURNOVER = "report/turnover"

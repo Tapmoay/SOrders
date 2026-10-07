@@ -20,6 +20,7 @@ from app.config import get_settings, uploads_root
 from app.core.business_time import business_today
 from app.core.metrics import render_prometheus, snapshot
 from app.core.pricing_runtime import pricing_fingerprint
+from app.core.ai_operation import AiOperationMiddleware
 from app.core.request_id import RequestIdFilter, RequestIdMiddleware
 from app.core.socket_io import sio
 from app.database import SessionLocal, get_db
@@ -290,7 +291,13 @@ async def lifespan(_app: FastAPI):
 def create_fastapi_app() -> FastAPI:
     application = FastAPI(title=settings.app_name, lifespan=lifespan)
 
-    # 请求追踪 id：最先挂上去的那个（异常也要能带上 id）+ 回写 X-Request-ID（见 core/request_id.py）
+    # AI 操作流水（2026-10-08 CHG-0082）：带 `X-SOrders-Origin: ai` 的请求结束时记一行（成功/失败都记）。
+    # ⚠️ 它挂在 RequestIdMiddleware **里面**（所以在这里先 add、下一行才 add RequestId —— **越后挂的越靠外**）：
+    #    本中间件收尾时要读 request_id / origin / action 这三个上下文变量，而它们在 RequestIdMiddleware
+    #    自己的 `finally` 里会被清掉；挂到外面就只能读到空值。非 AI 请求在它这一层零开销放行（一次 DB 都不碰）。
+    application.add_middleware(AiOperationMiddleware)
+
+    # 请求追踪 id：挂在 AI 流水外面的那个（异常也要能带上 id）+ 回写 X-Request-ID（见 core/request_id.py）
     application.add_middleware(RequestIdMiddleware)
 
     # ---- 发件箱的"快速通道"（整改报告 §10）----

@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import ExpiredSignatureError, JWTError
 from sqlalchemy.orm import Session
@@ -52,6 +52,7 @@ def _session_ended_detail(user: User) -> str:
 
 
 def get_current_user(
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     token: Annotated[str, Depends(oauth2_scheme)],
 ) -> User:
@@ -89,6 +90,13 @@ def get_current_user(
 
     # 权限一律以数据库当前角色为准。JWT 内 role 仅作兼容/展示；若与 DB 不一致（如派单员修改了用户角色），仍允许访问，
     # 避免刷新后 401；冒用 sub 需有效签名，无法用伪造 role 提权（各接口以 user ORM 判权）。
+
+    # 2026-10-08 CHG-0082：把"这次请求是谁"捎给**中间件**（`core/ai_operation.py` 的 AI 操作流水）。
+    # ⚠️ `Request.state` 写进去的就是 `scope["state"]`，而中间件收到的是同一个 dict ——
+    #    所以它在 `await self.app(...)` 返回之后能读到这里的值。这是中间件拿得到用户 id 的**唯一**路子
+    #    （它比鉴权早、也比鉴权低一层，读不到 ORM 对象）。
+    # ⛔ 只是"记下来给审计用"，**不是**授权：权限仍然只由上面这几行决定。
+    request.state.user_id = user.id
     return user
 
 

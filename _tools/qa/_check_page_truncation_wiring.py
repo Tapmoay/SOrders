@@ -55,10 +55,15 @@ APIS = ANDROID / "data/remote/api/Apis.kt"
 #:    增长时必须同步这一行，余量因此永远不存在。
 #: ⚠️ 2026-10-03 上调 14 → 15：CHG-0029 让结算页也读了一次（`FreightSettlementViewModel.loadUnpriced()`
 #:    里的 `unpricedMore = page.meta.hasMore`）—— 增长时必须同步这一行，正是这条注释在防的事。
-MIN_META_READS = 16     # ViewModel 里读 `page.meta.hasMore` 的处数（实测值）
+#: ⚠️ 2026-10-08 上调 16 → 18：CHG-0082（台账 L-52）的「AI 操作流水」页要能被一直往前翻，
+#:    `AiOperationsViewModel` 的 `load()` 与 `loadMore()` 各读一次 `page.meta.hasMore`
+#:    （第一页与后续页都要知道"后面还有没有"）—— 增长时必须同步这一行，正是这条注释在防的事。
+MIN_META_READS = 18     # ViewModel 里读 `page.meta.hasMore` 的处数（实测值）
 #: ⚠️ 2026-10-05 上调 16 → 17：CHG-0039 给派单池加了「已完成派单」那一档（按司机分组），
 #:    它同样会被后端 300 条上限截断，所以也要说一句实话。
-MIN_NOTES = 17          # 界面里 `TruncationNote(` 的**调用**处数（实测值；⛔ 定义那处不算）
+#: ⚠️ 2026-10-08 上调 17 → 18：CHG-0082 的「AI 操作流水」同样会被服务端截断（后端 `limit + 1` +
+#:    `X-Truncated` 头，页面每页 60 条），所以它也必须说一句实话（并给出「加载更早的」那个真入口）。
+MIN_NOTES = 18          # 界面里 `TruncationNote(` 的**调用**处数（实测值；⛔ 定义那处不算）
 MIN_ENDPOINTS = 6       # 返回 `Response<List<...>>` 的列表端点方法数
 
 fails: list[str] = []

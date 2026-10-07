@@ -1787,6 +1787,41 @@ data class OperationLogDto(
     @SerialName("order_no") val orderNo: String? = null,
 )
 
+/**
+ * 一条 **AI 操作流水**（台账 L-52 / CHG-0082）。
+ *
+ * ⛔ 与 [OperationLogDto] 是**两本账**，别混：那本记「数据被改成了什么」（谁改的、哪一单），
+ * 这本记「**AI 用这个账号动过什么、成没成**」—— 它连只读查询都记，所以它答的是
+ * "AI 到底做过什么"这个问题（用户 2026-10-08 要的审计：谁 / 何时 / 哪个动作 / 成没成）。
+ *
+ * ⚠️ [createdAt] 是 naive UTC，显示前必须走 `util/TimeFmt.formatDateTime`（直接印早 8 小时）。
+ */
+@Serializable
+data class AiOperationDto(
+    val id: Long = 0,
+    /** 谁（后端在 401 认不出人时给 null —— 那一行仍然要记，见后端 `ai_operation.py`）。 */
+    @SerialName("user_id") val userId: Long? = null,
+    /**
+     * 动作 id（`AiWriteAction.id`，例如 `order.assign`）。
+     * ⛔ 只读查询**没有**动作名（读工具没有"动作"可写），这里是 null —— 界面要如实写"未标动作"，
+     *    不许拿端点去猜一个动作名出来。
+     */
+    val action: String? = null,
+    val method: String = "",
+    val path: String = "",
+    @SerialName("status_code") val statusCode: Int = 0,
+    /** 后端按 `status_code < 400` 算好的结果 —— 界面**别自己再判一遍**（两处判据迟早会分叉）。 */
+    val ok: Boolean = false,
+    /** 失败原因（后端从响应体 `detail` 里摘的一句话）；成功时为 null。 */
+    val error: String? = null,
+    /** 请求号：排障时拿它去服务器日志里找同一行。 */
+    @SerialName("request_id") val requestId: String? = null,
+    @SerialName("duration_ms") val durationMs: Int = 0,
+    @SerialName("created_at") val createdAt: String = "",
+    /** 谁（后端把 `full_name` 优先、退回手机号）；认不出人时为 null，界面退回 `#用户 id`。 */
+    @SerialName("user_name") val userName: String? = null,
+)
+
 
 // ===== 运费模板 =====
 @Serializable

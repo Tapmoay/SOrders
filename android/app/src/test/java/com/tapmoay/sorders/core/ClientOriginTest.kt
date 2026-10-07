@@ -67,4 +67,44 @@ class ClientOriginTest {
         }
         assertNull("出了作用域必须清干净 —— 否则后续请求会被误标成 ai", ClientOrigin.current())
     }
+
+    // ---- 2026-10-08（CHG-0082）新增：动作名那个头 ----
+
+    /**
+     * 带了动作 id 时，请求上要同时有「来源」和「动作」两个头。
+     *
+     * 后端那本「AI 操作流水」靠后者回答「AI 替我干的是哪件事」—— 只记 URL 路径看不出来
+     * （`PATCH /api/v1/orders/{}` 是改联系人还是改运费，从路径上读不出）。
+     */
+    @Test
+    fun insideAiScopeCarriesTheActionHeader() = runBlocking {
+        var seenOrigin: String? = null
+        var seenAction: String? = null
+        ClientOrigin.asAi("order.assign") {
+            val req = capture(OriginAwareCallFactory(RecordingFactory()))
+            seenOrigin = req?.header(ClientOrigin.HEADER)
+            seenAction = req?.header(ClientOrigin.ACTION_HEADER)
+        }
+        assertEquals("来源头照旧", ClientOrigin.AI, seenOrigin)
+        assertEquals("动作 id 必须原样带出去", "order.assign", seenAction)
+    }
+
+    /** 没给动作 id 时**不许**带一个空头或多一个头（老调用点 `asAi { }` 必须和以前一模一样）。 */
+    @Test
+    fun withoutActionIdCarriesNoActionHeader() = runBlocking {
+        var has = true
+        ClientOrigin.asAi {
+            has = capture(OriginAwareCallFactory(RecordingFactory()))
+                ?.header(ClientOrigin.ACTION_HEADER) != null
+        }
+        assertEquals("没给动作 id 就不该有这个头（后端存 NULL，不是空串）", false, has)
+    }
+
+    @Test
+    fun actionScopeIsClosedAfterTheBlock() = runBlocking {
+        ClientOrigin.asAi("order.assign") {
+            assertEquals("作用域内可见", "order.assign", ClientOrigin.currentAction())
+        }
+        assertNull("出了作用域必须清干净 —— 否则下一个动作会被记成上一个的名字", ClientOrigin.currentAction())
+    }
 }

@@ -1236,6 +1236,26 @@ class AppRepository(private val api: ApiBundle) {
         api.reportApi.operationLogs(limit).pageRows()
 
     /**
+     * AI 操作流水（**一页**，新的在前）。与 [operationLogsPage] 同一套截断位规矩：
+     * 这一页不是全部时界面要说出来，否则用户会以为"我的 AI 记录就这些"。
+     *
+     * `skip` 是**真游标**（第 N 页 = 跳过前 N 条）：第二页起接在已加载的条数后面，
+     * 不能"换个筛选从头来"——那样永远翻不到更早的记录。
+     */
+    suspend fun aiOperationsPage(
+        limit: Int = 60,
+        skip: Int = 0,
+        onlyFailed: Boolean = false,
+    ): PageRows<com.tapmoay.sorders.data.remote.dto.AiOperationDto> =
+        api.aiOperationsApi.list(
+            limit = limit,
+            skip = skip,
+            // ⛔ "只看失败"走**服务端**筛选：本地过滤会把这一页的成功行滤掉，
+            //    "还有更早的"这个判断跟着失真（库里还有一堆失败记录没取，界面却说没有了）。
+            ok = if (onlyFailed) false else null,
+        ).pageRows()
+
+    /**
      * 原始 GET（只给 AI 的通用读工具用）。
      *
      * 路径来自 `AiReadCatalog`（32/36 条编译期白名单），参数已过白名单——**不接受任意 URL**。

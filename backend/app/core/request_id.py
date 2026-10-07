@@ -37,8 +37,9 @@ import time
 import uuid
 from contextvars import ContextVar
 
+from app.core.client_origin import ACTION_HEADER
 from app.core.client_origin import HEADER as ORIGIN_HEADER
-from app.core.client_origin import reset_origin, set_origin
+from app.core.client_origin import reset_action, reset_origin, set_action, set_origin
 
 logger = logging.getLogger("app.access")
 
@@ -98,6 +99,10 @@ class RequestIdMiddleware:
         # ⛔ 白名单在 core/client_origin.py 里（认不出的头落回 human，不报错）。
         origin_raw = headers.get(ORIGIN_HEADER.lower().encode(), b"").decode("latin-1")
         origin_token = set_origin(origin_raw)
+        # 2026-10-08 CHG-0082：**哪一个 AI 动作**（App 的 `AiWriteAction.id`）。与 origin 同一个
+        # 地方读、同一个地方清 —— 读它的只有「AI 操作流水」那本账。
+        action_raw = headers.get(ACTION_HEADER.lower().encode(), b"").decode("latin-1")
+        action_token = set_action(action_raw)
         status_holder = {"code": 500}
 
         async def send_wrapper(message):
@@ -120,3 +125,4 @@ class RequestIdMiddleware:
             )
             _request_id.reset(token)
             reset_origin(origin_token)
+            reset_action(action_token)

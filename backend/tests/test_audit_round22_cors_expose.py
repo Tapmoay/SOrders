@@ -34,6 +34,12 @@ REQUEST_ONLY: dict[str, str] = {
         "浏览器读不到也不需要读它。**哪天客户端开始读这个响应头（比如后端回显它），删掉这一条、"
         "并把它加进 expose_headers。**"
     ),
+    "x-sorders-ai-action": (
+        "**请求**头（App → 后端）：这一次 AI 动作是哪一个（动作 id），后端据此写 "
+        "`ai_operation_logs.action`（android 的 core/ClientOrigin.kt ↔ 后端的 core/client_origin.py，"
+        "2026-10-08 CHG-0082）。和 x-sorders-origin 一样只在请求方向上出现，浏览器读不到也不需要读它。"
+        "**哪天客户端开始读这个响应头（比如后端回显它），删掉这一条、并把它加进 expose_headers。**"
+    ),
 }
 
 

@@ -59,10 +59,16 @@
 - 「权限点反查」段末尾会列出**声明了却没任何端点引用**的权限点——改那些等于没改。
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
-<!-- source_hash: sha256:4ca4c1d906f556be480e50e9be29cc04166f0feb1963b45563e8f4ac97b41c58 -->
+<!-- source_hash: sha256:a5b02ced0b369c5d0df05e96270cc9fef8e6c5626f67f2d72e30e7b28e33870c -->
 
-## 全量端点（282 个，按文件分组）
+## 全量端点（283 个，按文件分组）
 
+
+### `backend/app/api/v1/ai_operations.py` — 1 个
+
+| # | 方法与路径 | handler | 位置 | 授权 |
+|---|---|---|---|---|
+| 1 | `GET /api/v1/ai/operations` | `list_ai_operations` | `backend/app/api/v1/ai_operations.py:43` | 权限:OPERATION_LOG_READ |
 
 ### `backend/app/api/v1/ai_telemetry.py` — 1 个
 
@@ -626,10 +632,10 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:389` | **公开** |
-| 2 | `GET /health` | `health` | `backend/app/main.py:427` | **公开** |
-| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:441` | **公开** |
-| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:466` | **公开** |
+| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:396` | **公开** |
+| 2 | `GET /health` | `health` | `backend/app/main.py:434` | **公开** |
+| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:448` | **公开** |
+| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:473` | **公开** |
 
 ## 权限点反查（改一个权限点影响哪些端点）
 
@@ -637,7 +643,7 @@
 |---|---|---|
 | `LEDGER_EDIT` | 35 | `GET /api/v1/arrears-units`<br>`POST /api/v1/arrears-units`<br>`PATCH /api/v1/arrears-units/{unit_id}`<br>`DELETE /api/v1/arrears-units/{unit_id}`<br>`POST /api/v1/arrears-units/{unit_id}/restore`<br>`POST /api/v1/invoices`<br>`PATCH /api/v1/invoices/{invoice_id}`<br>`POST /api/v1/invoices/{invoice_id}/issue`<br>`POST /api/v1/invoices/{invoice_id}/void`<br>`DELETE /api/v1/invoices/{invoice_id}`<br>`POST /api/v1/invoices/{invoice_id}/restore`<br>`POST /api/v1/ledger/sync-from-delivered-orders`<br>`POST /api/v1/ledger/entries`<br>`PATCH /api/v1/ledger/entries/{entry_id}`<br>`DELETE /api/v1/ledger/entries/{entry_id}`<br>`POST /api/v1/ledger/export-jobs`（体内条件判断）<br>`POST /api/v1/purchase-orders`<br>`PATCH /api/v1/purchase-orders/{order_id}`<br>`DELETE /api/v1/purchase-orders/{order_id}`<br>`POST /api/v1/purchase-orders/{order_id}/restore`<br>`GET /api/v1/suppliers`<br>`POST /api/v1/suppliers`<br>`GET /api/v1/suppliers/{supplier_id}`<br>`PATCH /api/v1/suppliers/{supplier_id}`<br>`DELETE /api/v1/suppliers/{supplier_id}`<br>`POST /api/v1/suppliers/{supplier_id}/restore`<br>`GET /api/v1/supplier-payables`<br>`POST /api/v1/suppliers/{supplier_id}/payables`<br>`PATCH /api/v1/supplier-payables/{payable_id}`<br>`DELETE /api/v1/supplier-payables/{payable_id}`<br>`POST /api/v1/supplier-payables/{payable_id}/restore`<br>`GET /api/v1/supplier-payments`<br>`POST /api/v1/supplier-payables/{payable_id}/payments`<br>`DELETE /api/v1/supplier-payments/{flow_id}`<br>`POST /api/v1/supplier-payments/{flow_id}/restore` |
 | `NOTIFICATION_MANAGE` | 2 | `POST /api/v1/notifications/price-notify`<br>`POST /api/v1/notifications` |
-| `OPERATION_LOG_READ` | 2 | `GET /api/v1/operation-logs`<br>`GET /api/v1/operation-logs/{log_id}` |
+| `OPERATION_LOG_READ` | 3 | `GET /api/v1/ai/operations`<br>`GET /api/v1/operation-logs`<br>`GET /api/v1/operation-logs/{log_id}` |
 | `ORDER_CANCEL_DISPATCHER` | 1 | `POST /api/v1/orders/{order_id}/cancel`（体内条件判断） |
 | `ORDER_CANCEL_SHIPPER` | 1 | `POST /api/v1/orders/{order_id}/cancel`（体内条件判断） |
 | `ORDER_COMPLETE_DRIVER` | 2 | `POST /api/v1/orders/{order_id}/complete-with-upload`<br>`POST /api/v1/orders/{order_id}/complete` |
@@ -708,10 +714,10 @@ _（无重复注册）_
 | `GET /api/v1/orders/{order_id}` | `get_order` | `backend/app/api/v1/orders_query.py:280` |
 | `GET /api/v1/pricing/quote` | `quote` | `backend/app/extensions/pricing/api.py:54` |
 | `GET /api/v1/unit-conversion/preview` | `preview` | `backend/app/extensions/unit_conversion/api.py:42` |
-| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:389` |
-| `GET /health` | `health` | `backend/app/main.py:427` |
-| `GET /metrics` | `metrics` | `backend/app/main.py:441` |
-| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:466` |
+| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:396` |
+| `GET /health` | `health` | `backend/app/main.py:434` |
+| `GET /metrics` | `metrics` | `backend/app/main.py:448` |
+| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:473` |
 
 ### 3. 仅登录、且检测不到任何角色/权限约束：17 个
 

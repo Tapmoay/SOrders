@@ -151,6 +151,10 @@ MODULE_CN: dict[str, str] = {
     # ⚠️ 中文名要与 App 工作台那一格**同名**（`_tools/ai/_app_feature_coverage.py` 里
     #    这一格），以及报表中心第 9 格「成本覆盖」—— 能力按模块认领时靠它对齐。
     "purchase_orders": "采购单",
+    # AI 操作流水（CHG-0082，2026-10-08）：App 里那一页的入口名（AI 设置 → AI 操作流水）。
+    # ⛔ 这个模块**不给模型读**（读侧理由在 `_read_coverage.py` 的 EXCLUDED 里）：中文名在这里
+    #    只为让"模块 → 中文名"这张表完整，`--check` 才不会为它报"缺中文名"。
+    "ai_operations": "AI 操作流水",
 }
 
 ROUTE_RE = re.compile(

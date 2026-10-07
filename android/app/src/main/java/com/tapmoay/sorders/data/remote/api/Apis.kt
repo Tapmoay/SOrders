@@ -1696,6 +1696,27 @@ interface AiTelemetryApi {
     suspend fun reportCalls(@Body body: AiCallReportDto): AiCallReportResultDto
 }
 
+/**
+ * AI 操作流水（台账 L-52 / CHG-0082）：**管理端**那一页读的接口。
+ *
+ * ⛔ 权限在后端（`OPERATION_LOG_READ`，只有派单员有）：普通货主拿到的是 **403**，
+ *    不是"界面里藏起来"—— 界面藏只防手滑，不防越权。
+ *
+ * 支持 `skip` 翻页（是本项目少见的**真游标**，不是"服务端上限"）：这一页的价值就在"能往前翻到
+ * 那一次改动"，所以界面上的「加载更早的」是接着取，不是换个筛选重来。
+ */
+interface AiOperationsApi {
+    /** 一页流水（**新的在前**）；`ok = false` ＝ 只看失败的。 */
+    @GET("ai/operations")
+    suspend fun list(
+        @Query("limit") limit: Int = 60,
+        @Query("skip") skip: Int = 0,
+        @Query("ok") ok: Boolean? = null,
+        @Query("action") action: String? = null,
+        @Query("user_id") userId: Long? = null,
+    ): Response<List<AiOperationDto>>
+}
+
 /** 系统：版本更新检测 + 测试账号的默认 AI 配置 */
 interface SystemApi {
     @GET("system/app-version")

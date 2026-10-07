@@ -16,6 +16,7 @@ import com.tapmoay.sorders.ai.AiContainer
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.Session
 import com.tapmoay.sorders.ui.ai.AiChatScreen
+import com.tapmoay.sorders.ui.ai.AiOperationsScreen
 import com.tapmoay.sorders.ui.ai.AiSettingsScreen
 import com.tapmoay.sorders.ui.dispatcher.ExpenseCategoriesScreen
 import com.tapmoay.sorders.ui.dispatcher.ExpenseCreateScreen
@@ -688,6 +689,15 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
         composable(Routes.AI_SETTINGS) {
             AiSettingsScreen(
                 ai = ai,
+                onBack = { navController.popBackStack() },
+                onOpenOperations = { navController.navigate(Routes.AI_OPERATIONS) },
+            )
+        }
+        // AI 操作流水（台账 L-52 / CHG-0082）：入口在 AI 设置页里，且只对派单员渲染
+        //（这本账的后端权限是 OPERATION_LOG_READ，别的人点进来必然 403）。
+        composable(Routes.AI_OPERATIONS) {
+            AiOperationsScreen(
+                container = container,
                 onBack = { navController.popBackStack() },
             )
         }

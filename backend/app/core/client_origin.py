@@ -31,7 +31,21 @@ HEADER = "X-SOrders-Origin"
 #: 截断长度：只可能放进白名单里的短词，多出来的字节没有意义。
 MAX_LEN = 16
 
+#: 2026-10-08 CHG-0082：**这一次 AI 动作是哪一个**（值形如 `orders.create`，即 App 里
+#: `AiWriteAction.id`）。与上面的 origin 头一起由 App 在**同一个地方**带上
+#: （`ai/AiWriteService.commit`），供「AI 操作流水」（`core/ai_operation.py`）记下动作名。
+#: ⛔ 它**不是**授权依据（授权仍然只看登录用户的角色与权限）：动作名只用于"看得懂"这一件事。
+ACTION_HEADER = "X-SOrders-Ai-Action"
+#: 动作名的上限：与 `ai_operation_logs.action` 那一列（String(64)）同宽。
+ACTION_MAX_LEN = 64
+
 _origin: ContextVar[str] = ContextVar("client_origin", default=HUMAN)
+_action: ContextVar[str | None] = ContextVar("client_ai_action", default=None)
+
+#: 动作名允许出现的字符（见 [normalize_action]）。
+_ACTION_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-"
+)
 
 
 def normalize_origin(raw: str | None) -> str:
@@ -51,3 +65,35 @@ def set_origin(raw: str | None) -> Token:
 
 def reset_origin(token: Token) -> None:
     _origin.reset(token)
+
+
+def normalize_action(raw: str | None) -> str | None:
+    """把动作头归一成"能存进库"的形状；认不出的一律 `None`。
+
+    ⛔ 白名单是**字符集**而不是一张动作清单（与 origin 那张 `ALLOWED` 不同）：
+    动作清单长在 App 里（`AiWrite.kt`），后端抄一份必然走散。
+    所以这里只做"允许长什么样"的校验：`[A-Za-z0-9_.:-]`、长度 ≤ 64，
+    其它一律 `None`（= 这次动作名认不出）—— 既不报错、也不让任意字符串进库。
+
+    ⚠️ 字符集是**显式 ASCII 常量**、不用 `str.isalnum()`：后者对中文也返回 True
+    （动作 id 是代码标识符，中文名进库只会让管理端那一页多出一列看不懂的乱码）。
+    """
+    v = (raw or "").strip()[:ACTION_MAX_LEN]
+    if not v:
+        return None
+    if not all(c in _ACTION_CHARS for c in v):
+        return None
+    return v
+
+
+def get_action() -> str | None:
+    """当前请求的 AI 动作名（不是 AI 请求 / 没带 / 认不出时为 `None`）。"""
+    return _action.get()
+
+
+def set_action(raw: str | None) -> Token:
+    return _action.set(normalize_action(raw))
+
+
+def reset_action(token: Token) -> None:
+    _action.reset(token)
