@@ -370,7 +370,16 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
             ProductCategoriesScreen(container = container, onBack = { navController.popBackStack() })
         }
         composable(Routes.INVENTORY) {
-            InventoryScreen(container = container, onBack = { navController.popBackStack() })
+            // 采购单的入口在库存管理页顶栏（2026-10-07 CHG-0073）：工作台那一格已经撤掉，采购单从
+            // 这里进；点流水行上的「采购单 #N」进那一张单（表单页的编辑档，orderId 由路由参数带）。
+            InventoryScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpenPurchaseOrders = { navController.navigate(Routes.PURCHASE_ORDERS) },
+                onOpenPurchaseOrder = { id ->
+                    navController.navigate(Routes.PURCHASE_ORDER_FORM + "?orderId=" + id)
+                },
+            )
         }
         composable(Routes.ARREARS_UNITS) {
             ArrearsUnitsScreen(container = container, onBack = { navController.popBackStack() })

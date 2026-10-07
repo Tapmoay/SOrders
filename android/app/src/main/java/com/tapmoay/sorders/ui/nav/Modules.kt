@@ -101,7 +101,12 @@ object Modules {
         ModuleEntry("货主管理", Routes.SHIPPERS_MANAGE, Icons.Default.PeopleAlt, color = InventoryTeal),                // 深青 · 货主
         ModuleEntry("批发商管理", Routes.MEMBERS, Icons.Default.Badge, color = MemberGold),                             // 金 · 批发
         ModuleEntry("商品管理", Routes.PRODUCTS, Icons.Default.Inventory2, color = ProductPurple),                      // 紫 · 商品（还原成原来的色）
-        ModuleEntry("采购单", Routes.PURCHASE_ORDERS, Icons.Default.ShoppingCart, color = 0xFF4CAF50L),                 // 绿 · 进货入库（保存同时改库存/成本价/供应商欠款）
+        // 这里没有「采购单」那一格（2026-10-07 CHG-0073）：用户原话「采购单……原理跟我那个库存
+        //    管理非常的像……干脆把这 2 个也融合在一起，合并成一个」，口径 m13365 ②「工作台留
+        //    「库存管理」那格，采购单从它进」。
+        //    搬的是入口，不是功能：那一页、路由 Routes.PURCHASE_ORDERS、采购单表单
+        //    Routes.PURCHASE_ORDER_FORM、五个端点（建单/改单/撤单/恢复/列表）全都照旧；入口长在
+        //    库存管理页的顶栏（InventoryScreen(onOpenPurchaseOrders = …)）。
         ModuleEntry("发票台账", Routes.INVOICES, Icons.Default.Receipt, color = 0xFFC08A4EL),                          // 焦糖棕 · 税账（原 #795548 太深、被宫格亮度带判据否过；票面金额直接进税汇，写要 ledger:edit）
         ModuleEntry("库存管理", Routes.INVENTORY, Icons.Default.Warehouse, color = 0xFF00BCD4L),                        // 蓝青 · 库存仓储
         // ⛔ 这里**没有**「单位换算」那一格（2026-10-05 CHG-0038）：用户原话「把这个**单位换算
@@ -330,8 +335,10 @@ object Modules {
         Routes.MEMBERS to "user:manage",
         Routes.PRODUCTS to "product:manage",
         Routes.INVENTORY to "product:manage",
-        // 采购单一格挂写侧能力：能改库存的人才建得了采购单（读也一样，见 `purchase_orders.py` 的 Reader）
-        Routes.PURCHASE_ORDERS to "product:manage",
+        // 这里也没有 `Routes.PURCHASE_ORDERS`（2026-10-07 CHG-0073）：采购单那一格已从工作台搬进
+        //    库存管理页的顶栏，能力与 `Routes.INVENTORY` 同一条（`product:manage`；采购单读侧也是
+        //    它，见 `purchase_orders.py` 的 Reader）。留着这一行会被 `_check_capability_unification.py`
+        //    读成「入口表里有已经不存在的路由（化石）」。
         // 发票台账一格挂写侧能力：票面金额直接进税汇，能改账本的人才登记得了票（与 `invoices.py` 的 LEDGER_EDIT 对齐）
         Routes.INVOICES to "ledger:edit",
         // ⛔ 这里没有 `Routes.UNIT_CONVERSIONS`（2026-10-05 CHG-0038）：那一格已从工作台搬进

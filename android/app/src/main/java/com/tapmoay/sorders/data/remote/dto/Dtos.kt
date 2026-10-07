@@ -1344,6 +1344,14 @@ data class InventoryMovementDto(
     @SerialName("order_id") val orderId: Long? = null,
     @SerialName("order_no") val orderNo: String? = null,
     val status: String = "COMMITTED",
+    /**
+     * 这一行属于哪张采购单（2026-10-07 CHG-0073）：后端按 `purchase_order_items.movement_id`
+     * 反查出来的只读派生字段（不是列、不迁移、不回填）。
+     *
+     * null = 不属于任何还在的采购单 —— 手工调整（MANUAL）、订单自动出库（ORDER）、以及单子已撤
+     * （软删）/ 明细已作废的那些。有值才画那颗可点的「采购单 #N」（口径④：一行能点进它属于哪张单）。
+     */
+    @SerialName("purchase_order_id") val purchaseOrderId: Long? = null,
     /** 这一批的进货单价（只有手工入库且填了才有值）；null = 没填。 */
     @SerialName("unit_cost")
     @Serializable(with = NullableFlexibleStringSerializer::class)

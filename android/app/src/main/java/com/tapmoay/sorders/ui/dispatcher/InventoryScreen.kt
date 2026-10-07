@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.dispatcher
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +30,10 @@ import com.tapmoay.sorders.ui.common.Hint
 fun InventoryScreen(
     container: AppContainer,
     onBack: () -> Unit,
+    /** 进采购单列表（2026-10-07 CHG-0073：工作台不再有「采购单」那一格，从这一页进）。 */
+    onOpenPurchaseOrders: () -> Unit,
+    /** 进某一张采购单（流水行上那颗「采购单 #N」）。 */
+    onOpenPurchaseOrder: (Long) -> Unit,
 ) {
     val vm: InventoryViewModel = appViewModel { InventoryViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
@@ -50,6 +55,10 @@ fun InventoryScreen(
                     IconButton(onClick = { vm.refresh() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "刷新")
                     }
+                    // 采购单的入口（2026-10-07 CHG-0073 口径②）：工作台那一格搬进了这里 —— 采购单就是
+                    // 「规范化的入库记录」，跟库存是同一件事的两面（数据层早就一次写完：库存 + 成本价 +
+                    // 供应商应付）。点它进原来那页采购单（列表/回收站/新增/改单/撤单/恢复，行为没改）。
+                    TextButton(onClick = onOpenPurchaseOrders) { Text("采购单") }
                     TextButton(onClick = { showMovements = true }) { Text("流水") }
                 },
             )
@@ -163,7 +172,7 @@ fun InventoryScreen(
                     }
                     LazyColumn(Modifier.heightIn(max = 420.dp)) {
                         items(vm.movements, key = { it.id }) { m ->
-                            MovementRow(m)
+                            MovementRow(m, onOpenPurchaseOrder = onOpenPurchaseOrder)
                         }
                     }
                 }
@@ -361,7 +370,7 @@ private fun StockCard(
 }
 
 @Composable
-private fun MovementRow(m: InventoryMovementDto) {
+private fun MovementRow(m: InventoryMovementDto, onOpenPurchaseOrder: (Long) -> Unit) {
     val inbound = m.change > 0
     Row(
         Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -408,11 +417,34 @@ private fun MovementRow(m: InventoryMovementDto) {
                     }
                 }
             }
-            Text(
-                if (m.orderNo != null) m.orderNo + " · " + formatDateTime(m.createdAt) else formatDateTime(m.createdAt),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (m.orderNo != null) m.orderNo + " · " + formatDateTime(m.createdAt) else formatDateTime(m.createdAt),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                val poId = m.purchaseOrderId
+                if (poId != null) {
+                    Spacer(Modifier.width(8.dp))
+                    // 这一行是哪张采购单进的（2026-10-07 CHG-0073 口径④：一行能点进它属于哪张单）。
+                    // 后端给的是**只读派生**字段（按 `purchase_order_items.movement_id` 反查），只有
+                    // 「单子还在、明细没作废」的采购单流水才有值；手工调整与订单自动一律 null、不画它。
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = MaterialTheme.shapes.small,
+                        modifier = Modifier.clickable { onOpenPurchaseOrder(poId) },
+                    ) {
+                        Text(
+                            "采购单 #" + poId,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+            }
         }
     }
 }

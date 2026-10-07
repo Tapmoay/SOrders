@@ -42,3 +42,13 @@ class MovementOut(BaseModel):
     status: str = "COMMITTED"
     #: 这一批的进货单价（只有手工入库且填了才有值）；出参带出来是为了让"成本从哪来"看得见
     unit_cost: Decimal | None = None
+    #: **这一行属于哪张采购单**（2026-10-07 CHG-0073）。
+    #:
+    #: ⛔ 它是**只读派生**字段、不是 `inventory_movements` 的列：归属的唯一真相仍然是
+    #: `purchase_order_items.movement_id`（一行明细绑定它写下的那一条流水），这里只是那次
+    #: 绑定在流水视角下的投影，列表查询时现算（`api/v1/inventory.py::_attach_purchase_orders`）。
+    #:
+    #: null = 不属于任何**还在的**采购单 —— 手工调整（source=MANUAL）、订单自动出库
+    #: （source=ORDER）、以及明细已作废 / 单子已软删的那些。⛔ 历史行**一个字节都不回填**
+    #: （FEAT-0013 与 migrations/019_purchase_orders.py:15-16 的 ⛔ 照旧）。
+    purchase_order_id: int | None = None

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.rbac import Permission
 from app.database import get_db
 from app.deps import parse_date_range, require_permission
-from app.models import InventoryMovement, Product, User
+from app.models import InventoryMovement, Product, PurchaseOrder, PurchaseOrderItem, User
 from app.models.enums import OperationAction
 from app.schemas.inventory import MovementCreate, MovementOut
 from app.services import cost_history
@@ -20,6 +20,42 @@ from app.services.cost_history import record_cost
 from app.services.operation_log_service import write_log
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
+
+
+def _attach_purchase_orders(db: Session, rows: list[InventoryMovement]) -> None:
+    """给这一页流水挂上「它属于哪张采购单」（2026-10-07 CHG-0073，只读派生）。
+
+    为什么要有这一跳（用户 2026-10-07 ref m01700）：「采购单相当于库存管理那个入库记录」
+    —— 出入库流水与采购单明细本来就是同一件事的两面，但流水行上原来只有一句死文本
+    `note`（`services/purchase_service.py::_movement_note` 写的 `采购单 #N`），点不动，
+    看不到「这批货是哪张单进的」。
+
+    ⛔ 三条不许动：
+    （1）**归属的唯一真相是** `purchase_order_items.movement_id`（一行明细绑定它写下的那一条
+         流水）—— 这里只是把它**投影**出来，**不新增列、不迁移、不回填**；
+    （2）历史 `source="MANUAL"` 流水**不猜归属**（FEAT-0013 与
+         `migrations/019_purchase_orders.py:15-16` 的 ⛔）；
+    （3）单子已软删 / 明细已作废的那些**不给回链** —— 点进去只会看到一张进了回收站的单，
+         而流水行本身照旧显示（历史事实不变）。
+
+    实现：按本页返回的流水 id 一次反查（不是逐行查），命中的挂上去、其余置 None。
+    在 `finish_page` **之前**调用：它只截断/加响应头，不改变行的身份。
+    """
+    ids = [m.id for m in rows]
+    owner: dict[int, int] = {}
+    if ids:
+        hits = db.execute(
+            select(PurchaseOrderItem.movement_id, PurchaseOrderItem.order_id)
+            .join(PurchaseOrder, PurchaseOrder.id == PurchaseOrderItem.order_id)
+            .where(
+                PurchaseOrderItem.movement_id.in_(ids),
+                PurchaseOrderItem.is_void.is_(False),
+                PurchaseOrder.deleted_at.is_(None),
+            )
+        ).all()
+        owner = {mv_id: order_id for mv_id, order_id in hits if mv_id is not None}
+    for m in rows:
+        m.purchase_order_id = owner.get(m.id)  # type: ignore[attr-defined]
 
 
 @router.get("/movements", response_model=list[MovementOut])
@@ -59,7 +95,10 @@ def list_movements(
             q = q.where(InventoryMovement.created_at >= lo)
         if dt is not None:
             q = q.where(InventoryMovement.created_at < hi)
-    return finish_page(list(db.scalars(q)), limit, response)
+    rows = list(db.scalars(q))
+    # 「这一行属于哪张采购单」在**出参**上现算（CHG-0073）：归属 map 只按本页的 id 反查一次。
+    _attach_purchase_orders(db, rows)
+    return finish_page(rows, limit, response)
 
 
 @router.post("/movements", response_model=MovementOut, status_code=status.HTTP_201_CREATED)
