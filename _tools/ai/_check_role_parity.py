@@ -86,6 +86,12 @@ MEMBER_ONLY_ACTIONS = {
     "MY_LEDGER_SETTLE",
     "MY_LEDGER_REVOKE",
     "MY_LEDGER_RESTORE",
+    # 下游定价（2026-10-08 / CHG-0084 / 台账 L-53）：后端 shipper_prices.py 的三条写端点
+    # 都是 require_roles(SHIPPER) 之后再 _require_member（普通货主 403「这本账只有批发商有」），
+    # 与上面三条同形 ⇒ 一起挂在这张表上。
+    "SHIPPER_PRICE_SET",
+    "SHIPPER_PRICE_DELETE",
+    "SHIPPER_PRICE_RESTORE",
 }
 
 #: 批发商专属的**读**表（`ai_read_catalog.json` 里 module_cn = 我的账本）。

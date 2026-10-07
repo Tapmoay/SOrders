@@ -1102,6 +1102,43 @@ internal object AiResources {
         read = { _, _ -> null },
     )
 
+    /**
+     * 下游价（2026-10-08 CHG-0084）。
+     *
+     * 派单员给他的专属价是 [PRICE_RULE]，这本是**他给下游客户**的价 —— 两层价，别混。
+     *
+     * 只有「删 / 放回来」成对：改价那条（`shipper_price.set`）是 upsert（有就改、没有就建），
+     * 写之前不确定该撤到哪一条，所以它**不进本资源**，改走 [AiRevert] 里 UNDO_NONE 的显式文案。
+     * 删价那条被撤掉之后，后台是伪装删除（行还在），恢复就是逐字段照搬那一行。
+     */
+    private val SHIPPER_PRICE = AiResource(
+        key = "shipper_price",
+        cn = "下游价",
+        idKey = "price_id",
+        readKeys = setOf("product_id", "contact_id", "unit_price"),
+        labels = mapOf(
+            "product_id" to "商品",
+            "contact_id" to "下游联系人",
+            "unit_price" to "单价",
+        ),
+        moneyKeys = setOf("unit_price"),
+        actions = listOf(
+            delete(AiWrites.SHIPPER_PRICE_DELETE),
+            paired(
+                AiWrites.SHIPPER_PRICE_RESTORE,
+                AiInverse(AiWrites.SHIPPER_PRICE_DELETE, mapOf("target_id" to AiRevert.ID)),
+                idKey = "target_id",
+            ),
+        ),
+        // 成对动作的撤回**不需要读现场**（参数只有主键，`AiRevert.plan` 里那道判据会跳过读），
+        // 而这一条被删掉之后给下游定价的名册里就查不到它了 —— 所以如实返回 null。
+        read = { _, _ -> null },
+        restore = AiInverse(AiWrites.SHIPPER_PRICE_RESTORE, mapOf("target_id" to AiRevert.ID)),
+        restoreLines = listOf(
+            "把刚才删掉的那一条价放回来（后台是伪装删除：行还在，逐字段照搬）",
+            "放回来之后编号、商品、给谁、单价都和删掉之前一模一样",
+        ),
+    )
     /** 全部资源。红线与单测按它逐个核对（键是否齐全、动作是否都有归属）。 */
     val TABLE: List<AiResource> = listOf(
         ADDRESS, LOCATION, CONTACT, ARREARS_UNIT, UNIT_CONVERSION, FREIGHT_TEMPLATE, DRIVER_RULE,
@@ -1116,6 +1153,8 @@ internal object AiResources {
         EXPENSE_CATEGORY, FREIGHT_CATEGORY, ORDER_TEMPLATE_CATEGORY,
         // 两张**全店**名册（2026-10-05 FEAT-0010：账号分类 / 车辆分类）
         USER_CATEGORY, VEHICLE_CATEGORY,
+        // 下游价（2026-10-08 CHG-0084）：只有「删 / 放回来」成对，改价那条走 UNDO_NONE
+        SHIPPER_PRICE,
     )
 }
 

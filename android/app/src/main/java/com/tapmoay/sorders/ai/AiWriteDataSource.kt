@@ -417,6 +417,50 @@ class RepoWriteDataSource(
         repo.restoreMySettlement(id)
     }
 
+    // ---------------------------------------------------------------- 下游价（2026-10-08 CHG-0084）
+
+    override suspend fun myPriceProducts(): List<AiMyPriceProduct> =
+        repo.priceableProducts().mapNotNull { p ->
+            val name = p.productName.trim()
+            if (name.isEmpty()) null
+            else AiMyPriceProduct(
+                id = p.productId,
+                name = name,
+                supplyPrice = p.supplyUnitPrice,
+                defaultPrice = p.defaultUnitPrice,
+                contactPriceCount = p.contactPriceCount,
+            )
+        }
+
+    override suspend fun myPrices(includeDeleted: Boolean): List<AiMyPriceRef> =
+        repo.shipperPrices(null, null, includeDeleted).map { d ->
+            AiMyPriceRef(
+                id = d.id,
+                productId = d.productId,
+                productName = d.productName?.trim().orEmpty(),
+                contactId = d.contactId,
+                contactName = d.contactName?.trim(),
+                unitPrice = d.unitPrice,
+                isDeleted = d.isDeleted,
+            )
+        }
+
+    override suspend fun setMyPrice(productId: Long, contactId: Long?, unitPrice: String) {
+        repo.setShipperPrice(
+            com.tapmoay.sorders.data.remote.api.ShipperPriceSetRequest(
+                productId = productId,
+                contactId = contactId,
+                unitPrice = unitPrice,
+            ),
+        )
+    }
+
+    override suspend fun deleteMyPrice(id: Long) = repo.deleteShipperPrice(id)
+
+    override suspend fun restoreMyPrice(id: Long) {
+        repo.restoreShipperPrice(id)
+    }
+
     // ---------------------------------------------------------------- 退货申请（2026-09-21）
 
     /**
@@ -2203,6 +2247,10 @@ class RepoWriteDataSource(
                 repo.mySettlements(includeDeleted = true, limit = SETTLE_SNAPSHOT_PROBE)
                     .rows.firstOrNull { it.id == id }
                     ?.let { AiBefore(id, buildJsonObject { put("settlement_id", it.id) }) }
+            // 下游价（CHG-0084，2026-10-08）：与上面那条**同一种情况** —— 删价 / 恢复是一对
+            // **成对动作**（撤回走的是另一个动作自己，`restore` 里全是 ID），所以**不需要读现场**；
+            // 这条分支存在的意义同样是「这条资源真有读法」——红线会逐个资源对账，缺一个就红。
+            "shipper_price" -> null
             // 认不出的资源标识 = **撤不回来**（不是"不需要撤"）。
             // 静默返回一份空现场会让撤回卡弹出来却什么都没写回去——那比没有撤回更糟。
             else -> null

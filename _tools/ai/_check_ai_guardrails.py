@@ -162,6 +162,12 @@ READ_METHODS = {
     #    而 `orders.return` 那边不读则会漏掉"手工退 + 申请还挂着 = 同一批货退两遍"那个洞。
     #    真正写库的是 apply / withdraw / reject / fulfill 四个（都不在白名单里）。
     "myReturnRequests", "pendingReturnRequests",
+    # 下游价（CHG-0084，2026-10-08）：给下游定价 / 删价之前必须先把「他有哪些商品可定价」
+    # （`GET /shipper-prices/products`）和「这一档原来是什么价」（`GET /shipper-prices`）读回来 ——
+    # 卡片上那两行（「原来 8 元 → 现在 9 元」「这一档已经有一条价了，这次是改不是新建」）全靠它们。
+    # 真正写库的是 setMyPrice / deleteMyPrice / restoreMyPrice —— 那三个**不在**白名单里，
+    # 默认受「prepare 里不许写」的约束。
+    "myPriceProducts", "myPrices",
 }
 
 

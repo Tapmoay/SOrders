@@ -495,7 +495,15 @@ CN_DESC = {
     "freight_templates.list_templates": "运费模板",
     "driver_billing_rules.list_rules": "司机计费规则（固定工资/每单金额/提成，可挂给司机）",
     "price_rules.list_price_rules": "批发商专属定价规则",
-    "reports.turnover_report": "营业报表（营业额/成本/毛利，按日期范围）",
+    # 下游定价（CHG-0084，2026-10-08）：这一层是**他给下游客户**的价（`price_rules` 是派单员给他）。
+    # ⚠️ 两条一起开才有用：先看见现价（下面那条），才谈得上"改成 YYY"（写动作 `shipper_price.set`）。
+    "shipper_prices.list_priceable_products": (
+        "我能给下游定价的商品（我下过单的 ∪ 派单员给我设过专属价的）。给下游定价前先用它认商品"
+    ),
+    "shipper_prices.list_shipper_prices": (
+        "我给下游定的价目表（默认价 + 对某个下游的专属价）：可按 product_id / contact_id 筛，"
+        "include_deleted 连被删掉的那些一起看。删价前先用它认准是哪一条"
+    ),    "reports.turnover_report": "营业报表（营业额/成本/毛利，按日期范围）",
     # 经营利润表（FEAT-0011）：这一条回答的是「这一段到底赚了多少」——
     # ⚠️ 说明里必须点破两个**如实写 0** 的口子（税、折旧）与「未覆盖收入单列不参与毛利」，
     #    否则模型会把营业利润说成净利润，或者把不算成本的那部分收入当成白赚的。
@@ -630,6 +638,15 @@ MEMBER_ONLY_READS: dict[str, str] = {
     "shipper_ledger.list_settlements": (
         "批发商货主自己那一本账（给下游货主核销的记录）：普通货主手机上「我的账本」"
         "根本没有这一段（他给自己下单，没有第二个债务人）"
+    ),
+    # 下游定价（2026-10-08 CHG-0084）：与写侧 `AiWriteAction.memberOnly` 对称 —— 那三条写动作
+    # 都带 memberOnly，读侧这两条跟不上，就会出现"看得见、改不了"的畸形能力。
+    "shipper_prices.list_priceable_products": (
+        "「我的 → 下游定价」整页只有批发商货主有（普通货主不下单给下游）：给他列出来，"
+        "只会让模型去解释一件他做不了的事"
+    ),
+    "shipper_prices.list_shipper_prices": (
+        "同上（他给下游定的那份价目表）：普通货主连入口都没有，读出来只会被当成他的账"
     ),
 }
 

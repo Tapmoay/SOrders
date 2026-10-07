@@ -2,11 +2,11 @@
   "generated_by": "_gen_ai_toolmap.py",
   "authority_note": "端点事实以 docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md 为准（gen_endpoint_index.py：AST + alias + 授权列）。本文件仅作 AI 工具白名单使用，不含 Query 参数与 alias，**不可**据此生成参数白名单；只扫 api/v1/*.py，不含 main.py 的 3 个 app 级端点。",
   "counts": {
-    "endpoints": 272,
-    "read": 87,
+    "endpoints": 274,
+    "read": 89,
     "write": 185,
-    "unique_paths": 193,
-    "unique_method_path": 272,
+    "unique_paths": 194,
+    "unique_method_path": 274,
     "shadowed_routes": []
   },
   "modules": {
@@ -2147,6 +2147,24 @@
     "shipper_prices": {
       "cn": "下游定价",
       "actions": [
+        {
+          "action": "list_priceable_products",
+          "risk": "read",
+          "method": "get",
+          "path": "/api/v1/shipper-prices/products",
+          "handler": "list_priceable_products",
+          "doc": "他能定价的商品：**他下过单的** ∪ **派单员给他设过专属价的**（`allowed_product_ids`）。",
+          "at": "backend/app/api/v1/shipper_prices.py:103"
+        },
+        {
+          "action": "list_shipper_prices",
+          "risk": "read",
+          "method": "get",
+          "path": "/api/v1/shipper-prices",
+          "handler": "list_shipper_prices",
+          "doc": "他自己那本价目表。",
+          "at": "backend/app/api/v1/shipper_prices.py:157"
+        },
         {
           "action": "delete_shipper_price",
           "risk": "write",

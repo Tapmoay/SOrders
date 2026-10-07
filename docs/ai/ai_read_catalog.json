@@ -1,10 +1,10 @@
 {
  "generated_by": "_gen_ai_read_catalog.py",
- "source_hash": "sha256:c8f25954d08e7207cb955d0c54aaa86f99dc5d1b928dc15d69a4d2d9894b4526",
+ "source_hash": "sha256:8fe15c6ac1e04d2617b025634bb3208f934d7eebadca7cfce9d59e838f52dbfc",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
-  "read_endpoints": 87,
-  "listed": 67,
+  "read_endpoints": 89,
+  "listed": 69,
   "missing_handler": []
  },
  "actions": [
@@ -2348,6 +2348,69 @@
      "name": "offset",
      "arg": "offset",
      "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    }
+   ],
+   "skipped_params": []
+  },
+  {
+   "module": "shipper_prices",
+   "action": "list_priceable_products",
+   "cn": "下游定价",
+   "module_cn": "下游定价",
+   "method": "get",
+   "path": "/api/v1/shipper-prices/products",
+   "at": "backend/app/api/v1/shipper_prices.py:103",
+   "auth": "权限:SHIPPER_PRICE_MANAGE",
+   "roles": [
+    "shipper"
+   ],
+   "member_only": true,
+   "params": [],
+   "skipped_params": []
+  },
+  {
+   "module": "shipper_prices",
+   "action": "list_shipper_prices",
+   "cn": "下游定价",
+   "module_cn": "下游定价",
+   "method": "get",
+   "path": "/api/v1/shipper-prices",
+   "at": "backend/app/api/v1/shipper_prices.py:157",
+   "auth": "权限:SHIPPER_PRICE_MANAGE",
+   "roles": [
+    "shipper"
+   ],
+   "member_only": true,
+   "params": [
+    {
+     "name": "product_id",
+     "arg": "product_id",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": true,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "contact_id",
+     "arg": "contact_id",
+     "type": "int",
+     "required": false,
+     "enum": [],
+     "is_id": true,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "include_deleted",
+     "arg": "include_deleted",
+     "type": "bool",
      "required": false,
      "enum": [],
      "is_id": false,

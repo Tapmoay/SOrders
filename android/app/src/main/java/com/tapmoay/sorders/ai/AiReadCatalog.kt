@@ -293,6 +293,13 @@ object AiReadCatalog {
             ReadParam("limit", "int", false, emptyList(), false),
             ReadParam("offset", "int", false, emptyList(), false),
         )),
+        ReadAction("shipper_prices.list_priceable_products", "我能给下游定价的商品（我下过单的 ∪ 派单员给我设过专属价的）。给下游定价前先用它认商品", "/api/v1/shipper-prices/products", "", setOf("shipper"), true, listOf(
+        )),
+        ReadAction("shipper_prices.list_shipper_prices", "我给下游定的价目表（默认价 + 对某个下游的专属价）：可按 product_id / contact_id 筛，include_deleted 连被删掉的那些一起看。删价前先用它认准是哪一条", "/api/v1/shipper-prices", "product_id、contact_id、include_deleted", setOf("shipper"), true, listOf(
+            ReadParam("product_id", "int", false, emptyList(), true),
+            ReadParam("contact_id", "int", false, emptyList(), true),
+            ReadParam("include_deleted", "bool", false, emptyList(), false),
+        )),
         ReadAction("stats.get_driver_performance", "司机跑货统计（单量、准时率、待结运费）", "/api/v1/stats/driver-performance", "date_from、date_to", setOf("dispatcher"), false, listOf(
             ReadParam("date_from", "date", true, emptyList(), false),
             ReadParam("date_to", "date", true, emptyList(), false),
@@ -397,6 +404,7 @@ object AiReadCatalog {
         "route_categories" to "线路分类",
         "shipper" to "地址与联系人",
         "shipper_ledger" to "我的账本",
+        "shipper_prices" to "下游定价",
         "stats" to "统计口径",
         "suppliers" to "供应商/应付款",
         "unit_conversions" to "单位换算",

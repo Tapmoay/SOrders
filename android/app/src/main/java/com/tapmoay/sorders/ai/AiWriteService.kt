@@ -286,6 +286,26 @@ interface AiWriteDataSource {
     /** 把撤掉的那一笔放回来。 */
     suspend fun restoreMySettlement(id: Long)
 
+    // ---------------------------------------------------------------- 下游价（2026-10-08 CHG-0084）
+    //
+    // 派单员给他的专属价是 `priceRules` 那一套；这一组是**他给下游客户**的价。
+    // ⛔ 入参里没有「谁」——写的永远是当前登录的这个货主自己（后端也不收 shipper_id）。
+
+    /** 可以给下游定价的商品名册（他下过单的 ∪ 派单员给他设过专属价的）。 */
+    suspend fun myPriceProducts(): List<AiMyPriceProduct>
+
+    /** 他给下游定的价（含被删掉的那些——判重与恢复都要看）。 */
+    suspend fun myPrices(includeDeleted: Boolean = false): List<AiMyPriceRef>
+
+    /** 定/改一条下游价（contactId 为空 = 默认价那一档；后台是「有就改、没有就建」）。 */
+    suspend fun setMyPrice(productId: Long, contactId: Long?, unitPrice: String)
+
+    /** 删掉一条下游价（**软删**：行还在，能放回来）。 */
+    suspend fun deleteMyPrice(id: Long)
+
+    /** 把删掉的那一条价放回来。 */
+    suspend fun restoreMyPrice(id: Long)
+
     // ---------------------------------------------------------------- 退货申请（2026-09-21）
     //
     // 用户原话：「批发商**只是一个申请**，派单员才是实际性的操作」＋
@@ -916,6 +936,12 @@ class AiWriteService(
             CreatePurchaseOrderHandler(ds, store),
             UpdatePurchaseOrderHandler(ds, store),
             DeletePurchaseOrderHandler(ds, store),
+            // 下游价（2026-10-08 CHG-0084）：设价是 upsert（写之前不知道是"新建一条"还是
+            // "改哪一条"，拿不出一个确定的反向），删价要先按 (商品, 给谁) 认出那一条价 ——
+            // 两条都超出声明式的表达力。
+            // ⛔ restore 走声明式那一个（restoreAction），不要在这里再注册一遍。
+            SetMyPriceHandler(ds, store),
+            DeleteMyPriceHandler(ds, store),
         ).forEach { put(it.actionId, it) }
 
         // 声明式：凡是带 crud 规格的动作，一律由通用处理器执行

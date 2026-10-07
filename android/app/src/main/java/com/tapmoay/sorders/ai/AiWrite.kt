@@ -1252,6 +1252,18 @@ object AiWrites {
     /** 用户贴一张表格、每行一套规则（第四种用法）。见 [ApplyPriceTableHandler]。 */
     const val PRICE_RULES_APPLY_TABLE = "price_rules.apply_table"
 
+    // ---- 我的下游价（CHG-0084 / 台账 L-53，2026-10-08 用户要求把「本轮不开放」的端点补齐）----
+    //
+    // 这一组是**他给下游开的价**，与上面 `PRICE_RULES_*` 不是一回事：那三条是**派单员给他**的
+    // 专属价（公司跟他算钱），这三条是**他给下游**的价（他跟客户算钱）——两本账、两个权限点、
+    // 两套端点。用户嘴里也是两件事（"给我定个价" vs "我给张三定个价"），所以清单里必须分开。
+    /** 设 / 改一条下游价（`contact` 留空 = 这个商品对所有下游的默认价）。 */
+    const val SHIPPER_PRICE_SET = "shipper_price.set"
+    /** 删掉一条下游价（**软删**，撤回按钮能把同一行原样放回来）。 */
+    const val SHIPPER_PRICE_DELETE = "shipper_price.delete"
+    /** 把删掉的那一条放回来（`undoOnly`：模型看不到它，只有「撤回」按钮会用到它）。 */
+    const val SHIPPER_PRICE_RESTORE = "shipper_price.restore"
+
     // ---- 采购单（CHG-0074 / 台账 L-42：用户要「上传一张进货单照片 → AI 读出每行 → 建采购单」）----
     //
     // 用户原话（台账标为**大意**，ref m01700）：「我上传一张图片，然后 AI 分析出来数据之后就立马
@@ -1549,6 +1561,14 @@ object AiWrites {
     /** 共享地点（**全库共用**那一张表：改一条，所有人的选点列表都跟着变）。 */
     const val G_PLACE = "共享地点"
     const val G_PRICE = "批发商定价"
+    /**
+     * 我的下游价（批发商给自己卖的商品定的价，CHG-0084）。
+     *
+     * ⛔ 与 [G_PRICE] 是**两层价**：[G_PRICE] 是"派单员给他定的专属价"（他拿货的成本），
+     * 这一组是他"给下游客户定的价"（他卖出去的价）——用户嘴里永远是两件事，
+     * 混成一组会让模型把"给城东批发商定价"和"给张三定价"当成同一个动作。
+     */
+    const val G_MY_PRICE = "我的下游价"
     const val G_STOCK = "库存"
     /**
      * 采购单（进货单建单 / 改单头 / 撤单）。
@@ -1592,7 +1612,9 @@ object AiWrites {
             // 供应商 / 厂商档案 + 应付款（2026-09-22 用户要求「给供应商付尾款」）
             AiWriteSuppliers.ACTIONS +
             // 采购单（2026-10-07 CHG-0074：用户要「上传一张进货单照片 → AI 建采购单」）
-            AiWritePurchases.ACTIONS
+            AiWritePurchases.ACTIONS +
+            // 我的下游价（2026-10-08 CHG-0084：把「本轮不开放」的那一批端点开给货主）
+            AiWriteMyPrices.ACTIONS
 
     /** 手写处理器的动作清单（订单 / 账目 / 消息）。 */
     private val MANUAL: List<AiWriteAction> = listOf(
@@ -2616,6 +2638,13 @@ object AiWrites {
         //    而"能看见但用不了"是本仓库明确列出的最坏一类 bug。
         RETURN_REQUEST_APPLY,
         RETURN_REQUEST_WITHDRAW,
+        // 我的下游价（2026-10-08 CHG-0084）：**三条都要在这里** —— `allows()` 是 preview 与
+        // execute **两条路共用的门**，漏掉恢复那条的话，"撤回"按钮点下去会被自己的权限门挡掉。
+        // ⚠️ 它们同时标了 `memberOnly = true`：普通货主手机上根本没有「我的下游价」这一段，
+        //    所以他的 AI 连清单里都不该有（见 [AiWriteAction.memberOnly]）。
+        SHIPPER_PRICE_SET,
+        SHIPPER_PRICE_DELETE,
+        SHIPPER_PRICE_RESTORE,
     )
 
     /**

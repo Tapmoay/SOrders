@@ -371,6 +371,37 @@ class AiWriteTest {
             myLedgerCalls += "revoke:$id"
         }
 
+        // ---------------------------------------------------------------- 下游价（2026-10-08 CHG-0084）
+
+        /** 可以给下游定价的商品名册。 */
+        var myPriceProductRows: MutableList<AiMyPriceProduct> = mutableListOf()
+
+        /** 他给下游定的价（含被软删的那些）。 */
+        var myPriceRows: MutableList<AiMyPriceRef> = mutableListOf()
+
+        /** 下游价的调用记录（断言"点确认之后真的写了一次"）。 */
+        val myPriceCalls: MutableList<String> = mutableListOf()
+
+        override suspend fun myPriceProducts(): List<AiMyPriceProduct> =
+            myPriceProductRows.toList().also { boom() }
+
+        override suspend fun myPrices(includeDeleted: Boolean): List<AiMyPriceRef> =
+            myPriceRows.filter { includeDeleted || !it.isDeleted }.also { boom() }
+
+        override suspend fun setMyPrice(productId: Long, contactId: Long?, unitPrice: String) {
+            boom()
+            myPriceCalls += "set:" + productId + ":" + (contactId ?: 0L) + ":" + unitPrice
+        }
+
+        override suspend fun deleteMyPrice(id: Long) {
+            boom()
+            myPriceCalls += "delete:" + id
+        }
+
+        override suspend fun restoreMyPrice(id: Long) {
+            boom()
+            myPriceCalls += "restore:" + id
+        }
         override suspend fun restoreMySettlement(id: Long) {
             boom()
             myLedgerCalls += "restore:$id"
@@ -3628,10 +3659,11 @@ class AiWriteTest {
         //    2026-10-04 给「线路分类名册」（FEAT-0009，线路这一档也要能分类）加了 4 个：
         //    建/改名/删/重排 —— 147；
         //    2026-10-05 给「账号分类 / 车辆分类」两份名册（FEAT-0010）各加 4 个：建/改名/删/重排 —— 155；
-        //    2026-10-07 给「采购单」加 4 个（CHG-0074，台账 L-42）：建单/改单头/撤单/恢复 —— 159）。
+        //    2026-10-07 给「采购单」加 4 个（CHG-0074，台账 L-42）：建单/改单头/撤单/恢复 —— 159；
+        //    2026-10-08 给「我的下游价」加 3 个（CHG-0084，台账 L-53）：定价/删价/恢复 —— 162）。
         //    所以下面补了一条**真正的去重断言**——不然这条会退化成"一个过一阵就要手动抬的魔数"，
         //    而它本来想防的"同一个动作声明两遍"一次都拦不住。
-        assertTrue("动作数不该多于 159（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 159)
+        assertTrue("动作数不该多于 162（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 162)
         val ids = AiWrites.ALL.map { it.id }
         assertEquals(
             "动作 id 声明重复了：${ids.groupBy { it }.filter { it.value.size > 1 }.keys}",
@@ -3842,7 +3874,15 @@ class AiWriteTest {
         //    所以这里比的是"白名单减去 memberOnly"，而不是白名单本身。
         val memberOnlyIds = AiWrites.forRole(AiActor.of(AiRole.SHIPPER, true)!!).map { it.id }.toSet() -
             AiWrites.forRole(plain).map { it.id }.toSet()
-        assertEquals(setOf(AiWrites.MY_LEDGER_SETTLE, AiWrites.MY_LEDGER_REVOKE, AiWrites.MY_LEDGER_RESTORE), memberOnlyIds)
+        // ⚠️ 2026-10-08（CHG-0084 / 台账 L-53）：会员专属又多了一组 —— 「我的下游价」那三条
+        //    （下游这本账只有批发商货主有，后端 `shipper_prices.py` 第二道闸就是 `_require_member`）。
+        assertEquals(
+            setOf(
+                AiWrites.MY_LEDGER_SETTLE, AiWrites.MY_LEDGER_REVOKE, AiWrites.MY_LEDGER_RESTORE,
+                AiWrites.SHIPPER_PRICE_SET, AiWrites.SHIPPER_PRICE_DELETE, AiWrites.SHIPPER_PRICE_RESTORE,
+            ),
+            memberOnlyIds,
+        )
         assertEquals(AiWrites.SHIPPER_ACTIONS - memberOnlyIds, AiWrites.forRole(plain).map { it.id }.toSet())
         // ⚠️ 2026-09-21：派单员的算式多了一项 —— 退货申请那一组里 `roles = setOf(SHIPPER)` 的两条
         //    （申请/撤回）**点名不给派单员**（他点了必被后端以「这不是你的订单」拒绝）。
@@ -3874,6 +3914,9 @@ class AiWriteTest {
         val member = AiActor.of(AiRole.SHIPPER, true)!!
         val book = listOf(
             AiWrites.MY_LEDGER_SETTLE, AiWrites.MY_LEDGER_REVOKE, AiWrites.MY_LEDGER_RESTORE,
+            // ⚠️ 2026-10-08（CHG-0084 / 台账 L-53）：「我的下游价」那三条也是**只有批发商货主**有的
+            //    账（普通货主没有第二个客户）—— 与核销那三条同一个道理，一起进这本"会员专属"的账。
+            AiWrites.SHIPPER_PRICE_SET, AiWrites.SHIPPER_PRICE_DELETE, AiWrites.SHIPPER_PRICE_RESTORE,
         )
         // ① 批发商三条都要能用（少一条他的账就管不了；撤回那条不走这里就点不动）
         book.forEach { assertTrue("批发商该能用 $it", AiWrites.allows(member, it)) }
@@ -6091,6 +6134,169 @@ class AiWriteTest {
         assertTrue(out.reason.contains("不需要确认"))
         // ⚠️ 最要紧的是这一条：它在 `prepare` 里就会写库，放进来等于**预览阶段就写库**
         assertEquals("内层一次都不许被调用", 0, r.ds.readAllCalls)
+    }
+
+
+    // ==================================================== 我的下游价（CHG-0084 / 台账 L-53）
+
+    /**
+     * 「我能定价的商品」一条（`GET /shipper-prices/products`）的替身。
+     *
+     * 为什么不直接写 `AiMyPriceProduct(...)`：这一域要造十几条散据，字段名在调用处全都是位置参数，
+     * 错一位就会把“默认价”和“上游给我的价”对调（那两个数字在卡片上都是钱，对调了也能过编译）。
+     */
+    private fun priceProductRow(
+        id: Long = 41,
+        name: String = "红富士苹果",
+        supply: String? = "6.50",
+        default: String? = null,
+        contacts: Int = 0,
+    ) = AiMyPriceProduct(id, name, supply, default, contacts)
+
+    /** 「我定过的一条下游价」（`GET /shipper-prices`）的替身。 */
+    private fun priceRow(
+        id: Long,
+        productId: Long = 41,
+        product: String = "红富士苹果",
+        contactId: Long? = null,
+        contact: String? = null,
+        unitPrice: String = "9.90",
+        isDeleted: Boolean = false,
+    ) = AiMyPriceRef(id, productId, product, contactId, contact, unitPrice, isDeleted)
+
+    @Test
+    fun `下游价：给所有下游定默认价 —— 卡上写明这是默认价，确认后按商品编号写一次`() = runBlocking<Unit> {
+        // 货主里只有**批发商**有这本账（`memberOnly`）：普通货主连清单里都没有这三条。
+        val r = Rig(actor = AiActor.of(AiRole.SHIPPER, true))
+        r.ds.myPriceProductRows = mutableListOf(priceProductRow())
+
+        val card = ok(
+            r.svc.preview(AiWrites.SHIPPER_PRICE_SET, p("product" to "红富士苹果", "price" to "9.9")),
+        )
+        assertEquals("下游价：红富士苹果 → 9.9 元（所有下游）", card.summary)
+        assertTrue(card.bodyLines.contains("商品：红富士苹果"))
+        assertTrue(
+            "不写联系人 = 默认价，卡上必须说清：${card.bodyLines}",
+            card.bodyLines.contains("给谁：所有下游（这是默认价，没单独定价的人都按它算）"),
+        )
+        assertTrue(card.bodyLines.any { it.contains("这一档还没有定过价") })
+        // 两句口径：只管以后新下的单 ＋ 只动他自己那本账
+        assertTrue(card.bodyLines.any { it.contains("只管以后新下的单") })
+        assertTrue(card.bodyLines.any { it.contains("公司（派单员）那边的账一个数字都不会变") })
+        // 预览阶段一个字都不许写后端（写下去就没有“确认”这一步了）
+        assertEquals(0, r.ds.myPriceCalls.size)
+
+        val done = r.svc.execute(card.token) as AiWriteOutcome.Done
+        // 定价那条**没有**一键撤回（后端是“有就改、没有就建”，写之前不知道该撤到哪一条）
+        assertNull("改价不该挂一键撤回（要改回去就再说一句）", done.undoToken)
+        assertEquals(listOf("set:41:0:9.90"), r.ds.myPriceCalls)
+    }
+
+    @Test
+    fun `下游价：给某一位下游定价 —— 卡上写明盖过默认价、回收站里那条会被复活`() = runBlocking<Unit> {
+        val r = Rig(actor = AiActor.of(AiRole.SHIPPER, true))
+        r.ds.myPriceProductRows = mutableListOf(priceProductRow(default = "8.00", contacts = 1))
+        // 回收站里已经有一条（同一个商品 × 同一位下游）—— 再设一次就是把它复活
+        r.ds.myPriceRows = mutableListOf(
+            priceRow(7, contactId = 93, contact = "赵六", unitPrice = "12.50", isDeleted = true),
+        )
+
+        val card = ok(
+            r.svc.preview(
+                AiWrites.SHIPPER_PRICE_SET,
+                p("product" to "红富士苹果", "contact" to "赵六", "price" to "12.5"),
+            ),
+        )
+        assertEquals("下游价：红富士苹果 → 12.5 元（赵六 13700000000）", card.summary)
+        assertTrue(
+            "给某一位下游定 = 盖过默认价：${card.bodyLines}",
+            card.bodyLines.any { it.contains("赵六 13700000000") && it.contains("盖过默认价") },
+        )
+        // ⚠️ 最要紧的一句：后端是 upsert，这次写下去是**复活软删那一行**，不是新建
+        assertTrue(
+            "必须说清是复活：${card.bodyLines}",
+            card.bodyLines.any { it.contains("复活") && it.contains("不是新建一条") },
+        )
+        // 参考行：这个商品的默认价（他没单独价时按它算）＋已经给几个下游定过价
+        assertTrue("要给出参考价：${card.bodyLines}", card.bodyLines.any { it.contains("默认价是 8 元") })
+        assertTrue(card.bodyLines.any { it.contains("已经单独给 1 个下游定过价") })
+
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertEquals(listOf("set:41:93:12.50"), r.ds.myPriceCalls)
+    }
+
+    @Test
+    fun `下游价：删掉某一位下游的价 —— 卡上写明回落口径，撤回能把那一行放回来`() = runBlocking<Unit> {
+        val r = Rig(actor = AiActor.of(AiRole.SHIPPER, true))
+        r.ds.myPriceRows = mutableListOf(
+            priceRow(7, unitPrice = "9.90"),
+            priceRow(9, contactId = 93, contact = "赵六", unitPrice = "12.50"),
+        )
+
+        val card = ok(
+            r.svc.preview(
+                AiWrites.SHIPPER_PRICE_DELETE,
+                p("product" to "红富士苹果", "contact" to "赵六"),
+            ),
+        )
+        assertEquals("删掉下游价：红富士苹果 → 12.5 元（赵六 13700000000）", card.summary)
+        assertTrue(card.bodyLines.any { it.contains("要删的这条价：12.5 元") })
+        // 删专属价必须说清他回落到哪一档（这句话没了，用户就不知道删完价算多少）
+        assertTrue("要说清他回落到哪：${card.bodyLines}", card.bodyLines.any { it.contains("他回落你的默认价") })
+        assertTrue("后台是伪装删除，卡上必须说：${card.bodyLines}", card.bodyLines.any { it.contains("伪装删除") })
+        assertTrue(card.bodyLines.any { it.contains("只影响以后新下的单") })
+        assertEquals(0, r.ds.myPriceCalls.size)
+
+        val done = r.svc.execute(card.token) as AiWriteOutcome.Done
+        assertEquals(listOf("delete:9"), r.ds.myPriceCalls)
+        assertNotNull("删价必须带撤回入口", done.undoToken)
+
+        // 撤回走的是“恢复”那个动作本身（成对动作），而且只用编号（不读现场）
+        val undo = ok(r.svc.offerUndo(done.undoToken!!))
+        assertTrue(r.svc.execute(undo.token) is AiWriteOutcome.Done)
+        assertEquals(listOf("delete:9", "restore:9"), r.ds.myPriceCalls)
+    }
+
+    @Test
+    fun `下游价：同一档留下两条时 —— 不说单价就拦住，说了才认`() = runBlocking<Unit> {
+        val r = Rig(actor = AiActor.of(AiRole.SHIPPER, true))
+        // 默认价那一档（`contact_id IS NULL`）唯一键管不住 —— 老数据里同一档真的可能留下两条，
+        // 而后端 `find_row` 只认第一条。那种时候**不能替他挑一条**，必须用单价指认。
+        r.ds.myPriceRows = mutableListOf(
+            priceRow(7, unitPrice = "9.90"),
+            priceRow(9, unitPrice = "11.00"),
+        )
+
+        val out = rejected(r.svc.preview(AiWrites.SHIPPER_PRICE_DELETE, p("product" to "红富士苹果")))
+        assertTrue("要问清是哪一条：${out.reason}", out.reason.contains("说单价"))
+        assertEquals("拦住的时候一个字都不许写", 0, r.ds.myPriceCalls.size)
+
+        val card = ok(
+            r.svc.preview(
+                AiWrites.SHIPPER_PRICE_DELETE,
+                p("product" to "红富士苹果", "price" to "11"),
+            ),
+        )
+        assertEquals("删掉下游价：红富士苹果 → 11 元（所有下游）", card.summary)
+        assertTrue(card.bodyLines.any { it.contains("删的是这个商品的默认价") })
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertEquals(listOf("delete:9"), r.ds.myPriceCalls)
+    }
+
+    @Test
+    fun `下游价：批发商资格没了 —— 当场拦住，并且告诉用户该找谁`() = runBlocking<Unit> {
+        // 真事：资格被派单员取消了，而 App 里那个 actor 还是旧的（角色门分不出两种货主）。
+        // “发一张点了必然 403 的卡”是本项目明确列为最坏的一类 bug —— 所以必须在 `prepare` 里当场拦。
+        val r = Rig(actor = AiActor.of(AiRole.SHIPPER, true))
+        r.ds.memberShipper = false
+        r.ds.myPriceProductRows = mutableListOf(priceProductRow())
+
+        val out = rejected(
+            r.svc.preview(AiWrites.SHIPPER_PRICE_SET, p("product" to "红富士苹果", "price" to "9.9")),
+        )
+        assertTrue("要说清是哪本账没有：${out.reason}", out.reason.contains("普通货主"))
+        assertTrue("要给出路（找派单员把他设成批发商）：${out.reason}", out.reason.contains("货主管理"))
+        assertEquals("拦住的时候一个字都不许写", 0, r.ds.myPriceCalls.size)
     }
 
 }

@@ -418,6 +418,8 @@
 
 | 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
 |---|---|---|---|---|
+| `list_priceable_products` | 只读 | `GET /api/v1/shipper-prices/products` | 他能定价的商品：**他下过单的** ∪ **派单员给他设过专属价的**（`allowed_product_ids`）。 |  |
+| `list_shipper_prices` | 只读 | `GET /api/v1/shipper-prices` | 他自己那本价目表。 |  |
 | `set_shipper_price` | 写 | `POST /api/v1/shipper-prices` | 设 / 改一条下游价（`contact_id` 留空 = 这个商品的**默认价**）。 |  |
 | `delete_shipper_price` | 写 | `DELETE /api/v1/shipper-prices/{price_id}` | 删一条下游价（**软删**：行留着，`POST /{price_id}/restore` 逐字段放回来）。 |  |
 | `restore_shipper_price` | 写 | `POST /api/v1/shipper-prices/{price_id}/restore` | 把删掉的下游价放回来（`DELETE` 的逆操作）。 |  |

@@ -31,6 +31,22 @@
 
 ## 进行中
 
+### [2026-10-08 02:0x → 03:3x CST 已完成] 会话：**CHG-0084 下游价开给 AI：批发商货主的三条写动作（定价 / 删价 / 撤回删除）＋ 两条读动作（台账 L-53）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户口径**（ref **m28098**，目标 `goal-7564f8c1-48e7-4083-9d73-4fd51a21b64c` 原文，台账 `_tmp/USER_BUG_LEDGER_20261006.md:2814`）：「① **AI 覆盖补齐** —— 把「本轮不开放」的 15~16 个写端点（**发票台账 6、钱相关 7、订单结构 3**）开给对应角色，并开**下游定价两条读动作**，保持「不漏、不越」的三方对账全绿 …… **司机端维持不加 AI。**」本单是目标① 四单里的**第一单**，也是唯一含读侧解封的一单。
+
+**病灶**：下游价这本账（批发商给自己卖出去的商品定的价，与派单员给他的专属价是**两层价**）在 2026-10-07 就已经有端点与手工页（CHG-0077），但 AI 这一侧：三条写端点整块登记在 `_tools/ai/_write_coverage.py:71-76` 的 `EXCLUDED`（「下游定价：本轮不开放」）、两条读端点在 `_tools/ai/_read_coverage.py:157-169` 的「不做」注释块里 ⇒ 批发商货主在 AI 里说「给红富士苹果定个价 9.9」时助手只能答「做不到」，连「有哪些商品能定价、这一档现在多少钱」都读不到；而卡片上要说清的「这一档是新建还是复活」「删完谁按什么算」，都必须先能读回来才写得对。
+
+**改法**：① 新建 `ai/AiWriteMyPrices.kt`（两条手写动作 ＋ 一条 `restoreAction(...)`：`SHIPPER_PRICE_SET` 参数 `product` / `contact` / `price`（NUMBER），`SHIPPER_PRICE_DELETE` 同三个名字且都只 `product` 必填，恢复那条 `call = { ds, id -> ds.restoreMyPrice(id) }`；三条都 `memberOnly = true`、组名 `G_MY_PRICE`）。② 新建 `ai/AiWriteMyPriceHandlers.kt`：两条处理器 ＋ 共用件（`requireMemberShipper`：`ds.isMemberShipper()` 为假就抛「你这个账号是普通货主，没有「给下游客户定价」这本账 …… 请让派单员在「货主管理」里把你设成批发商。」；`resolveDownstreamContact`：`contact` 不写或命中 `ALL_DOWNSTREAM_WORDS` ⇒ `null` ＝ 默认价那一档；`pickByPriceArg`：同一档留下多条价时必须用单价指认，不替用户挑；`sameMoney` 走 BigDecimal 比较）。两条 `prepare` **一个字都不写后端**（只读 `ds.myPriceProducts()` / `ds.myPrices(...)`），`commit` **只认 payload 里的编号**。③ `AiWrite.kt`：三个 id 常量 ＋ `G_MY_PRICE` ＋ 接进 `ALL` ＋ 三条进 `SHIPPER_ACTIONS`。④ `AiWriteService.kt` / `AiWriteDataSource.kt`：数据源五条（读两条 `myPriceProducts` / `myPrices`，写三条真的落到 `repo.setShipperPrice` / `deleteShipperPrice` / `restoreShipperPrice`）＋ `snapshot` 多一条 `"shipper_price" -> null` 分支（成对动作不读现场，但红线要逐个资源对账）。⑤ `AiResources.kt` 的 `SHIPPER_PRICE`（`idKey = "price_id"`、`delete(...)` ＋ `paired(AiWrites.SHIPPER_PRICE_RESTORE, AiInverse(..., mapOf("target_id" to AiRevert.ID)))`）；`AiRevert.kt` 给「改价」写一条 `UNDO_NONE` 理由并点名出路（删价**有**撤回按钮）。⑥ 读侧：`_gen_ai_read_catalog.py` 加两条中文说明 ＋ 两条 `MEMBER_ONLY_READS` ⇒ 重生成 `docs/ai/ai_read_catalog.json` 与 `ai/AiReadCatalog.kt`（读侧执行层是**纯数据驱动**的，Kotlin 不用手写执行代码）。⑦ 覆盖表：`_write_coverage.py` 删三条 `EXCLUDED` 并留下改口径的来龙去脉注释、`_read_coverage.py` 删两条「不做」；`_check_ai_guardrails.py` 的 `READ_METHODS` 白名单加两条读方法（写方法默认受约束，什么都不用做）。
+
+**明确不碰**：后端一行不改（`backend/app/api/v1/shipper_prices.py` 的三道前置校验与 `find_row` 故意不过滤 `is_deleted`（再设一次＝复活软删那一行）、`backend/app/services/shipper_price.py::price_of` 的三档口径与 `snapshot_order_lines` 的「只填 NULL、老单永不追改」）；历史订单与历史金额；权限点（沿用既有权限点 ＋ `_require_member` ＋ `_require_downstream`，⛔ 不新建体系）；派单员与普通货主的能力面（三条动作 `memberOnly = true`，普通货主连清单里都没有）；司机端维持不加 AI；手工路径（货主管理里的「我的下游价」）逐字不动。
+
+**判据 / 反验**：新建 `_tools/qa/_check_ai_my_prices.py`（**107 项 / 9 节**：三条登记一处 · 参数只有三个名字且⛔没有 `xxx_id` · 两条处理器（会员闸 / prepare 不写后端 / commit 只认 payload） · 两张卡文案（无 Markdown 粗体 / 只影响以后新下的单 / 回落口径 / 复活 / 伪装删除） · 数据源五条与三跳链路 · 资源与撤回（改价那条⛔不许进资源） · 覆盖表与生成物 · 单测与文书 · 防静默空转）＋ 新建 `_tools/qa/_reverse_verify_ai_my_prices.py`（**51 条注入**逐条让判据变红并点名，按字节还原）。配套：`_check_role_parity.py` 的 `MEMBER_ONLY_ACTIONS` 补三条（这条判据**自己抓到了我** —— 源码多了三条、角色账没跟上）、`docs/PROJECT_MAP/09A_HINT_CATALOG.md` 重生成（`python _tools/qa/_hint_inventory.py --md`）、生成物 `ai_toolmap.json`（端点 272 → **274**、读 87 → **89**）与 `kb_skeleton.md`。
+
+- 状态：✅ **已关闭**（2026-10-08 02:0x 开工 · 03:3x 关闭；变更单 `docs/changes/CHG-0084.md`；全量静检 **218/219**（唯一一条红是**环境性**的：本机 uvicorn 比源码旧，只差注释级改动）；Blast Radius **L1 —— AI 能力面**；提交 `（待回填）`）
+- 真机：⚠️ **未做**（本单不加界面、不加端点：要真机验就得跑一次真实的模型会话，留待本批四单做完后的整体真机；如实记在变更单 ⑨ Known Limitations）
+- 核心改动：`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt` —— **为什么必须动核心**：这一页是 AI 写动作的**唯一注册表与执行口**（动作 id 常量 / 域分组 `G_MY_PRICE` / `ALL` / 各角色清单 `SHIPPER_ACTIONS` 在 `AiWrite.kt`，数据源接口与两条 `RawHandler` 的注入点 `rawHandlers` 在 `AiWriteService.kt`）—— 三条新动作要能被模型看见、能被 `allows()` 放行、**预演与执行两条路走同一扇门**，就必须在这两处登记；⛔ 不改任何既有动作的语义与文案、不改三道闸（preview → 确认卡 → execute）与角色门、不改审计面。
+
 ### [2026-10-08 01:0x → 02:1x CST 已完成] 会话：**CHG-0082 AI 操作流水：AI 用你的身份动过的每一次请求都落一行（谁 / 何时 / 哪个动作 / 成没成 / 失败原因），派单员单独一页可查（台账 L-52）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 **用户原话**（ref **m26776**，台账 `_tmp/USER_BUG_LEDGER_20261006.md:2802` 逐字，勾选项）：「**再加一张 AI 操作流水**：每次 AI 动作都落一行（谁、何时、什么动作、成没成、失败原因），**管理端单独一页看**」。⚠️ 台账号沿革：立项时下一个空号是 **L-51**（`_tmp/b551_dump.txt:50` 记着「next free ledger id is L-51; CHG-0081 is taken by a parallel session」），源码注释先按 L-51 写了 19 处；随后并行会话把 **L-51** 用在 CHG-0081 上 ⇒ 本单**改号 L-52**（16 处逐字替换，改完判据当场复跑 96/96）。
