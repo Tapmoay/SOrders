@@ -6180,7 +6180,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **验证**：已跑全绿 —— 判据 `python _tools/qa/_check_inventory_purchase_merge.py` **76/76 exit 0**；反验 `python _tools/qa/_reverse_verify_inventory_purchase_merge.py` **29/29 exit 0**（28 条注入逐条判红、还原后判据复跑 76/76、被碰文件按字节还原）；L2 判据组 `_check_client_contract.py` **30/30**、`_check_endpoint_index_fresh.py` **端点 276 个一致**、`_check_migrations.py` **140 条 ≥ 18**；相关判据 `_check_purchase_orders.py` **60/60**、`_check_inventory_reservation.py` ✅、`_reverse_verify_inventory_reservation.py` 4 条注入成立；`python -m pytest backend/tests -q` **1404 passed exit 0**（187.47 秒）；`gradle -p android :app:assembleEmuDebug :app:testEmuDebugUnitTest` **1293 tests completed / 1 failed（预存在的 `AiHabitTest.kt:76`，与本单无关）/ 2 skipped**，`assembleEmuDebug` 出包（2026-10-07 09:09:19，46519949 字节）并 `adb -s emulator-5554 install -r` 成功；全量静检 `python _tools/qa/_check_all.py` **211/211（394.8 秒）exit 0**（⛔ 首跑 1/211 红在「本机后端跑的是旧代码」—— 本机 uvicorn 不带 `--reload`，重启后端后重跑全绿）；可达性 `python backend/scripts/check_reachability.py` **可达文档 194/194 exit 0**；真机 emulator-5554 **六张截图** `shots/chg0073_01_workbench_5554.png`（工作台没有「采购单」）/ `02_inventory_5554.png`（顶栏三颗）/ `03_po_list_5554.png` / `04_movements_5554.png`（普通流水行无回链）/ `05_movements_po_5554.png`（采购单行有回链）/ `06_po_form_5554.png`（点回链落到 `改采购单 #12`）。
 
-- 状态：已关闭（开工 2026-10-07 08:5x → 关单 2026-10-07 09:3x；变更单 `docs/changes/CHG-0073.md`；Blast Radius L2；实现提交 `______`）
+- 状态：已关闭（开工 2026-10-07 08:5x → 关单 2026-10-07 09:3x；变更单 `docs/changes/CHG-0073.md`；Blast Radius L2；实现提交 `287bb44`）
 
 ---
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
