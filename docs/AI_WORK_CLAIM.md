@@ -6150,7 +6150,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 ---
 
-### [2026-10-07 08:0x → 待定 CST] 会话：**CHG-0072 上传的商品照片能自由框选裁切（先按 EXIF 摆正，再裁；老图不批量重裁、单张能重裁也能不裁）**（台账 L-33）（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+### [2026-10-07 08:0x → 08:5x CST] 会话：**CHG-0072 上传的商品照片能自由框选裁切（先按 EXIF 摆正，再裁；老图不批量重裁、单张能重裁也能不裁）**（台账 L-33）（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 **用户原话**（ref **m01280**，逐字）：「上传的商品照片是可以**自定义裁切**的啊，这个要注意一点。」口径 **m01347** 四条裁定（逐字）：①「裁切是**自由的**，是可以自己**选择框选**的，就是我们普通的手机裁切的功能嘛」；②「可以加一个上传前的**摆正**；**压缩**就不需要了 —— 压缩是我们**自动给它压缩**的，不需要它进行压缩」；③「对于**以前的老图就算了，不需要加个重新裁切的入口**」；④「就是它上张图片点进去，它**可以重新裁切、也可以选择不裁切**……可能裁切过了，以便发现可能没裁切好，它就**对那个裁切好的图片进行重新裁切**，这个是功能少的」。台账 `_tmp/USER_BUG_LEDGER_20261006.md:1568` 整节 ＋ 附录 O `:2563-2570`（L-33 与 L-34 各是独立新功能、⛔ 别合批）。
 
@@ -6162,9 +6162,9 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **判据 / 反验**：新建 `_tools/qa/_check_image_crop.py`（位图流水线只有一份且摆正在裁之前 / 自由框选几何是纯函数且零 Compose import / 「不裁切」仍摆正压缩 / 裁切层不用 `Canvas(` / 编辑页点图仍是重新选图 / 老图没有批量入口 / 空转闸）＋ 新建 `_tools/qa/_reverse_verify_image_crop.py`（注入：去掉裁切、拿未摆正的位图去裁、让「不裁切」绕过压缩、给老图加批量重裁入口 …… 每条都必须红）＋ 随动改 `_tools/qa/_check_place_photo_watermark.py` 那两条钉住 `Watermark.kt` 自己调私有函数的断言（流水线搬到 ImageOps 后断言跟着指过去，并且对 ImageOps 本身加更细的断言 —— 只许往更不藏的方向改）。
 
-**验证**（2026-10-07 08:0x–09:0x CST 全跑完）：判据 `python _tools/qa/_check_image_crop.py` **127/127 exit 0**；反验 `python _tools/qa/_reverse_verify_image_crop.py` **28/28 exit 0**（每条注入都让红线点出那一条，收尾还原后被碰文件按字节还原、判据复跑 127/127 绿）；`ImageCropGeometryTest` **22 条全过**；`gradle -p android :app:assembleEmuDebug :app:testEmuDebugUnitTest` **1293 tests completed / 1 failed（预存在的 `AiHabitTest.kt:76`，与本单无关）/ 2 skipped**，出包并 `adb -s emulator-5554 install -r` 成功；`python _tools/qa/_check_all.py` **210/210 exit 0（338.7 秒）**；`python backend/scripts/check_reachability.py` **可达文档 193/193 exit 0**；`python _tools/qa/_check_hints.py` **31/31 exit 0**；真机 emulator-5554 **十七张截图** `shots/chg0072_01…22_5554.png`（裁 950×586 / 再裁 836×335 / 不裁切 1080×1920 三档对象级产物 ＋ 提示开关关 / 开两态）。
+**验证**（2026-10-07 08:0x–08:5x CST 全跑完）：判据 `python _tools/qa/_check_image_crop.py` **127/127 exit 0**；反验 `python _tools/qa/_reverse_verify_image_crop.py` **28/28 exit 0**（每条注入都让红线点出那一条，收尾还原后被碰文件按字节还原、判据复跑 127/127 绿）；`ImageCropGeometryTest` **22 条全过**；`gradle -p android :app:assembleEmuDebug :app:testEmuDebugUnitTest` **1293 tests completed / 1 failed（预存在的 `AiHabitTest.kt:76`，与本单无关）/ 2 skipped**，出包并 `adb -s emulator-5554 install -r` 成功；`python _tools/qa/_check_all.py` **210/210 exit 0（338.7 秒）**；`python backend/scripts/check_reachability.py` **可达文档 193/193 exit 0**；`python _tools/qa/_check_hints.py` **31/31 exit 0**；真机 emulator-5554 **十七张截图** `shots/chg0072_01…22_5554.png`（裁 950×586 / 再裁 836×335 / 不裁切 1080×1920 三档对象级产物 ＋ 提示开关关 / 开两态）。
 
-- 状态：已关闭（开工 2026-10-07 08:0x ／ 关闭 2026-10-07 09:0x；变更单 `docs/changes/CHG-0072.md`；Blast Radius L1；实现提交（SHA 见归档提交））
+- 状态：已关闭（开工 2026-10-07 08:0x ／ 关闭 2026-10-07 08:5x；变更单 `docs/changes/CHG-0072.md`；Blast Radius L1；实现提交 `6f38d94`）
 
 ---
 
