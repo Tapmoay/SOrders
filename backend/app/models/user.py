@@ -74,6 +74,13 @@ class User(Base, TimestampMixin):
     )
     # 会员标记：货主中的高级货主（仅对货主有意义）
     is_member: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 「他要不要管下游的账」（CHG-0076 / 台账 L-39）：**批发商自己的偏好**，默认开（＝现状）。
+    # ⛔ 与上面的 `is_member` 是**两件事**：那个是**身份**（他是批发商还是普通货主，只有派单员能改，
+    #    工作台那个「批发商」徽章靠它），这一格是他**自己**在「我的」页拨的开关
+    #    （关掉 ⇒ 这本账只显示他欠派单员的钱，核销一起收走）。
+    # 本列**只由迁移 026 加**（`app/migrations/026_user_downstream_ledger.py`）——
+    # ⛔ `core/schema_bootstrap.py` 里不写（加列是正式变更，两处都写＝同一件事两个来源）。
+    downstream_ledger_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # 商品可见范围（v3.43）：`all`（默认，不限制）/ `custom`（只给白名单里的商品）。
     # ⚠️ 默认**必须是 all**：老账号没有配置，如果默认当成"白名单为空 = 什么都看不到"，
     #    上线那一刻所有货主的选品页都会是空的 —— 这种"默认把功能关掉"的迁移是灾难。

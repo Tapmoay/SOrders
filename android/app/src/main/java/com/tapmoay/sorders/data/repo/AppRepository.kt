@@ -679,6 +679,15 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun me() = api.userApi.me()
 
     /**
+     * 「我的 → 管下游的账」那颗开关（CHG-0076 / 台账 L-39）。
+     *
+     * ⚠️ 这是**服务端**的偏好（`users.downstream_ledger_enabled`），不是本机设置 ——
+     * 老包 / AI / 直接打接口都按它收窄；只存本机的话换台手机照样看得见这本账。
+     */
+    suspend fun setDownstreamLedger(enabled: Boolean) =
+        api.userApi.setDownstreamLedger(com.tapmoay.sorders.data.remote.api.DownstreamLedgerRequest(enabled))
+
+    /**
      * 账号列表（**一页**）——`role` 为 null = 全量（账户管理页）。
      *
      * 后端 `le=500`：超过 500 个账号时只回最近 500 条并置 `X-Truncated: 1`。

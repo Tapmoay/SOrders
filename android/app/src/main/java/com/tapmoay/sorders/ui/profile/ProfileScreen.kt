@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Update
 import androidx.compose.material.icons.filled.VolumeUp
@@ -191,9 +192,47 @@ fun ProfileScreen(
                         }
                     }
 
+                    // ---- 管下游的账（CHG-0076 / 台账 L-39）：**批发商自己**决定要不要管 ----
+                    // 用户原话（ref m01547）：「因为有些批发商他可能不想让我们去管他的账，所以我们就给
+                    // 一个功能，开启这个按钮……如果关闭了的话，他这个账本只显示他欠我们的钱。」
+                    // ⚠️ 只给批发商画（`isMember`）：普通货主没有下游这本账，画出来他点下去只会 403。
+                    // ⚠️ 「已开启 / 已关闭」是**状态回执**（`docs/HINT_STYLE.md` §2 丁族）⇒ 走 `Text`
+                    //    常显，⛔ 不许挂到「提示」总开关上（用户来这一页就是要看它现在什么状态）。
+                    // ⛔ 它是**业务开关**（管不管下游那本账），不是显示偏好 —— 所以不进「基础设置」，
+                    //    就摆在用户说的那个「我的」页第一层。
+                    if (vm.user?.isMember == true) {
+                        RowMotion(1, jelly) {
+                            ProfileRow(
+                                icon = Icons.Default.People,
+                                tint = Color(MoneyOrange),
+                                title = "管下游的账",
+                                subtitle = {
+                                    Hint("不想让我们替你管下游货主的账时，把这一格关掉。")
+                                },
+                                trailing = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            if (vm.downstreamLedgerEnabled) "已开启" else "已关闭",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Switch(
+                                            checked = vm.downstreamLedgerEnabled,
+                                            enabled = !vm.downstreamLedgerSaving,
+                                            onCheckedChange = { vm.setDownstreamLedger(it) },
+                                        )
+                                    }
+                                },
+                                onClick = { vm.setDownstreamLedger(!vm.downstreamLedgerEnabled) },
+                                showChevron = false,
+                            )
+                        }
+                    }
+
                     // ---- 消息提醒：把「来单了会不会喊、喊几遍、关掉 App 还收不收」摆在明面上 ----
                     // 右侧直接写当前状态——不写的话，用户只能进去看一遍才知道现在是开是关。
-                    RowMotion(1, jelly) {
+                    RowMotion(2, jelly) {
                         ProfileRow(
                             icon = if (NewOrderAlert.hasVoice(Role.fromKey(container.tokenStore.cachedRole() ?: ""))) {
                                 Icons.Default.VolumeUp
@@ -233,7 +272,7 @@ fun ProfileScreen(
                     // 标题只留「提示」两个字；副标题说清现在是**开还是关**（不进去也知道）。
                     // ⛔ 关掉它**只关解释句**（`ui/common/Hints.kt::Hint`）：金额、数量、状态回执、
                     // 警告与空态文案一律照旧显示（`docs/HINT_STYLE.md` §2）。
-                    RowMotion(2, jelly) {
+                    RowMotion(3, jelly) {
                         ProfileRow(
                             icon = Icons.Default.Lightbulb,
                             tint = Color(0xFF00A2C8),
@@ -261,7 +300,7 @@ fun ProfileScreen(
                     }
 
                     // ---- 基础设置（第二层）：剩下的纯显示偏好 ----
-                    RowMotion(3, jelly) {
+                    RowMotion(4, jelly) {
                         ProfileRow(
                             icon = Icons.Default.Settings,
                             // 灰色而不是语义色：它是**分组容器**，不是某个功能模块 ——
@@ -295,7 +334,7 @@ fun ProfileScreen(
                     // 用户 2026-09-21 的对应关系是「关于我们**就是**我们的那个版本更新」，
                     // 所以这一行点一下**直接检查更新**，不再中间夹一层"关于页"。
                     // 右侧显示当前版本：用户想知道"我装的是哪一版"不必点进去。
-                    RowMotion(4, jelly) {
+                    RowMotion(5, jelly) {
                         ProfileRow(
                             icon = if (vm.updateState == "downloading") Icons.Default.Download else Icons.Default.Update,
                             tint = Color(0xFF00B578),
@@ -358,7 +397,7 @@ fun ProfileScreen(
                     // 一色加图标然后加文字」，随后补上「不是点一下就直接退出，为了防止误碰要弹框，
                     // 一个确认退出一个取消」。
                     // ⛔ 没有 `>` 箭头：这一行是**动作**不是"进下一页"（箭头会承诺一个不存在的页面）。
-                    RowMotion(5, jelly) {
+                    RowMotion(6, jelly) {
                         ProfileRow(
                             icon = Icons.AutoMirrored.Filled.Logout,
                             tint = MaterialTheme.colorScheme.error,

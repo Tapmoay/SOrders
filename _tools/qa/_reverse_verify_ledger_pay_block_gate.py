@@ -55,7 +55,8 @@ RECV_LABEL_OLD = RECV_LABEL + "（下游欠我）"
 # 支出段那两行（判据逐字钉的就是这两行；拆闸门 / 换判据都从它下手）
 PAY_OPEN = "        if (vm.isAllCustomers) {" + NL + "            Spacer(Modifier.height(6.dp))" + NL
 DIVIDER_LINE = "            if (vm.isAllCustomers) HorizontalDivider(Modifier.padding(vertical = 10.dp))"
-MEMBER_GATE = "        if (s?.isMember == true) {" + NL
+#: 与判据同一份文本（CHG-0076 起是**两个条件**：身份 ＋ 他自己那把开关）。
+MEMBER_GATE = "        if (vm.isMember && s?.isMember == true && s.downstreamLedgerEnabled) {" + NL
 VM_GATE = "    val isAllCustomers: Boolean" + NL + "        get() = selectedCustomer == null" + NL
 SEL_CUST = (
     "    fun selectCustomer(key: String?) {" + NL

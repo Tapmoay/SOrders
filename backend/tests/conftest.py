@@ -308,6 +308,12 @@ def _reset_shared_users(db_session: Session) -> None:
         if u.is_member:
             u.is_member = False
             changed = True
+        # CHG-0076：「我的 → 管下游的账」那颗开关也是**共用账号上的可变标志** ——
+        # 关掉之后账本收入侧恒为 0（`shipper_ledger.summary` 直接不查核销表），
+        # 别的用例（`test_shipper_ledger_summary` 那几条）断言的正是那些数 ⇒ 必须回基线。
+        if not getattr(u, "downstream_ledger_enabled", True):
+            u.downstream_ledger_enabled = True
+            changed = True
         if getattr(u, "driver_rule_id", None) is not None:
             u.driver_rule_id = None
             changed = True

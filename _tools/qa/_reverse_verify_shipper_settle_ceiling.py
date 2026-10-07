@@ -185,7 +185,7 @@ CASES: list[tuple[str, Path, str, str, str, str]] = [
     (
         "⑬ 三个写端点里少一道「只有批发商」的门",
         API,
-        "    _require_member(current)\n    order = _locked_order(db, _own_order(db, current, body.order_id))\n",
+        "    _require_member(current)\n    _require_downstream(current)\n    order = _locked_order(db, _own_order(db, current, body.order_id))\n",
         "    order = _locked_order(db, _own_order(db, current, body.order_id))\n",
         "三个写端点仍然各自过 `_require_member`",
         "check",

@@ -87,6 +87,12 @@ data class UserDto(
     val role: String,
     @SerialName("is_active") val isActive: Boolean = true,
     @SerialName("is_member") val isMember: Boolean = false,
+    // 「他要不要管下游的账」（CHG-0076 / 台账 L-39）：**批发商自己的偏好**，后端存的，默认 true
+    // （＝老后端 / 没拨过的账号 = 今天的行为）。
+    // ⛔ 与上面那个 `is_member` 不是一回事：那个是**身份**（工作台那个「批发商」徽章靠它），
+    //    这个是他在「我的」页自己拨的开关 —— 关掉只影响这本账显示什么、还能不能核销，
+    //    **一分钱都不动**（两本账绝不互写）。
+    @SerialName("downstream_ledger_enabled") val downstreamLedgerEnabled: Boolean = true,
     // 账号分类（2026-10-05）：账户 / 司机 / 货主 / 批发商四个名册页**左侧那一列**按它分组。
     // 空串 = 未分类。名册与顺序在 `user_categories`，这一格只存名字（后端是自由文本，
     // 所以名册里没有的名字也照样显示，不会把账号藏起来）。

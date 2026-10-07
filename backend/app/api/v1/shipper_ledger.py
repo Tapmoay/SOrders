@@ -91,6 +91,34 @@ def _require_member(current: User) -> None:
         )
 
 
+def _downstream_enabled(current: User) -> bool:
+    """他有没有把下游这本账关掉（CHG-0076 / 台账 L-39）。
+
+    ⚠️ 与 `is_member` 是**两件事**：那个是**身份**（普通货主 / 批发商货主，只有派单员能改），
+       这一格是他**自己**在「我的 → 管下游的账」里拨的开关。
+    `getattr(...,  True)` 兜底与迁移 026 的 `DEFAULT 1` 同一条口径：没拨过 = 开着 = 今天的行为。
+    """
+    return bool(getattr(current, "downstream_ledger_enabled", True))
+
+
+def _require_downstream(current: User) -> None:
+    """关掉之后**还能不能写**这本账：不能（口径 ③：关掉连核销一起收）。
+
+    ⚠️ 这一道与 `_require_member` **必须都在**：那一道管"你是不是批发商"，
+       这一道管"你把不把这本账交给系统管"。只留 `_require_member` 的话，
+       他关掉开关后照样能通过接口记核销 —— 界面藏起来的东西就不是"关掉"。
+    文案要说清**出路**：只回 403 的话他会以为系统坏了（他明明是批发商）。
+    """
+    if not _downstream_enabled(current):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "你已经在「我的 → 管下游的账」里关掉了这本账 —— "
+                "要记下游的核销，先回去把它打开"
+            ),
+        )
+
+
 def _own_order(db: Session, current: User, order_id: int) -> Order:
     """取出**自己的**订单（别人的单一律 404 —— 不说"存在但不是你的"）。"""
     order = db.get(Order, order_id)
@@ -282,10 +310,14 @@ def ledger_summary(
     payable, paid, unpaid = q2(payable), q2(paid), q2(unpaid)
 
     is_member = bool(getattr(current, "is_member", False))
+    # 「他要不要管下游的账」（CHG-0076 / 台账 L-39）：关掉 ⇒ 收入侧一律 0，
+    # 而且**根本不去查核销表**（口径 ①：返回空 ＋ 一个标记，⛔ 不是 403 —— 旧 App 会弹报错）。
+    # ⚠️ 两个条件都要：`is_member` 管"他是不是批发商"，`downstream` 管"他把不把这本账交给系统管"。
+    downstream = _downstream_enabled(current)
     receivable = ZERO_D
     received = ZERO_D
     settle_count = 0
-    if is_member:
+    if is_member and downstream:
         # 收入侧（只有批发商有）：应收货款 → 行应收之和（退掉的部分 `line_receivable` 里已经扣了）
         for o in orders:
             receivable += sum((line_receivable(op) for op in o.order_products), ZERO_D)
@@ -321,6 +353,7 @@ def ledger_summary(
         unreceived=q2(receivable - received),
         settlements=settle_count,
         is_member=is_member,
+        downstream_ledger_enabled=downstream,
     )
 
 
@@ -341,6 +374,12 @@ def list_settlements(
     offset: int = Query(0, ge=0),
 ) -> list[ShipperSettlementOut]:
     """他记下的核销（默认只回没撤销的）。"""
+    # 关掉这本账 ⇒ 直接回空列表（**不查库、不 403**）：口径 ① 要的是"返回空 ＋ 一个标记"，
+    # 而标记挂在汇总端点那一边（`downstream_ledger_enabled`）——
+    # ⚠️ 这里只有一张列表、没有标记位，所以客户端**不能**只看这张空列表来判断
+    #    "是他关掉了还是本来就没有"，那个判断必须回汇总端点取。
+    if not _downstream_enabled(current):
+        return []
     effective_limit = limit or DEFAULT_SETTLE_LIMIT
 
     stmt = (
@@ -389,6 +428,7 @@ def create_settlement(
        这一道不依赖行锁（SQLite 上 `FOR UPDATE` 会被忽略），所以它是兜底的那一道。
     """
     _require_member(current)
+    _require_downstream(current)
     order = _locked_order(db, _own_order(db, current, body.order_id))
     blocker = settle_blocker(order)
     if blocker:
@@ -519,6 +559,7 @@ def delete_settlement(
         以为撤过两次、或者以为还有第二笔钱）。
     """
     _require_member(current)
+    _require_downstream(current)
     s = db.get(ShipperSettlement, settlement_id)
     if s is None or s.shipper_id != current.id:
         raise HTTPException(status_code=404, detail="这笔核销记录不存在")
@@ -572,6 +613,7 @@ def restore_settlement(
     放行之后再 `flush` 并复查一次（防线②，不依赖行锁）。
     """
     _require_member(current)
+    _require_downstream(current)
     s = db.get(ShipperSettlement, settlement_id)
     if s is None or s.shipper_id != current.id:
         raise HTTPException(status_code=404, detail="这笔核销记录不存在")

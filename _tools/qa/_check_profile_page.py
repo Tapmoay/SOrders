@@ -16,8 +16,8 @@
    - 「退出登录」要与其它行**同形**（图标+文字，不居中），点一下**先弹确认框**（防误碰）。
 
 ## 判据怎么来的（行数自己算，锚点各写各的理由）
-第一层的**行数**是从源码数出来的（`ProfileRow(` 的出现次数），**恰好等于 6**：
-我的账本〔仅司机·条件显示〕/ 消息提醒 / 提示 / 基础设置 / 关于与更新 / 退出登录。
+第一层的**行数**是从源码数出来的（`ProfileRow(` 的出现次数），**恰好等于 7**：
+我的账本〔仅司机·条件显示〕/ 管下游的账〔仅批发商·条件显示；2026-10-07 台账 L-39 / CHG-0076 加的〕/ 消息提醒 / 提示 / 基础设置 / 关于与更新 / 退出登录。
 少一行是丢了功能，多一行就是"按钮又多起来了"（正是这一轮要解决的问题），两种都该红。
 ⛔ 不按标题字面量对齐成一个集合：其中「关于与更新」的标题是个 `when` 表达式
 （下载中/安装中要换文案），按标题解析会把 `"checking"` 这类内部键也当成一行。
@@ -52,11 +52,14 @@ MODULES = ANDROID / "ui" / "nav" / "Modules.kt"
 ROUTES = ANDROID / "ui" / "nav" / "Routes.kt"
 NAV = ANDROID / "ui" / "nav" / "NavGraph.kt"
 
-# 第一层就是这六行（用户 2026-09-21 逐条过过）。`我的账本` 只对"有按单的钱要对"的司机显示，
-# 但它的字面量一直在源码里；显示条件另有判据（`_check_driver_money.py`）。
-N_ROWS = 6
+# 第一层就是这七行（用户 2026-09-21 逐条过过前六行；第七行是 2026-10-07 他自己要的，
+# 台账 L-39 / CHG-0076：批发商在「我的」里决定要不要管下游的账）。
+# `我的账本` 只对"有按单的钱要对"的司机显示、`管下游的账` 只对批发商显示，
+# 但它们的字面量一直在源码里；显示条件另有判据（`_check_driver_money.py` / `_check_downstream_ledger_switch.py`）。
+N_ROWS = 7
 WANT_ROW_ANCHORS: list[tuple[str, str, str]] = [
     ("我的账本", 'title = "我的账本"', "司机那一行（条件显示）"),
+    ("管下游的账", 'title = "管下游的账"', "批发商那一行（条件显示；用户原话：「在那个我的里面加一个按钮」）"),
     ("消息提醒", 'title = "消息提醒"', "来单会不会响"),
     ("提示", 'title = "提示"', "总开关；用户当天要求从「基础设置」**搬回第一层**"),
     ("基础设置", 'title = "基础设置"', "第二层的入口"),
@@ -228,6 +231,18 @@ def main() -> int:
     c.ok("**详细说明**仍然另起一行（消息提醒那句 Hint 还在 subtitle 里）",
          "subtitle" in alert_row and "Hint(" in alert_row,
          "用户：「如果是详细说明的话，则就出现在下面」—— 这条是双向的，别为了统一把长句也搬到右边")
+    # ── 5c. 「管下游的账」那一格（CHG-0076 / 台账 L-39）────────────────────
+    # 它是**业务开关**（管不管下游那本账），不是显示偏好：状态必须常显 ——
+    # 「已开启 / 已关闭」是**状态回执**（docs/HINT_STYLE.md §2 丁族），
+    # 挂到「提示」总开关上就等于"关掉提示的人看不见自己拨的是哪一档"。
+    switch_row = row_chunk("管下游的账")
+    c.ok("「管下游的账」那一格在、状态文字在右边同一行、而且是**常显**的",
+         bool(switch_row) and "已开启" in switch_row and "已关闭" in switch_row
+         and "subtitle" in switch_row,
+         "状态回执属 DATA（⛔ 不许改走 Hint）；教法句才留在 subtitle 里")
+    c.ok("「管下游的账」是**服务端**的偏好，不存本机（要经 repo 发出去）",
+         "vm.setDownstreamLedger(" in switch_row,
+         "只改本机 SharedPreferences 的话，老包 / AI / 直接打接口照样看得见这本账")
     c.ok("路由三处齐全：Routes 声明 + NavGraph 注册 + 「我的」有入口",
          "BASIC_SETTINGS" in routes and "Routes.BASIC_SETTINGS" in nav
          and "onOpenBasicSettings" in profile and "Routes.BASIC_SETTINGS" in home,
@@ -277,7 +292,7 @@ def main() -> int:
         for label, _ in c.fails:
             print(f"   - {label}")
         return 1
-    print(f"✅ 全部 {c.n_ok} 项通过：「我的」页三端共用、行数就是拍板的那六行、"
+    print(f"✅ 全部 {c.n_ok} 项通过：「我的」页三端共用、行数就是拍板的那七行、"
           f"深色头部与状态栏配套、行动效有上限、基础设置与路由齐全、退出登录要确认。")
     return 0
 

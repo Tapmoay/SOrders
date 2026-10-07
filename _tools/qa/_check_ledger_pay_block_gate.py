@@ -96,8 +96,10 @@ SAME_GOODS_2 = "两段互不影响：下面那本账怎么核销"
 #: 支出块闸门的头两行（**缩进是判据的一部分**：这一段在 SectionCard 里，闸门在 8 空格那一层）。
 PAY_OPEN = ("        if (vm.isAllCustomers) {" + chr(10)
             + "            Spacer(Modifier.height(6.dp))" + chr(10))
-#: 收入段的闸门（本次一个字没动）。
-MEMBER_GATE = "        if (s?.isMember == true) {" + chr(10)
+#: 收入段的闸门。2026-10-07（CHG-0076 / 台账 L-39）加了**第二个条件** ——
+#: 身份（is_member）＋ 他自己那把开关（downstream_ledger_enabled）：关掉开关的批发商
+#: 不许再看到这一段（服务端已经把那三个数返成 0，界面还画就是一段全是 0.00 的"收入"）。
+MEMBER_GATE = "        if (vm.isMember && s?.isMember == true && s.downstreamLedgerEnabled) {" + chr(10)
 #: 卡片那个函数的结束边界（用来算「这一段里 isMember 出现几次」）。
 CARD_END = "/** 批发商：一个货主一张卡"
 #: 换人必须重取统计（2026-09-22 真机实测抓到过的那条）。
@@ -201,7 +203,11 @@ def main() -> int:
          "标题换了判据 —— 会出现「写着某个人的名字、却画着全部的支出」")
 
     print("== 2. 收入那一段照旧：闸门不是「顺手把整张卡改了」 ==")
-    c.ok("收入段仍由 `if (s?.isMember == true)` 守着", MEMBER_GATE in ship)
+    c.ok("收入段仍由 `if (vm.isMember && s?.isMember == true && s.downstreamLedgerEnabled)` 守着", MEMBER_GATE in ship)
+    c.ok("收入那道闸门**还要求**他自己那把开关（CHG-0076：关掉了这本账只显示他欠公司的钱）",
+         "s.downstreamLedgerEnabled" in ship,
+         "只按 is_member 判：关掉开关的批发商会看到一段全是 0.00 的「收入」，"
+         "还能点「核销」（后端 403 —— 用户以为系统坏了）")
     c.ok("收入标签在（新写法）", ("                " + DQ + RECV_LABEL + DQ + ",") in ship)
     c.ok("收入那两个数没被换（`s.unreceived` ＋ `Color(ReceivableOrange)`）",
          (DQ + "¥" + DQ + " + formatMoney(s.unreceived),") in ship

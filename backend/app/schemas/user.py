@@ -30,6 +30,10 @@ class UserOut(BaseModel):
     role: UserRole
     is_active: bool
     is_member: bool = False
+    #: 「他要不要管下游的账」（CHG-0076 / 台账 L-39）：**批发商自己的偏好**，默认开（老账号＝现状）。
+    #: ⛔ 与 [is_member] 不是一回事 —— 那个是**身份**（工作台徽章靠它），这个是他在「我的」页
+    #:    拨的开关；关掉只影响这本账显示什么、以及能不能核销，**一分钱都不动**。
+    downstream_ledger_enabled: bool = True
     #: 账号分类（空串 = 未分类）。名册与顺序在 `user_categories` 表里，这一格只存名字。
     #: 账户 / 司机 / 货主 / 批发商四个名册页左侧那一列，就是按这一格分组的（2026-10-05）。
     category: str = ""
@@ -98,3 +102,14 @@ class UserUpdate(MoneyInput):
     vehicle_type: str | None = Field(None, max_length=16)
     billing_mode: str | None = Field(None, max_length=16)
     salary: Decimal | None = Field(None, ge=0)
+
+
+class DownstreamLedgerIn(BaseModel):
+    """「我的 → 管下游的账」那颗开关的入参（CHG-0076 / 台账 L-39）。
+
+    ⚠️ 只有**他本人**能改这一格（`PATCH /users/me/downstream-ledger`）——
+    派单员不代设（口径 ④），所以这里没有 user_id、也没有别的字段。
+    """
+
+    #: true = 管下游的账（显示别人欠他的钱、给谁什么价）；false = 这本账只显示他欠派单员的钱
+    enabled: bool

@@ -54,6 +54,15 @@ interface UserApi {
     suspend fun me(): UserDto
 
     /**
+     * 「我的 → 管下游的账」那颗开关（CHG-0076 / 台账 L-39）。
+     *
+     * ⚠️ 路径是 `/me/...`、**没有 userId**：这是**他自己**的选择（口径 ④ ——
+     * 派单员不给看、也不代设），后端也按"货主本人"鉴权，拿别人的 id 一律 403。
+     */
+    @PATCH("users/me/downstream-ledger")
+    suspend fun setDownstreamLedger(@Body body: DownstreamLedgerRequest): UserDto
+
+    /**
      * 账号列表（**一页**）。
      *
      * 返回 `Response<...>` 是为了**读响应头**：后端 `le=500`，账号超过 500 个时只回最近
@@ -136,6 +145,18 @@ data class UserUpdateRequest(
     @Serializable(with = com.tapmoay.sorders.data.remote.dto.NullableFlexibleStringSerializer::class) val salary: String? = null,
     // 账号分类（2026-10-05）。**不传 = 不动**；空串 = 清成未分类。
     val category: String? = null,
+)
+
+/**
+ * 「我的 → 管下游的账」那颗开关的请求体（CHG-0076）。
+ *
+ * 只有一个字段：⛔ 别顺手加 `userId` —— 后端只认"当前登录人自己"，
+ * 能代设就等于把批发商的选择交给了别人（口径 ④）。
+ */
+@Serializable
+data class DownstreamLedgerRequest(
+    /** true = 管下游的账（显示别人欠他的钱）；false = 这本账只显示他欠派单员的钱。 */
+    val enabled: Boolean,
 )
 
 interface OrderApi {
@@ -1764,6 +1785,14 @@ data class ShipperLedgerSummaryDto(
     @Serializable(with = FlexibleStringSerializer::class) val unreceived: String = "0.00",
     val settlements: Int = 0,
     @SerialName("is_member") val isMember: Boolean = false,
+    /**
+     * 「他有没有把下游这本账关掉」（CHG-0076 / 台账 L-39）。
+     *
+     * ⚠️ 关掉时上面收入侧那三个数与 [settlements] **恒为 0**（服务端根本不查核销表）——
+     *    所以只看"是不是 0"分不清"他关掉了"还是"本来就没有"，界面必须看这个标记。
+     * 默认 true = 老后端没这个字段（＝今天的行为）。
+     */
+    @SerialName("downstream_ledger_enabled") val downstreamLedgerEnabled: Boolean = true,
 )
 
 @Serializable

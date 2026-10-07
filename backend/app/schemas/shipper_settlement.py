@@ -117,4 +117,13 @@ class ShipperLedgerSummaryOut(BaseModel):
     settlements: int = 0
     #: 是不是批发商货主（决定界面上画不画"收入"那一边）
     is_member: bool = False
+    #: 他有没有把下游这本账**关掉**（CHG-0076 / 台账 L-39）。
+    #: 关掉时上面收入侧三个数与 [settlements] 恒为 0，而且服务端**根本不去查核销表**。
+    #: 为什么是"返回空 ＋ 一个标记"而不是 403（口径 ①）：旧 App 见到 403 会弹报错，
+    #: 见到 0 只是"没有"；但**只看空列表分不清"关掉了"还是"本来就没有"**，所以标记放这里。
+    #: ⚠️ 客户端那一道闸门是 `isMember && downstreamLedgerEnabled` —— 两个都要：
+    #:    普通货主这一格也是 true，可他本来就没有下游账。
+    #: ⛔ 与 [is_member] 不是一个意思：那个是**身份**（工作台那个「批发商」徽章靠它），
+    #:    这个是**偏好**（只有他本人能在「我的」页拨）。
+    downstream_ledger_enabled: bool = True
 

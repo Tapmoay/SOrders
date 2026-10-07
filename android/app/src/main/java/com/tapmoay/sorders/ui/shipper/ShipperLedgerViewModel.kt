@@ -50,6 +50,25 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
         private set
 
     /**
+     * 「他要不要管下游的账」（CHG-0076 / 台账 L-39）—— 服务端那把开关的**回执**。
+     *
+     * ⚠️ 它来自 GET /shipper-ledger/summary 的 downstream_ledger_enabled（**不是** users/me）：
+     *    这一页画的正是那本账，用同一个请求里的标记才不会出现"界面还在画收入段、
+     *    服务端已经返空"的错位。默认 true = 老后端 / 没拨过 = 今天的行为。
+     */
+    var downstreamEnabled by mutableStateOf(true)
+        private set
+
+    /**
+     * 界面那一道闸门：**两个条件都要**。
+     *
+     * isMember = **身份**（他是不是批发商）；[downstreamEnabled] = **他自己的偏好**
+     * （要不要把这本账交给系统管）。⛔ 只按身份判的后果：关掉开关的批发商照样会看到一段
+     * 全是 0.00 的"收入"、还能点「核销」—— 后端会 403，而用户只会以为系统坏了。
+     */
+    val canManageDownstream: Boolean get() = isMember && downstreamEnabled
+
+    /**
      * 「我」是谁 —— 名字与电话（同一次 users/me 顺手拿的）。
      *
      * 只为一件事：认出账本里**欠款人就是货主自己**那一档（用户 2026-10-07 m12371）。
@@ -427,6 +446,10 @@ class ShipperLedgerViewModel(private val container: AppContainer) : ViewModel() 
                     customerName = summaryCustomerName(),
                     customerPhone = summaryCustomerPhone(),
                 )
+                // 「他把下游这本账关掉了」的回执（CHG-0076）：收入段那道闸门靠它。
+                // ⚠️ 取的是**这一次请求**的标记（与上面那张卡同源），不是登录时问的 users/me
+                //    —— 他在「我的」页关掉之后回到这一页，这个数必须当场是新的。
+                downstreamEnabled = summary?.downstreamLedgerEnabled ?: true
             } catch (e: Exception) {
                 error = toApiException(e).message
             } finally {

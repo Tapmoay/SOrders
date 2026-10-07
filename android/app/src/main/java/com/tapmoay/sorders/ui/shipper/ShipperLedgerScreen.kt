@@ -70,7 +70,8 @@ fun ShipperLedgerScreen(
     // 两个弹层：档位清单（选哪一档）与自定义日期（选完区间）—— 都画在 Scaffold **外面**
     // （声明在它的 content 里就出了作用域）
     var showDatePresets by remember { mutableStateOf(false) }
-    // 侧边抽屉：**只给批发商**（他才有"人"可挑；普通货主连手势都不开）
+    // 侧边抽屉：**只给"要管下游账"的批发商**（他才有"人"可挑）——闸门是两个条件：
+    // 身份（vm.isMember）＋ 他自己那把开关（CHG-0076：关掉了连手势都不开）
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -78,7 +79,7 @@ fun ShipperLedgerScreen(
 
     ModalNavigationDrawer(
         drawerState = drawer,
-        gesturesEnabled = vm.isMember && !vm.showFlow,
+        gesturesEnabled = vm.canManageDownstream && !vm.showFlow,
         drawerContent = {
             ModalDrawerSheet {
                 CustomerDrawer(
@@ -200,9 +201,10 @@ private fun LedgerBody(
     onOpenDrawer: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
-        // 批发商：**人员那一行**（与派单员账本同一形状）——点开是侧边抽屉，里面搜人、挑人。
-        // 普通货主没有"人"可挑，所以这一行不画；他的搜索框留在页面上（搜的是订单）。
-        if (vm.isMember) {
+        // 管下游账的批发商：**人员那一行**（与派单员账本同一形状）——点开是侧边抽屉，搜人、挑人。
+        // 普通货主没有"人"可挑；**关掉开关的批发商也没有**（CHG-0076：他那本账只显示他欠公司的钱），
+        // 这两种人这一行都不画，他的搜索框留在页面上（搜的是订单）。
+        if (vm.canManageDownstream) {
             CustomerTriggerRow(vm = vm, onOpen = onOpenDrawer)
         } else {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
@@ -221,7 +223,7 @@ private fun LedgerBody(
         ) {
             item { TotalsCard(vm) }
 
-            if (vm.isMember) {
+            if (vm.canManageDownstream) {
                 val groups = vm.customers
                 if (groups.isEmpty()) {
                     item { EmptyView("这一段没有订单", Modifier.fillMaxWidth()) }
@@ -246,7 +248,7 @@ private fun LedgerBody(
                 }
             }
 
-            if (vm.isMember && vm.revoked.isNotEmpty()) {
+            if (vm.canManageDownstream && vm.revoked.isNotEmpty()) {
                 item { RevokedCard(vm) }
             }
         }
@@ -475,7 +477,10 @@ private fun TotalsCard(vm: ShipperLedgerViewModel) {
             )
         }
 
-        if (s?.isMember == true) {
+        // ⛔ 闸门是**两个条件**（CHG-0076）：vm.isMember = 他是不是批发商（身份，这句口径句
+        //    只对"同时有两段"的人有意义），s.downstreamLedgerEnabled = 他要不要管下游这本账。
+        //    只按身份判的后果：关掉开关的人照样看到一段全是 0.00 的"收入"。
+        if (vm.isMember && s?.isMember == true && s.downstreamLedgerEnabled) {
             // 分隔线只在两段都画时才画（选中某人时上面那一段不在，顶上横一条线像卡片缺了一块）
             if (vm.isAllCustomers) HorizontalDivider(Modifier.padding(vertical = 10.dp))
             // ---- 收入：我该收的（只有批发商有）----
@@ -686,7 +691,7 @@ private fun OrderRow(vm: ShipperLedgerViewModel, o: OrderDto, onOpenOrder: (Long
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
-            if (vm.isMember) {
+            if (vm.canManageDownstream) {
                 // 收款状态必须与订单状态自洽（2026-10-03 E2E 走查 P26）：退货是把应收**红冲**成 0
                 // （`lineReceivableCents` = 行金额 − 单价 × 已退数量），**不是收到钱** ——
                 // 原来这一格只要 remaining == 0 就写「已核销」，退货单于是被说成"收讫"
@@ -708,7 +713,7 @@ private fun OrderRow(vm: ShipperLedgerViewModel, o: OrderDto, onOpenOrder: (Long
                 )
             }
         }
-        if (vm.isMember) {
+        if (vm.canManageDownstream) {
             Spacer(Modifier.width(8.dp))
             Column(horizontalAlignment = Alignment.End) {
                 if (can) {

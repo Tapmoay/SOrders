@@ -32,6 +32,21 @@ class ProfileViewModel(private val container: AppContainer) : ViewModel() {
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
 
+    /**
+     * 「他要不要管下游的账」（CHG-0076 / 台账 L-39）——「我的」页那一格开关的状态。
+     *
+     * ⚠️ 它是**服务端**的偏好（`users.downstream_ledger_enabled`）：老包 / AI / 直接打接口
+     *    都按它收窄，所以这里**不存本机**（存了就会出现"界面说关了、服务端还开着"）。
+     * ⛔ 与 `user.isMember` 不是一回事：那个是**身份**（决定这一格画不画），这个是**开关**。
+     * 默认 true＝没拨过 = 今天的行为（老后端没这个字段时也退回 true）。
+     */
+    var downstreamLedgerEnabled by mutableStateOf(true)
+        private set
+
+    /** 正在提交这颗开关（防连点：连点两下会发出两个相反的请求）。 */
+    var downstreamLedgerSaving by mutableStateOf(false)
+        private set
+
     // 更新检测状态：idle / checking / confirm(有新版) / needInstallPermission / downloading / installing / latest
     var updateState by mutableStateOf("idle")
     var latest by mutableStateOf<AppVersionDto?>(null)
@@ -70,6 +85,7 @@ class ProfileViewModel(private val container: AppContainer) : ViewModel() {
             try {
                 val me = container.api.userApi.me()
                 user = me
+                downstreamLedgerEnabled = me.downstreamLedgerEnabled
                 // 同步姓名到会话存储
                 container.tokenStore.save(
                     com.tapmoay.sorders.core.Session(
@@ -84,6 +100,30 @@ class ProfileViewModel(private val container: AppContainer) : ViewModel() {
                 error = ApiClient.toApiException(e).message
             } finally {
                 loading = false
+            }
+        }
+    }
+
+    /**
+     * 拨「管下游的账」这颗开关。
+     *
+     * ⚠️ **先请求、后改本地**（不做乐观更新）：后端一关，账本收入侧就真的空了 ——
+     *    本地先改会留下一个"界面说关了、服务端还开着"的窗口，而用户可能正拿着它去核销。
+     * 失败**不静默**：整页走 ErrorView（与拉取失败同一条路），他说得出"没生效"，
+     * 而不是以为关掉了（那本账他下次打开照样看得见）。
+     */
+    fun setDownstreamLedger(enabled: Boolean) {
+        if (downstreamLedgerSaving) return
+        downstreamLedgerSaving = true
+        viewModelScope.launch {
+            try {
+                val me = container.repo.setDownstreamLedger(enabled)
+                user = me
+                downstreamLedgerEnabled = me.downstreamLedgerEnabled
+            } catch (e: Exception) {
+                error = ApiClient.toApiException(e).message
+            } finally {
+                downstreamLedgerSaving = false
             }
         }
     }

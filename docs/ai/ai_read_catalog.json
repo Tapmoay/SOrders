@@ -1,6 +1,6 @@
 {
  "generated_by": "_gen_ai_read_catalog.py",
- "source_hash": "sha256:6017a3701b1be56c1a2ba49556c1fddd922000d579dc6a79f3b0ee6118a99a58",
+ "source_hash": "sha256:64bc6cd467f4e20b02ee1ce8291d8f3eb83e7fe925f230142448ed68f786a3f9",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
   "read_endpoints": 87,
@@ -2230,7 +2230,7 @@
    "module_cn": "我的账本",
    "method": "get",
    "path": "/api/v1/shipper-ledger/summary",
-   "at": "backend/app/api/v1/shipper_ledger.py:214",
+   "at": "backend/app/api/v1/shipper_ledger.py:242",
    "auth": "角色:shipper",
    "roles": [
     "shipper"
@@ -2287,7 +2287,7 @@
    "module_cn": "我的账本",
    "method": "get",
    "path": "/api/v1/shipper-ledger/settlements",
-   "at": "backend/app/api/v1/shipper_ledger.py:328",
+   "at": "backend/app/api/v1/shipper_ledger.py:361",
    "auth": "角色:shipper",
    "roles": [
     "shipper"
@@ -2819,7 +2819,7 @@
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users",
-   "at": "backend/app/api/v1/users.py:76",
+   "at": "backend/app/api/v1/users.py:128",
    "auth": "权限:USER_MANAGE",
    "roles": [
     "dispatcher"

@@ -38,6 +38,18 @@
 
 ⚠️ 注入式反向验证（改坏 → 本脚本必须红）：`_tools/qa/_reverse_verify_driver_ledger_merge.py`。
 
+## R3-BOUNDARY-JUSTIFICATION
+
+R3-BOUNDARY-JUSTIFICATION: 这条**没法用边界消除** —— 七条里有五条是「**同一件事只许有一处**」
+（入口 / 档位 / 宽边界 / 取数口径 / 明细展开），而「多留一处」是**能编译、能跑、界面看着都对**的写法：
+两个入口各算各的时间口径、两边数字都自洽，差别只在几天；宽边界抄第二份，改一处漏一处。
+这类错在类型、接口、单元测试上都不露头，唯一能问的边界是「这件事在本仓库里出现了几次」——
+也就是这条判据本身。
+
+（这段标记是 2026-10-07 由 CHG-0076 / 台账 L-39 那个会话补的：本条判据属 CHG-0075（台账 L-36，
+commit `86bd9b6`）归档时漏写了 R3 的这条纪律，`_check_r3_constraints.py` 的 R3-D17 因此一直红；
+**判据正文一字未动**，只补了这段说明。）
+
 用法：python _tools/qa/_check_driver_ledger_merge.py
 """
 from __future__ import annotations

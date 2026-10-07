@@ -1,7 +1,7 @@
 # 界面提示与说明目录（**机器生成，不要手改**）
 
 > 生成命令：`python _tools/qa/_hint_inventory.py --md`
-> source_hash：`sha256:4d1a9f06ed1c75e241d33b0e7c7f267a278bbbd9b364cfc3b7ae31cb2fa99e07`
+> source_hash：`sha256:dfb859ff813a677e69f33bedcab752e81f85253c5829f51c3442c36b53c3f4db`
 > 这份文件是**产物**：改了源码就重跑，别在它上面手写（手写的内容下一次生成就没了）。
 
 ## 1. 口径
@@ -12,7 +12,7 @@
 | `DATA` | 数据/状态/标签（金额、数量、单号、档位摘要） | ⛔ 永远显示 |
 | `WARN` | 警告/错误/安全 | ⛔ 永远显示 |
 
-扫了 **302** 个 `.kt` 文件，抽到 **1697** 条文案：解释 **94** / 数据 **1534** / 警告 **49**。
+扫了 **302** 个 `.kt` 文件，抽到 **1700** 条文案：解释 **95** / 数据 **1536** / 警告 **49**。
 
 ## 2. 解释类逐条清单（**归总开关管的那一批**）
 
@@ -96,23 +96,24 @@
 | 74 | 共用 | 24 | `OrderDetailScreen.kt:2443` | 」—— 如果就是同一家，直接从下面选它，别建重了 |
 | 75 | 派单员 | 23 | `FreightPricingScreens.kt:366` | 他还没挂规则的话，会提示你去给他挂一份再勾上。 |
 | 76 | 派单员 | 23 | `ProductCategoriesScreen.kt:153` | 改顺序：按住一行长按拖动，或直接改左边的序号。 |
-| 77 | 共用 | 22 | `SupplierEditorDialog.kt:109` | 地址、备注以后可以在「供应商 / 厂商」页补 |
-| 78 | 派单员 | 22 | `AccountManageScreen.kt:535` | 创建后账号密码自动复制，直接发给对方即可登录 |
-| 79 | 共用 | 21 | `AiSettingsScreen.kt:660` | 先点「保存」才生效，再点「测试连接」验证。 |
-| 80 | 货主 | 21 | `ShipperOrdersScreen.kt:346` | 撤回后可以重新申请（想改数量只能这么改）。 |
-| 81 | 货主 | 21 | `ShipperReturnRequestsScreen.kt:132` | 撤回后可以重新申请（想改数量只能这么改）。 |
-| 82 | 共用 | 20 | `ImageCropDialog.kt:154` | 拖动边框圈出要保留的部分，双指可放大缩小 |
-| 83 | 共用 | 20 | `ImagePreview.kt:263` | 双指缩放 / 双击放大 / 左右滑动翻页 |
-| 84 | 派单员 | 19 | `DispatcherPoolScreen.kt:478` | 改完只通知司机，货主端不会有任何提醒。 |
-| 85 | 共用 | 18 | `AiChatScreen.kt:1680` | 左上角「历史」里能看到以前问过的对话 |
-| 86 | 派单员 | 18 | `ReportCenter.kt:1386` | 补上之后这一格与营业利润都会跟着变。 |
-| 87 | 共用 | 18 | `OrderDetailScreen.kt:1998` | 到地方标一下位置，以后大家都直接能用 |
-| 88 | 共用 | 18 | `OrderDetailScreen.kt:2140` | 坐标相近会自动并成一个，不会越攒越多 |
-| 89 | 派单员 | 17 | `AccountManageScreen.kt:534` | 修改后保存即可；密码留空表示不修改 |
-| 90 | 派单员 | 17 | `SupplierDetailScreen.kt:520` | 填一个金额，这里会算出付完还差多少 |
-| 91 | 派单员 | 17 | `UsersManageScreen.kt:509` | 绑错了那边会明确告诉你是谁名下的。 |
-| 92 | 共用 | 14 | `ProfileScreen.kt:214` | 通知栏提醒 / 后台接收新单 |
-| 93 | 共用 | 13 | `ProfileScreen.kt:212` | 语音播报 / 后台接收新单 |
-| 94 | 共用 | 8 | `CategoryDrawer.kt:139` | 选一类只看这一类 |
+| 77 | 共用 | 23 | `ProfileScreen.kt:210` | 不想让我们替你管下游货主的账时，把这一格关掉。 |
+| 78 | 共用 | 22 | `SupplierEditorDialog.kt:109` | 地址、备注以后可以在「供应商 / 厂商」页补 |
+| 79 | 派单员 | 22 | `AccountManageScreen.kt:535` | 创建后账号密码自动复制，直接发给对方即可登录 |
+| 80 | 共用 | 21 | `AiSettingsScreen.kt:660` | 先点「保存」才生效，再点「测试连接」验证。 |
+| 81 | 货主 | 21 | `ShipperOrdersScreen.kt:346` | 撤回后可以重新申请（想改数量只能这么改）。 |
+| 82 | 货主 | 21 | `ShipperReturnRequestsScreen.kt:132` | 撤回后可以重新申请（想改数量只能这么改）。 |
+| 83 | 共用 | 20 | `ImageCropDialog.kt:154` | 拖动边框圈出要保留的部分，双指可放大缩小 |
+| 84 | 共用 | 20 | `ImagePreview.kt:263` | 双指缩放 / 双击放大 / 左右滑动翻页 |
+| 85 | 派单员 | 19 | `DispatcherPoolScreen.kt:478` | 改完只通知司机，货主端不会有任何提醒。 |
+| 86 | 共用 | 18 | `AiChatScreen.kt:1680` | 左上角「历史」里能看到以前问过的对话 |
+| 87 | 派单员 | 18 | `ReportCenter.kt:1386` | 补上之后这一格与营业利润都会跟着变。 |
+| 88 | 共用 | 18 | `OrderDetailScreen.kt:1998` | 到地方标一下位置，以后大家都直接能用 |
+| 89 | 共用 | 18 | `OrderDetailScreen.kt:2140` | 坐标相近会自动并成一个，不会越攒越多 |
+| 90 | 派单员 | 17 | `AccountManageScreen.kt:534` | 修改后保存即可；密码留空表示不修改 |
+| 91 | 派单员 | 17 | `SupplierDetailScreen.kt:520` | 填一个金额，这里会算出付完还差多少 |
+| 92 | 派单员 | 17 | `UsersManageScreen.kt:509` | 绑错了那边会明确告诉你是谁名下的。 |
+| 93 | 共用 | 14 | `ProfileScreen.kt:253` | 通知栏提醒 / 后台接收新单 |
+| 94 | 共用 | 13 | `ProfileScreen.kt:251` | 语音播报 / 后台接收新单 |
+| 95 | 共用 | 8 | `CategoryDrawer.kt:139` | 选一类只看这一类 |
 
 > 「⚠️」= 超过 [40] 字（规范 `docs/HINT_STYLE.md` §3 的上限），共 **13** 条 ——这些是要精简的：压到一行 ≤20 字，或两行 ≤40 字（**前提与后果都要留住**）。

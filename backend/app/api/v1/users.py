@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.rbac import Permission, user_role_key
 from app.core.security import hash_password
 from app.database import get_db
-from app.deps import CurrentUser, require_permission
+from app.deps import CurrentUser, require_permission, require_roles
 from app.models import Product, User
 from app.models.user import normalize_billing_mode, resolve_billing_mode
 from app.models.enums import OperationAction, UserRole
@@ -20,7 +20,7 @@ from app.schemas.product_visibility import (
     resolve_visible_product_ids,
     visibility_of,
 )
-from app.schemas.user import UserCreate, UserOut, UserUpdate
+from app.schemas.user import DownstreamLedgerIn, UserCreate, UserOut, UserUpdate
 from app.services.soft_delete import del_suffix, dialable_phone, has_del_suffix
 from app.services.operation_log_service import write_log
 from app.services.auth_service import revoke_tokens_and_sockets
@@ -70,6 +70,58 @@ def read_me(current: CurrentUser, db: Session = Depends(get_db)) -> UserOut:
 
         out.has_per_order_earnings = has_per_order_earnings(db, current)
     return out
+
+
+@router.patch("/me/downstream-ledger", response_model=UserOut)
+def set_my_downstream_ledger(
+    body: DownstreamLedgerIn,
+    current: User = Depends(require_roles(UserRole.SHIPPER)),
+    db: Session = Depends(get_db),
+) -> UserOut:
+    """「我的 → 管下游的账」那颗开关（CHG-0076 / 台账 L-39）。
+
+    用户原话（ref m01547）：「因为有些批发商他可能**不想让我们去管他的账**，所以我们就给一个功能，
+    **开启**这个按钮……如果**关闭**了的话……他这个账本**只显示他欠我们的钱**。」
+
+    ⚠️ 只有**他本人**能拨这一格（口径 ④：派单员不给看、也不代设）——
+       所以是 `/me/...`（没有 user_id），依赖用"货主"而不是 `USER_MANAGE`。
+    ⛔ 与 `is_member` 是**两件事**：那个是**身份**（派单员改、工作台那个「批发商」徽章靠它），
+       这个是**他自己的偏好**；这里绝不碰 `is_member`。
+    ⛔ 关掉只是"不显示 / 不提供"——**一分钱都不动**（`shipper_settlement.py` 那条：两本账绝不互写）。
+    """
+    if not bool(getattr(current, "is_member", False)):
+        # 同 `shipper_ledger._require_member` 的理由：普通货主没有下游这本账，
+        # 拨了也没意义；让他拨反而会在日后被升成批发商时**带着一个关着的开关**上线。
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "只有批发商（高级货主）有下游这本账 —— "
+                "普通货主是给自己下单、收自己的货，没有这一项可关"
+            ),
+        )
+    before = bool(current.downstream_ledger_enabled)
+    after = bool(body.enabled)
+    if before == after:
+        # 幂等：拨到同一档不写日志（否则审计里全是"开了又开"，真改动被噪声埋掉）
+        return _to_out(current, current)
+    current.downstream_ledger_enabled = after
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.USER_UPDATE,
+        change_payload={
+            "user_id": current.id,
+            "username": current.username,
+            "changes": [
+                {"field": "downstream_ledger_enabled", "from": before, "to": after}
+            ],
+            "note": "批发商自己决定要不要管下游的账（我的 → 管下游的账）",
+        },
+    )
+    db.commit()
+    db.refresh(current)
+    return _to_out(current, current)
 
 
 @router.get("", response_model=list[UserOut])

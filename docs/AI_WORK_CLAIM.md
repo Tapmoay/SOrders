@@ -31,6 +31,30 @@
 
 ## 进行中
 
+### [2026-10-07 12:0x → 12:4x CST 已完成] 会话：**CHG-0076 「我的」页加一个开关：批发商自己决定要不要管下游的账**（台账 L-39）（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**（ref **m01547**，台账 `_tmp/USER_BUG_LEDGER_20261006.md:1966` 逐字）：「就是他在那个**我的**里面加一个**按钮**……因为有些批发商他可能**不想让我们去管他的账**，所以我们就给一个功能，**开启**这个按钮：他那个我的账本就会显示**别人欠他的钱**、还有对应的**商品的定价**、以及对应的对**某些人显示多少价格**；如果**关闭**了的话，他就**没有这些功能**，他这个账本**只显示他欠我们的钱**……只记录欠派单员（总分销商）的钱，其他都不搞，**他也不需要去管那个商品**。」落法定为**改法 A**（ref **m01685** 逐字：「呃对对对那个关于我的那个开关啊，嗯**后端也跟着改**。」）⇒ 开关**存后端**、与 `is_member` **两列并存**（⛔ 不许合成一列）；口径 **m13365 四问全答**（台账 `:2008-2013`）：① 关掉 ⇒ 两个读端点**返回空（0 / 空列表）＋ 一个标记**，⛔ **不是 403**（免得旧 App 弹报错）；② **默认开**（＝现状，老库回填 true）；③ 关掉**连异常订单 / 核销一起收**；④ **派单员不给看、不代设**。
+
+**病灶**：账本页今天由 `users.is_member` **一处分档**（`ui/shipper/ShipperLedgerScreen.kt:81`/`:205`/`:224`/`:249`/`:656`/`:678`，普通货主只剩订单列表 `:577`）——「只要你是批发商，就必须管下游的账」（收入侧：别人欠他多少钱、给谁什么价）。而用户要的是**同一种角色的两种人**：有些批发商**不想让我们去管他的账**。⛔ `is_member` **不是**这个开关：它只有派单员能改（`backend/app/api/v1/users.py:347-348`），`_require_member`（`backend/app/api/v1/shipper_ledger.py:77-91`）的注释逐字写着角色目录表达不了它。服务端今天只认 `is_member`（汇总 `:284-291`/出参 `:313-324`、结算单列表 `:327-369`、三个写端点 `:391`/`:521`/`:574`）。
+
+**改法（后端＋Android；判据 / 反验各新建 1 份、配套改 5 份）**：① **新列走正式迁移** `backend/app/migrations/026_user_downstream_ledger.py`（`ALTER TABLE users ADD COLUMN downstream_ledger_enabled BOOLEAN NOT NULL DEFAULT 1`，可重跑：先判列在不在）＋ `backend/app/models/user.py` 加 `Mapped[bool] = mapped_column(Boolean, default=True)` —— ⛔ **不写** `backend/app/core/schema_bootstrap.py`（`_tools/qa/_check_silent_release.py` 第 5 条逐字钉着「新列只从迁移进」；台账 L-39 影响面那句「bootstrap 回填」以这条房规为准，与 CHG-0071 的教训一致）；② `backend/app/schemas/user.py`：`UserOut` 加 `downstream_ledger_enabled: bool = True`（`is_member` 仍是**身份**，工作台徽章 `_check_workbench_member_badge.py:183` 依赖它 ⇒ ⛔ 不许改它的意思）＋ 新 `DownstreamLedgerIn`；`backend/app/api/v1/users.py` 新增 `PATCH /users/me/downstream-ledger`（`require_roles(SHIPPER)`，只写 `current.id`，回 `UserOut`）；③ `backend/app/api/v1/shipper_ledger.py`：`ShipperLedgerSummaryOut` 加标记 + 关掉时收入侧全 0 且**不查核销表**；`list_settlements` 关掉时**直接返 []**（不查库、不 403）；三个写端点在 `_require_member` 之后加 `_require_downstream`（403 ＋ 一句「你已经在『我的 → 管下游的账』里关掉了……」）；④ 客户端：`UserDto` 加 `@SerialName("downstream_ledger_enabled") val downstreamLedgerEnabled: Boolean = true`、`Apis.kt` 的 `UserApi` 加 `@PATCH("users/me/downstream-ledger")` ＋ `AppRepository` 包装；`ui/profile/ProfileScreen.kt` 第一层加**第 7 行**「管下游的账」（仅 `vm.user?.isMember == true` 时画，trailing ＝ 常显状态回执 `Text`「已开启 / 已关闭」＋ `Switch`，subtitle ＝ 纯教法 `Hint`）；`ShipperLedgerViewModel` / `ShipperLedgerScreen` 的分档从 `isMember` 改成 `canManageDownstream`；⑤ `_tools/ai/_write_coverage.py` 的 `EXCLUDED` 登记新端点 ＋ 一条「不做 AI 动作」的理由。
+
+**明确不碰**：`is_member` 的含义与它的写路径（派单员专属）；两本账绝不互写（`backend/app/schemas/shipper_settlement.py:87-89`）；**关开关不许改动任何金额**（不产生、不修改、不隐藏任何历史核销 / 账单记录，只是不显示 / 不提供）；⛔ `ui/shipper/ShipperLedgerScreen.kt:394`（支出段只在「全部」档画，台账 L-17 / ref m00354）与 `:487`（常显口径句，E2E P25）；关掉时读端点**不许 403**（旧 App 会弹报错）；普通货主 / 司机 / 派单员的现有行为；既有 API 字段只加不改。
+
+**判据 / 反验**：新建 `_tools/qa/_check_downstream_ledger_switch.py`（迁移 026 与模型两处一致且 bootstrap 里 0 次 / 汇总出参有标记且关掉时全 0 不查核销 / `list_settlements` 关掉返 [] / 三个写端点都有 `_require_downstream` / 新端点只写自己 / `/users/me` 出参含开关值 / `is_member` 没被改成开关 / 客户端闸门用 `canManageDownstream` / 空转闸）＋ 新建 `_tools/qa/_reverse_verify_downstream_ledger_switch.py`（逐条注入：把闸门换回 `is_member`、把关掉那支改成 403、把返空删掉、把 `/users/me` 的开关值去掉、把标记删掉，逐条期望判据红再按字节还原）；配套改 `_check_profile_page.py`（`N_ROWS` 6 → 7 ＋ 新锚点 ＋ 写清为什么加这一行）与 `_reverse_verify_profile_page.py`（「第一层恰好 6 行」那条标签随之改）、`_check_ledger_pay_block_gate.py` 与它的反验（`MEMBER_GATE` 那条字面量）、`_check_report_metrics.py:264`（`vm.isMember` 字面量）。
+
+**验证（2026-10-07 12:45 收口）**：① 判据新建 `_tools/qa/_check_downstream_ledger_switch.py` **52/52**、反验 `_tools/qa/_reverse_verify_downstream_ledger_switch.py` **20/20**（注入后按字节还原）；配套改过的四份全绿：`_check_profile_page.py` **54/54**（＋反验 16/16）、`_check_ledger_pay_block_gate.py` **52**（＋反验 18/18）、`_check_report_metrics.py` **24**（＋反验 10/10）、`_check_hint_key_explain.py` **59**；`_tools/ai/_write_coverage.py --check` 与 `_app_feature_coverage.py --check` EXIT=0。
+② 单测：新文件 `backend/tests/test_downstream_ledger_switch.py` **6/6**；`python -m pytest backend/tests -q -k "shipper or user"` = **110 passed / 1294 deselected**；Android `:app:assembleEmuDebug` **BUILD SUCCESSFUL**（全量单测里唯一红是既存日期性 `AiHabitTest.kt:76`「近 7 天 vs 本月」，与本轮无关，`docs/changes/README.md:152/:154` 早有记录）。
+③ 迁移上开发库：`python -m app.migrations upgrade` EXIT=0（`026 user_downstream_ledger（0 ms，19d1859cb967）`）；探针 `has_col: False → True`、28 个用户回填全 true；未迁移时后端逐字拒绝启动（「库在版本 25，仓库里有到版本 26 的迁移没跑」）。
+④ 真机 emulator-5554：截图 `shots/chg0076_01_profile_on.png` / `02_profile_off.png` / `03_ledger_off.png` / `04_ledger_on.png`；直连后端 HTTP 实测 ON `receivable 10588.00 / received 658.80 / settlements 3` → OFF `0.00 / 0.00 / 0`（读端点仍 200）→ 写核销 403（「你已经在「我的 → 管下游的账」里关掉了这本账 —— 要记下游的核销，先回去把它打开」）→ 再打开逐格复原；派单员账号同一页无此行。
+⑤ 生成物随新端点 / 新文案重生成：`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`、`docs/PROJECT_MAP/09A_HINT_CATALOG.md`、`docs/ai/ai_read_catalog.json`；⑥ 全量静检见变更单 ⑧。
+
+- 状态：✅ **已关闭**（开工 2026-10-07 12:0x，关闭 12:4x；变更单 `docs/changes/CHG-0076.md`；Blast Radius L2）
+- 真机 5554（截图 `shots/chg0076_01_profile_on.png` ~ `04_ledger_on.png`）：批发商 13800000002 的「我的」页第一行「管下游的账」两态可拨（已开启 ⇄ 已关闭，常显回执 ＋ `Switch`）；关掉后账本页只剩支出侧与常显口径句，没有「货主」人员行 / 收入段 / 客户卡；派单员 13800000001 同一页 5 行、无此行。⚠️ 第一次装机看到的是旧行为 —— 磁盘上的 APK 是 11:33:33 打的（打包含单测那格先红被拦下），dex 里搜不到 CHG-0076 的任何字符串 ⇒ 取证前必须先用 `:app:assembleEmuDebug` 重新打包再装。
+- 真库 / HTTP：`026 user_downstream_ledger（0 ms，19d1859cb967）` 已应用；ON/OFF 两态 summary 逐格实测（支出侧 10588.00 / 2533.80 / 8054.20 与 105 / 33 一分不变），关掉时 `/settlements` 返 `[]`（200，⛔ 不是 403），`POST /settlements` 403 带专用中文说明，改回 true 后逐格复原。
+
+---
+
 ### [2026-10-05 18:1x → 19:xx CST 已完成] 会话：**CHG-0043 转货跟司机：新开的那张单直接派给原来那位司机**（DSH `session-e94394d5-4f36-49dd-9ee1-446fcb7dee30`）
 
 **用户原话**：（本轮没有新的用户原话 —— 由 goal `goal-ea14930c-423e-4296-b68d-5348f0e8b170` 的 objective 与 CHG-0042 落地的审计缺口驱动：objective 要求「否则**新建一张归属目标货主、跟随同司机**的单」，而 CHG-0042 建出来的新单是不带司机的待派单，货在司机车上、单不在他手上。）
