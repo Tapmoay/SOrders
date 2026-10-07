@@ -43,7 +43,7 @@
 
 `判据 / 反验`：`python _tools/qa/_check_ai_invoices.py`（258 条，全绿）/ `python _tools/qa/_reverse_verify_ai_invoices.py`（逐条注入 → 要求判据报出那一条红 → 逐字节还原），另跑 `_write_coverage.py` / `_read_coverage.py --check` / `_check_ai_guardrails.py` / `_check_role_parity.py`。
 
-- 状态：✅ 已关闭（2026-10-08；变更单 `docs/changes/CHG-0086.md`；台账 **L-55**；全量静检 **220/221**（唯一一条红是环境性：本机 uvicorn 比源码旧）；Blast Radius **L1**；提交 `〔待回填：实现提交〕`）。
+- 状态：✅ 已关闭（2026-10-08；变更单 `docs/changes/CHG-0086.md`；台账 **L-55**；全量静检 **220/221**（唯一一条红是环境性：本机 uvicorn 比源码旧）；Blast Radius **L1**；提交 `97767fa`）。
 - 真机：⚠️ 未做（本单不加界面、不加端点 —— 六条手工路径早就在，要真机验就得跑一次真实模型会话；留待本批四单做完后的整体真机）。
 - 核心改动：`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt` —— 为什么必须动核心：数据源接口（七个方法）与处理器注册表都在这个文件里，发票域按既有域的形状接进去，不另起一层框架（`AiWriteInvoices.kt` 只提供规格与处理器）。
 
