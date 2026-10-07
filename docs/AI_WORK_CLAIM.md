@@ -46,7 +46,7 @@
 核心改动：`backend/app/deps.py` —— 为什么必须动核心：AI 流水要写清「这一次是谁的身份」，而 `get_current_user` 是唯一知道当前用户的地方；只在 `request.state` 里记一个 `user_id` 给审计用（⛔ 不参与鉴权，拿不到就写 NULL，绝不因为审计失败而拦请求）。
 核心改动：`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt` —— 为什么必须动核心：`commit` 时把「这一次是哪个动作」（`p.actionId`）一并交给 `ClientOrigin.asAi(...)`，否则流水只记得下 `PATCH /orders/{}` 而看不出改的是联系人还是运费。
 
-- 状态：✅ **已关闭**（2026-10-08 01:0x 开工 · 02:1x 关闭；变更单 `docs/changes/CHG-0082.md`；Blast Radius **L2 —— Contract / Data**；提交 `（待回填）`）
+- 状态：✅ **已关闭**（2026-10-08 01:0x 开工 · 02:1x 关闭；变更单 `docs/changes/CHG-0082.md`；Blast Radius **L2 —— Contract / Data**；提交 `6350d20`）
 - 真机：✅ 已跑（emulator-5554 派单员 `13800000001`，口令 `pass12345`）：底栏悬浮圆钮「AI 助手」(540,2172) → 右上齿轮 (1006,212) → 设置页「AI 操作流水」(540,1387) → 本页三态：**全部** 5 行真流水（成功绿徽 /「失败 · 404」＋「订单不存在」/「失败 · 403」＋「无操作权限（请确认当前账号角色与权限；可尝试退出后重新登录）」）；**只看失败** 恰好只剩那两张失败卡；**翻页** 第一页 60 行 ＋ 截断说明 ＋「加载更早的」⇒ 点到底共 **80 行**、按钮与说明一起消失。截图 `shots/chg0082_all_5554.png` / `_failed_5554.png` / `_loadmore_5554.png` / `_paged_5554.png` / `_oldest_5554.png`。判据 96/96 ＋ 反验 22/22 已绿；单测 1316 / 0 failed / 2 skipped；编译 BUILD SUCCESSFUL（1m 39s）
 - 真库 / HTTP：开发库 `backend/sorders.db`（`sqlite:///./sorders.db`）迁移 28 → **29**（`python -m app.migrations upgrade`，唯一入口）；用带 `X-SOrders-Origin: ai` 的真请求造了 5 条流水（含 404 与 403 两行，403 那行是货主 token 读 `/ai/operations`），再用 `_tmp/seed_ai_rows_bulk.py` 补 75 条 ⇒ 共 **80 行**（第一页 60 / `X-Truncated=1`）；`created_at` 是 **UTC naive**（界面走 `formatDateTime` 转本地；模拟器时区恰好是 UTC，所以屏上显示 10-07 17:40）
 
