@@ -1,11 +1,11 @@
-"""司机「拍照送达」：点一下直接拍照、照片就长在订单页里、完成按钮在页面最底下（CHG-0045 / 台账 L-04）。
+"""司机「拍照送达」：点一下直接拍照、照片就长在订单页里、完成按钮在送达凭证下面、内部备注沉到最底（CHG-0045 / 台账 L-04；顺序被 2026-10-07 台账 L-49 / CHG-0079 调过）。
 
 ## 用户报的现象（2026-10-06，台账 L-04，原话七条）
 1. 「点击拍照送达就**直接拍照**」；
 2. 「拍完的照片就在订单界面里出现缩略图」，「然后再点击**继续拍照**」；
-3. 「**完成按钮就移到内部备注的最下面**（页面最底部）」；
+3. 「**完成按钮就移到内部备注的最下面**（页面最底部）」—— ⚠️ **这一条已被 2026-10-07 台账 L-49 / CHG-0079 推翻**：完成按钮改到**送达凭证（照片预览）下面**、内部备注沉到最底；下面第 3 组钉的就是新顺序；
 4. 「**只有上传最少一张照片之后才会有这个**（完成入口）」；
-5. 「**送达备注就写在内部备注的上面**」；
+5. 「**送达备注就写在内部备注的上面**」——L-49 之后仍然成立（备注在照片预览下面、完成按钮上面；内部备注在最后）；
 6. 「**内部备注只有我们司机和派单员可以看**，其他的不可见」且**不要弹窗**；
 7. 弹窗里那个「**货物破损**」没必要存在 ——「因为已经有了」。
 
@@ -45,7 +45,8 @@ DeliverySheet / DamageCard / 自写大图弹层，编译器不会有意见。所
    抽屉定义（private fun DeliverySheet(）在任何 .kt 里都是 0 命中；
 2. 照片长在页面里：缩略图（AsyncImage(model = File(path))）可点开唯一那一份大图预览
    （preview.open(vm.capturedPhotos.map { File(it) }, i)）、右上角可移除；拍照入口文案跟随张数；
-3. 页面顺序就是用户说的顺序：送达备注 → 内部备注 → 完成按钮；
+3. 页面顺序 = 拍照 → 高德导航 → 送达凭证（照片预览 → 送达备注）→ 完成按钮 → 内部备注最后
+   （2026-10-07 台账 L-49 / CHG-0079 定稿；L-04 第 ③ 条已推翻）；
 4. 完成入口至少一张照片：闸门 = 司机 + 可完成 + photos.isNotEmpty()（**不再有** `!order.freightVisible`
    那半句，2026-10-06 台账 L-15），且 VM 里那道 capturedPhotos.isEmpty() 第二道门还在；
 5. 免拍照那一支不许长回来：界面里 `if (order.freightVisible) {` 命中 0、`onDirectCompleteClick(` 命中 0、
@@ -180,20 +181,45 @@ def main() -> int:
     c.present("VM：拍完把路径记下来（addCapturedPhoto）", vm_code, r"fun addCapturedPhoto\(path: String\)")
     c.present("VM：能单独删掉某一张（removeCapturedPhoto）", vm_code, r"fun removeCapturedPhoto\(index: Int\)")
 
-    print("\n== 3. 页面顺序 = 用户说的顺序：送达备注 → 内部备注 → 完成 ==")
+    print("\n== 3. 页面顺序（2026-10-07 台账 L-49 / CHG-0079 定稿）：拍照 → 高德导航 → 照片预览 → 送达备注 → 完成按钮 → 内部备注 ==")
+    i_photo = line_of(detail_code, '"拍照送达" else')
+    i_nav = line_of(detail_code, 'Text("高德导航")')
+    i_thumb = line_of(detail_code, "model = File(path),")
     i_remark = line_of(detail_code, '"送达备注（可选）"')
-    i_note = line_of(detail_code, 'SectionTitle(Icons.Default.Notes')
     i_submit = line_of(detail_code, '"提交送达（" + photos.size + " 张照片）"')
-    c.ok("三块都在页面上", i_remark > 0 and i_note > 0 and i_submit > 0,
-         f"送达备注@{i_remark} / 内部备注@{i_note} / 提交送达@{i_submit}")
-    c.ok("送达备注在内部备注上面（用户第 ⑤ 条）", 0 < i_remark < i_note, f"{i_remark} < {i_note}")
-    c.ok("完成按钮在内部备注下面（用户第 ③ 条：页面最底部）", i_note < i_submit, f"{i_note} < {i_submit}")
+    i_note = line_of(detail_code, 'SectionTitle(Icons.Default.Notes')
+    c.ok("六处锚点都在页面上",
+         i_photo > 0 and i_nav > 0 and i_thumb > 0 and i_remark > 0 and i_submit > 0 and i_note > 0,
+         f"拍照@{i_photo} / 导航@{i_nav} / 预览@{i_thumb} / 送达备注@{i_remark} / 完成@{i_submit} / 内部备注@{i_note}")
+    c.ok("拍照按钮在导航按钮上面（司机那一颗）", 0 < i_photo < i_nav, f"{i_photo} < {i_nav}")
+    c.ok("照片预览在导航下面（用户 m25030：拍完照片在高德导航下面、他框的位置）", i_nav < i_thumb, f"{i_nav} < {i_thumb}")
+    c.ok("送达备注在照片预览下面（拍完照接着就能写备注）", i_thumb < i_remark, f"{i_thumb} < {i_remark}")
+    c.ok("完成按钮在送达备注下面（L-49：「预览下面有个叫完成订单那个按钮才是完成订单」）", i_remark < i_submit, f"{i_remark} < {i_submit}")
+    c.ok("内部备注在完成按钮下面（L-49：内部备注沉到这一页最底）", i_submit < i_note, f"{i_submit} < {i_note}")
 
     print("\n== 4. 完成入口：至少一张照片才出现（所有司机一律，含挂车 · 台账 L-15）==")
-    c.present("完成那一块的闸门 = 司机 + 可完成 + 至少一张",
+    # 2026-10-07（台账 L-49 / CHG-0079，真机 emulator-5554 取证）：这道闸门原来是 **DSL 级**的
+    # `if (role == DRIVER && COMPLETABLE && photos.isNotEmpty()) { item { … } }`。真机上拍完一张，
+    # VM 里已经是 1 张、DetailBody 也按 1 张跑了，可那个 item **压根没注册过** ⇒ 之后再也不会被组合
+    # （LazyColumn 的 item 闭包不随外层参数刷新），司机看到的页面纹丝不动、交不了单。
+    # 现在是：完成块搬进「送达凭证」这个**首帧就注册**的 item 里，闸门降到 item 内部的 if。
+    c.present("完成块搬进了「送达凭证」那个 item（闸门降到 item 内部，不再挂在 DSL 上）",
               detail_code,
-              r"if \(role == Role\.DRIVER && order\.status in OrderStatusModel\.COMPLETABLE &&\s*\n"
-              r"\s*photos\.isNotEmpty\(\)\s*\n\s*\)")
+              r"if \(photos\.isNotEmpty\(\)\) \{\s*\n\s*Spacer\(Modifier\.height\(12\.dp\)\)\s*\n"
+              r"\s*Column\(verticalArrangement = Arrangement\.spacedBy\(10\.dp\)\) \{")
+    c.absent("⛔ 完成块不许再退回 DSL 级闸门（那张 item 没照片时根本不会注册）",
+             detail_code,
+             r"photos\.isNotEmpty\(\)\s*\n\s*\) \{\s*\n\s*item \{")
+    c.present("照片在 item 里读**实时值**（val photos = photosOf()）", detail_code, r"val photos = photosOf\(\)")
+    n_live = detail_code.count("val photos = photosOf()")
+    c.ok("两处 item（司机动作块 / 送达凭证块）各自读了实时值",
+         n_live >= 2, f"只数到 {n_live} 处 —— 少一处就有半张页面停在旧值上")
+    c.present("DetailBody 收的是取值函数（photosOf: () -> List<String>）", detail_code,
+              r"photosOf: \(\) -> List<String> = \{ emptyList\(\) \},")
+    c.present("调用处传的也是取值函数（photosOf = { vm.capturedPhotos }）", detail_code,
+              r"photosOf = \{ vm\.capturedPhotos \},")
+    c.absent("⛔ 不许把照片退回列表快照（photos = vm.capturedPhotos）—— 真机上司机交不了单",
+             detail_code, r"photos = vm\.capturedPhotos,")
     c.present("收款方式那颗「收取现金（N 张）」还在", detail_code, r'"收取现金（" \+ photos\.size \+ " 张）"')
     c.present("「挂账（N 张）」还在", detail_code, r'"挂账（" \+ photos\.size \+ " 张）"')
     c.present("第二道门还在（VM 里那颗空照片拦截）", vm_code,

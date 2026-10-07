@@ -195,12 +195,21 @@ def main() -> int:
               r"onClick = onNavigate,")
 
     print("\n== 2. 三处闸门都不看计费方式（都是「司机 + 可完成」） ==")
+    # 2026-10-07（台账 L-49 / CHG-0079）：三道闸门中间现在各夹着一行 `val photos = photosOf()` ——
+    # 真机取证的修法：item 闭包只吃外层传进来的**参数快照**，拍照后不刷新，必须在 item 里读实时值。
+    # 闸门①/② 的判据随之带上这一行；闸门③ 不再是 DSL 级闸门（那样的话没照片时那个 item 压根不注册），
+    # 已降进「送达凭证」这个首帧就注册的 item 内部，判据改钉「照片非空 → Spacer → Column」。
     c.present("闸门① 动作卡：司机 + 可完成（里面就是拍照那颗按钮）", detail_code,
-              r"if \(role == Role\.DRIVER && order\.status in OrderStatusModel\.COMPLETABLE\) \{\s*\n\s*Button\(\s*\n\s*onClick = onCaptureClick,")
+              r"if \(role == Role\.DRIVER && order\.status in OrderStatusModel\.COMPLETABLE\) \{\s*\n"
+              r"\s*val photos = photosOf\(\)\s*\n"
+              r"\s*Button\(\s*\n\s*onClick = onCaptureClick,")
     c.present("闸门② 送达凭证块：司机 + 可完成（不再对挂车整块不画）", detail_code,
-              r"if \(role == Role\.DRIVER && order\.status in OrderStatusModel\.COMPLETABLE\) \{\s*\n\s*item \{\s*\n\s*SectionCard \{\s*\n\s*SectionTitle\(\s*\n\s*Icons\.Default\.PhotoCamera,")
-    c.present("闸门③ 完成块：司机 + 可完成 + 至少一张照片（没有计费判据）", detail_code,
-              r"if \(role == Role\.DRIVER && order\.status in OrderStatusModel\.COMPLETABLE &&\s*\n\s*photos\.isNotEmpty\(\)\s*\n\s*\) \{")
+              r"if \(role == Role\.DRIVER && order\.status in OrderStatusModel\.COMPLETABLE\) \{\s*\n"
+              r"\s*item \{\s*\n\s*val photos = photosOf\(\)\s*\n"
+              r"\s*SectionCard \{\s*\n\s*SectionTitle\(\s*\n\s*Icons\.Default\.PhotoCamera,")
+    c.present("闸门③ 完成块：至少一张照片才画（没有计费判据；闸门已降进「送达凭证」那个 item）", detail_code,
+              r"if \(photos\.isNotEmpty\(\)\) \{\s*\n\s*Spacer\(Modifier\.height\(12\.dp\)\)\s*\n"
+              r"\s*Column\(verticalArrangement = Arrangement\.spacedBy\(10\.dp\)\) \{")
     c.present("完成块里收款方式仍在 `order.collectCash` 里选（收现金 / 挂账）", detail_code,
               r"if \(order\.collectCash\) \{")
     c.present("「收取现金（N 张）」那颗还在", detail_code, r'"收取现金（" \+ photos\.size \+ " 张）"')

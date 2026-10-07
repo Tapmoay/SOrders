@@ -316,7 +316,9 @@ fun OrderDetailScreen(
             onDamageQty = { id, q -> vm.damageByProduct[id] = q },
             onDamageNote = { vm.damageNote = it },
             // 拍照送达这条链路的页面内状态（L-04）：已拍几张、送达备注、内部备注（追加一条）。
-            photos = vm.capturedPhotos,
+            // ⛔ 照片传的是**取值函数**（见 DetailBody 里 photosOf 的注释）：传列表快照的话，
+            //    已经组合过的 item 拿不到新值 —— 真机 emulator-5554 上拍完照页面不动，就是这一处。
+            photosOf = { vm.capturedPhotos },
             remark = vm.driverRemark,
             onRemarkChange = { vm.driverRemark = it },
             onRemovePhoto = { i -> vm.removeCapturedPhoto(i) },
@@ -764,8 +766,17 @@ private fun DetailBody(
     onDamageQty: (Long, Int) -> Unit = { _, _ -> },
     onDamageNote: (String) -> Unit = {},
     // ── 拍照送达这条链路的页面内状态与动作（用户台账 L-04：照片、送达备注、内部备注、完成）──
-    /** 已经拍了还没上传的照片（本地绝对路径，落在 `context.cacheDir/photos`）。 */
-    photos: List<String> = emptyList(),
+    /**
+     * 已经拍了还没上传的照片（本地绝对路径，落在 `context.cacheDir/photos`）—— **传取值函数，不是列表快照**。
+     *
+     * ⛔ 别改回 `photos: List<String>`（2026-10-07 真机 emulator-5554 取证，台账 L-49 / CHG-0079）：
+     *    这一页每一块都是 `LazyColumn` 的 `item {}` 闭包画的，**外层参数变了不会让已经组合过的 item
+     *    换上新闭包** —— 真机上拍完一张，VM 里已经是 1 张、`DetailBody` 也按 1 张跑，item 里读到的
+     *    还是 0 张：缩略图、「继续拍照（1 张）」、完成按钮全都不出现，**司机在真机上根本交不了单**。
+     *    传函数 ⇒ item 作用域里那次 `vm.capturedPhotos` 读取把快照依赖登记在 item 自己身上，
+     *    状态一变这个作用域就失效重跑，与 item 闭包新旧无关。
+     */
+    photosOf: () -> List<String> = { emptyList() },
     /** 送达备注（提交时随照片一起上传）。 */
     remark: String = "",
     onRemarkChange: (String) -> Unit = {},
@@ -1712,6 +1723,9 @@ private fun DetailBody(
                 // ⛔ 计费口径一个字没动：`driver_pay.has_per_order_pay` 仍是"钱那一侧"的判据，
                 //    `vm.completeDirect` 与 `POST /orders/{id}/complete` 也仍在（老版本 APK 还要用）。
                 if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE) {
+                    // ⛔ 照片在这里读**实时值**（不是外层传进来的列表快照）：这一块是 item 闭包画的，
+                    //    快照不会随拍照刷新（见 DetailBody 的 photosOf 注释）。
+                    val photos = photosOf()
                     // 点一下**直接进相机**（L-04 第 ① 条）；拍过之后这颗按钮就是「继续拍照」——
                     // 页面上只留**一个**拍照入口，免得两颗按钮干同一件事。
                     Button(
@@ -1759,6 +1773,8 @@ private fun DetailBody(
         // 「送到了」这件事的凭证，与这一单怎么给司机结账无关，所以现在对**所有**可完成的司机都画。
         if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE) {
             item {
+                // ⛔ 同上：照片在 item 里读实时值 —— 这 item 首帧就注册，照片一到它自己会重跑。
+                val photos = photosOf()
                 SectionCard {
                     SectionTitle(
                         Icons.Default.PhotoCamera,
@@ -1809,6 +1825,71 @@ private fun DetailBody(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
+                // ── 完成（拍照送达这条链路的最后一步）────────────────────────────────
+                // 用户第 ④ 条：「**只有上传最少一张照片之后才会有这个**（完成入口）」⇒ 一张都没拍时这一
+                // 块**整块不画**（不是置灰：没照片时连按钮都不该出现在页面上）。
+                // 位置（2026-10-07 台账 L-49 / CHG-0079，**推翻 L-04 第 ③ 条**）：完成按钮就摆在**送达
+                // 凭证（照片预览）下面**，「内部备注」沉到这一页最底。用户原话（m25030）：「照片……预览
+                // 下面有个叫完成订单那个按钮才是完成订单……最后就是内部备注」。
+                // ⛔ `completeDelivery` 里那道 `capturedPhotos.isEmpty()` 是**第二道门**（防界面
+                //    之外的调用），别顺手删。
+                // 2026-10-06（台账 L-15）：闸门里原来还有半句 `!order.freightVisible` —— 挂车那一档
+                // 从前不走这里（在动作卡上直接完成）。现在**所有司机一律先拍照**，所以闸门只剩「拍了照」；
+                // 收款方式（收现金 / 挂账）仍在下面这一块的 `order.collectCash` 里选。
+                // ⛔ 这一块从前是**独立的一个 item**，外面套一道 `photos.isNotEmpty()` 的 DSL 级闸门 ——
+                //    真机取证（2026-10-07，CHG-0079）证明：闸门后面那个 item 在没照片时压根没注册，
+                //    之后再也不会被组合（见 DetailBody 的 photosOf 注释）。现在搬进「送达凭证」这个
+                //    **首帧就注册**的 item 里，空态由下面这个 `if` 拦住 ⇒ 页面上「送达凭证卡 →
+                //    完成按钮 → 内部备注」的分隔与从前一致（间距用 Spacer 补）。
+                if (photos.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (order.collectCash) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(
+                                    onClick = { onSubmitDelivery("cash") },
+                                    enabled = !uploading,
+                                    modifier = Modifier.weight(1f).height(56.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(MoneyOrange),
+                                        contentColor = Color.White,
+                                    ),
+                                ) {
+                                    if (uploading) {
+                                        CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
+                                    } else {
+                                        Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(20.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("收取现金（" + photos.size + " 张）", style = MaterialTheme.typography.titleSmall)
+                                    }
+                                }
+                                OutlinedButton(
+                                    onClick = { onSubmitDelivery("arrears") },
+                                    enabled = !uploading,
+                                    modifier = Modifier.weight(1f).height(56.dp),
+                                ) {
+                                    Icon(Icons.Default.RequestQuote, contentDescription = null, modifier = Modifier.size(20.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("挂账（" + photos.size + " 张）", style = MaterialTheme.typography.titleSmall)
+                                }
+                            }
+                        } else {
+                            Button(
+                                onClick = { onSubmitDelivery(null) },
+                                enabled = !uploading,
+                                modifier = Modifier.fillMaxWidth().height(56.dp),
+                            ) {
+                                if (uploading) {
+                                    CircularProgressIndicator(Modifier.size(22.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                                } else {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(20.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("提交送达（" + photos.size + " 张照片）", style = MaterialTheme.typography.titleSmall)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -1821,6 +1902,8 @@ private fun DetailBody(
         // ⛔ 写入口是 **append-only**：后端给每条加 `[司机 {时间}] ` 前缀**累加**到
         //    `internal_notes`（注释明说写进去就再也改不了）。所以这一格**不回填**已有备注 ——
         //    它只能是「再写一条」，历史在上面收货信息卡里只读看。
+        // 2026-10-07（台账 L-49 / CHG-0079）：这一块沉到**页面最底**（排在完成按钮下面，与 L-04
+        //    第 ③ 条对调了位置）；块内文案、角色门、append-only 语义一个字没动。
         if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE) {
             item {
                 SectionCard {
@@ -1853,67 +1936,6 @@ private fun DetailBody(
             }
         }
 
-        // ── 完成（拍照送达这条链路的最后一步）────────────────────────────────────
-        // 用户第 ④ 条：「**只有上传最少一张照片之后才会有这个**（完成入口）」⇒ 一张都没拍时这一
-        // 块**整块不存在**（不是置灰：没照片时连按钮都不该出现在页面上）。第 ③ 条：「完成按钮就
-        // 移到内部备注的最下面」⇒ 它就是这一页最后一个块。
-        // ⛔ `completeDelivery` 里那道 `capturedPhotos.isEmpty()` 是**第二道门**（防界面
-        //    之外的调用），别顺手删。
-        // 2026-10-06（台账 L-15）：闸门里原来还有半句 `!order.freightVisible` —— 挂车那一档
-        // 从前不走这里（在动作卡上直接完成）。现在**所有司机一律先拍照**，所以闸门只剩「拍了照」；
-        // 收款方式（收现金 / 挂账）仍在下面这一块的 `order.collectCash` 里选。
-        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE &&
-            photos.isNotEmpty()
-        ) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (order.collectCash) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Button(
-                                onClick = { onSubmitDelivery("cash") },
-                                enabled = !uploading,
-                                modifier = Modifier.weight(1f).height(56.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(MoneyOrange),
-                                    contentColor = Color.White,
-                                ),
-                            ) {
-                                if (uploading) {
-                                    CircularProgressIndicator(Modifier.size(22.dp), color = Color.White, strokeWidth = 2.dp)
-                                } else {
-                                    Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(20.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("收取现金（" + photos.size + " 张）", style = MaterialTheme.typography.titleSmall)
-                                }
-                            }
-                            OutlinedButton(
-                                onClick = { onSubmitDelivery("arrears") },
-                                enabled = !uploading,
-                                modifier = Modifier.weight(1f).height(56.dp),
-                            ) {
-                                Icon(Icons.Default.RequestQuote, contentDescription = null, modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("挂账（" + photos.size + " 张）", style = MaterialTheme.typography.titleSmall)
-                            }
-                        }
-                    } else {
-                        Button(
-                            onClick = { onSubmitDelivery(null) },
-                            enabled = !uploading,
-                            modifier = Modifier.fillMaxWidth().height(56.dp),
-                        ) {
-                            if (uploading) {
-                                CircularProgressIndicator(Modifier.size(22.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("提交送达（" + photos.size + " 张照片）", style = MaterialTheme.typography.titleSmall)
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 

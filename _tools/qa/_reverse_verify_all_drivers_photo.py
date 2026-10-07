@@ -39,23 +39,23 @@ MUTATIONS = [
         "把「挂车免拍照」那一支加回动作卡（挂车又能不拍照直接完成）",
         DETAIL,
         "                if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE) {\n"
-        "                    // 点一下**直接进相机**（L-04 第 ① 条）；拍过之后这颗按钮就是「继续拍照」——\n",
+        "                    // ⛔ 照片在这里读**实时值**（不是外层传进来的列表快照）：这一块是 item 闭包画的，\n",
         "                if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE) {\n"
         "                    if (order.freightVisible) {\n"
         "                        Button(onClick = { onDirectCompleteClick(null) }) {\n"
         "                            Text(\"完成订单\", style = MaterialTheme.typography.bodyMedium)\n"
         "                        }\n"
         "                    }\n"
-        "                    // 点一下**直接进相机**（L-04 第 ① 条）；拍过之后这颗按钮就是「继续拍照」——\n",
+        "                    // ⛔ 照片在这里读**实时值**（不是外层传进来的列表快照）：这一块是 item 闭包画的，\n",
         "这条支",
     ),
     (
         "动作卡闸门改成「挂车不画拍照入口」（等于免拍照那一支换个写法回来）",
         DETAIL,
         "                if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE) {\n"
-        "                    // 点一下**直接进相机**",
+        "                    // ⛔ 照片在这里读**实时值**",
         "                if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE && !order.freightVisible) {\n"
-        "                    // 点一下**直接进相机**",
+        "                    // ⛔ 照片在这里读**实时值**",
         "闸门①",
     ),
     (
@@ -63,11 +63,15 @@ MUTATIONS = [
         DETAIL,
         "        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE) {\n"
         "            item {\n"
+        "                // ⛔ 同上：照片在 item 里读实时值 —— 这 item 首帧就注册，照片一到它自己会重跑。\n"
+        "                val photos = photosOf()\n"
         "                SectionCard {\n"
         "                    SectionTitle(\n"
         "                        Icons.Default.PhotoCamera,",
         "        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE && !order.freightVisible) {\n"
         "            item {\n"
+        "                // ⛔ 同上：照片在 item 里读实时值 —— 这 item 首帧就注册，照片一到它自己会重跑。\n"
+        "                val photos = photosOf()\n"
         "                SectionCard {\n"
         "                    SectionTitle(\n"
         "                        Icons.Default.PhotoCamera,",
@@ -76,12 +80,10 @@ MUTATIONS = [
     (
         "完成块的闸门又加回计费判据（挂车拍完照反而不给完成）",
         DETAIL,
-        "        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE &&\n"
-        "            photos.isNotEmpty()\n"
-        "        ) {\n",
-        "        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE &&\n"
-        "            !order.freightVisible\n"
-        "        ) {\n",
+        "                if (photos.isNotEmpty()) {\n"
+        "                    Spacer(Modifier.height(12.dp))\n",
+        "                if (!order.freightVisible) {\n"
+        "                    Spacer(Modifier.height(12.dp))\n",
         "闸门③",
     ),
     (
