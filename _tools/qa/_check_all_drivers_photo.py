@@ -197,18 +197,18 @@ def main() -> int:
     print("\n== 2. 三处闸门都不看计费方式（都是「司机 + 可完成」） ==")
     # 2026-10-07（台账 L-49 / CHG-0079）：三道闸门中间现在各夹着一行 `val photos = photosOf()` ——
     # 真机取证的修法：item 闭包只吃外层传进来的**参数快照**，拍照后不刷新，必须在 item 里读实时值。
-    # 闸门①/② 的判据随之带上这一行；闸门③ 不再是 DSL 级闸门（那样的话没照片时那个 item 压根不注册），
-    # 已降进「送达凭证」这个首帧就注册的 item 内部，判据改钉「照片非空 → Spacer → Column」。
-    c.present("闸门① 动作卡：司机 + 可完成（里面就是拍照那颗按钮）", detail_code,
+    # ⚠️ 2026-10-07 台账 L-50 / CHG-0080 之后：照片预览与完成块都并进了**司机动作块那一个 item**
+    # （预览自己一道 `if (photos.isNotEmpty())`，且整页只剩那一处读实时值），原来那张带标题的
+    # 「送达凭证」卡撤掉了 ⇒ 闸门② 改钉「送达备注自己那张卡」的门，闸门③ 的锚也随间距换成 16dp。
+    c.present("闸门① 动作卡：司机 + 可完成（块内第一件事就是读实时值）", detail_code,
               r"if \(role == Role\.DRIVER && order\.status in OrderStatusModel\.COMPLETABLE\) \{\s*\n"
-              r"\s*val photos = photosOf\(\)\s*\n"
-              r"\s*Button\(\s*\n\s*onClick = onCaptureClick,")
-    c.present("闸门② 送达凭证块：司机 + 可完成（不再对挂车整块不画）", detail_code,
+              r"\s*val photos = photosOf\(\)\s*\n")
+    c.present("闸门② 送达备注卡：司机 + 可完成（不再对挂车整块不画）", detail_code,
               r"if \(role == Role\.DRIVER && order\.status in OrderStatusModel\.COMPLETABLE\) \{\s*\n"
-              r"\s*item \{\s*\n\s*val photos = photosOf\(\)\s*\n"
-              r"\s*SectionCard \{\s*\n\s*SectionTitle\(\s*\n\s*Icons\.Default\.PhotoCamera,")
-    c.present("闸门③ 完成块：至少一张照片才画（没有计费判据；闸门已降进「送达凭证」那个 item）", detail_code,
-              r"if \(photos\.isNotEmpty\(\)\) \{\s*\n\s*Spacer\(Modifier\.height\(12\.dp\)\)\s*\n"
+              r"\s*item \{\s*\n\s*SectionCard \{\s*\n\s*OutlinedTextField\(\s*\n"
+              r"\s*value = remark,")
+    c.present("闸门③ 完成块：至少一张照片才画（没有计费判据；闸门在司机动作块那个 item 内部）", detail_code,
+              r"if \(photos\.isNotEmpty\(\)\) \{\s*\n\s*Spacer\(Modifier\.height\(16\.dp\)\)\s*\n"
               r"\s*Column\(verticalArrangement = Arrangement\.spacedBy\(10\.dp\)\) \{")
     c.present("完成块里收款方式仍在 `order.collectCash` 里选（收现金 / 挂账）", detail_code,
               r"if \(order\.collectCash\) \{")

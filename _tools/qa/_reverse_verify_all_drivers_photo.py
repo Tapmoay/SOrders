@@ -59,31 +59,29 @@ MUTATIONS = [
         "闸门①",
     ),
     (
-        "送达凭证块又对挂车整块不画（挂车的单没有凭证这一块）",
+        # 2026-10-07（台账 L-50 / CHG-0080）：从前这条钉的是「送达凭证块」那道 item —— 那张卡已经撤掉，
+        # 闸门② 现在是「送达备注自己那张卡」（司机 + 可完成）。
+        "送达备注卡又对挂车整块不画（挂车的单连备注都写不了）",
         DETAIL,
         "        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE) {\n"
         "            item {\n"
-        "                // ⛔ 同上：照片在 item 里读实时值 —— 这 item 首帧就注册，照片一到它自己会重跑。\n"
-        "                val photos = photosOf()\n"
         "                SectionCard {\n"
-        "                    SectionTitle(\n"
-        "                        Icons.Default.PhotoCamera,",
+        "                    OutlinedTextField(\n"
+        "                        value = remark,",
         "        if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE && !order.freightVisible) {\n"
         "            item {\n"
-        "                // ⛔ 同上：照片在 item 里读实时值 —— 这 item 首帧就注册，照片一到它自己会重跑。\n"
-        "                val photos = photosOf()\n"
         "                SectionCard {\n"
-        "                    SectionTitle(\n"
-        "                        Icons.Default.PhotoCamera,",
+        "                    OutlinedTextField(\n"
+        "                        value = remark,",
         "闸门②",
     ),
     (
         "完成块的闸门又加回计费判据（挂车拍完照反而不给完成）",
         DETAIL,
-        "                if (photos.isNotEmpty()) {\n"
-        "                    Spacer(Modifier.height(12.dp))\n",
-        "                if (!order.freightVisible) {\n"
-        "                    Spacer(Modifier.height(12.dp))\n",
+        "                        if (photos.isNotEmpty()) {\n"
+        "                            Spacer(Modifier.height(16.dp))\n",
+        "                        if (!order.freightVisible) {\n"
+        "                            Spacer(Modifier.height(16.dp))\n",
         "闸门③",
     ),
     (

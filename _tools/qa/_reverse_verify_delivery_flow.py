@@ -1,7 +1,8 @@
-"""反向验证：把 CHG-0045 那 59 条判据逐组弄坏，看它们**真的会红**。
+"""反向验证：把 CHG-0045 那 62 条判据逐组弄坏，看它们**真的会红**。
 
-顺序那一组按 2026-10-07 台账 L-49 / CHG-0079 的新口径（拍照 → 高德导航 → 照片预览 → 送达备注 →
-完成按钮 → 内部备注最后）验证：把「完成按钮」抄到备注上面、把「内部备注」抄到上面，判据都必须点出来。
+顺序那一组按 2026-10-07 台账 L-50 / CHG-0080 的新口径（照片预览 → 拍照 → 高德导航 → 完成按钮 →
+送达备注 → 内部备注最后）验证：把预览挪到拍照下面、把备注抄到完成上面、把导航与完成之间那道
+16dp 抽掉、把带标题的「送达凭证」白卡抄回来，判据都必须点出来。
 
 为什么这块必须反向验证：司机「拍照送达」这一条几乎全是"没报错但也没发生"的毛病 ——
 把入口改回 `onCaptureClick = { vm.showDeliverySheet = true }` 编译通过、点一下也确实能拍照（只是要多点一次）；
@@ -76,7 +77,7 @@ MUTATIONS = [
         "                                        onClick = { },\n",
         "右上角可以删掉这一张",
     ),
-    # ---- 3. 顺序（2026-10-07 台账 L-49 / CHG-0079 定稿）：拍照 -> 导航 -> 照片预览 -> 送达备注 -> 完成按钮 -> 内部备注 ----
+    # ---- 3. 顺序（2026-10-07 台账 L-50 / CHG-0080 定稿）：照片预览 -> 拍照 -> 导航 -> 完成按钮 -> 送达备注 -> 内部备注 ----
     (
         "送达备注那一格被删掉（用户第 ⑤ 条那几块少一块）",
         DETAIL,
@@ -98,7 +99,7 @@ MUTATIONS = [
         '                    SectionTitle(Icons.Default.Notes, Color(0xFF1E6FFF), "内部备注")\n'
         "                    OutlinedTextField(\n"
         "                        value = remark,\n",
-        "内部备注在完成按钮下面",
+        "内部备注在送达备注下面",
     ),
     (
         "「高德导航」那颗按钮被挪到拍照上面（L-49 第①步＝拍照在最上面）",
@@ -109,18 +110,17 @@ MUTATIONS = [
         "拍照按钮在导航按钮上面",
     ),
     (
-        "完成按钮那一块被挪到送达备注上面（L-49：预览下面那个按钮才是完成）",
+        # 2026-10-07（台账 L-50 / CHG-0080）：从前这条注入的是「完成按钮那一块被挪到送达备注上面」——
+        # 那是 L-49 的排版（备注在完成上面）才有的破法；L-50 之后完成按钮本来就在备注上面，这条注入成了
+        # 空转（实测 0 条红）。改成钉 L-50 真正的位置关系：完成按钮必须在**导航下面**。
+        "完成按钮被挪到高德导航上面（L-50：完成按钮在导航下面、他画的圈）",
         DETAIL,
-        "                    OutlinedTextField(\n"
-        "                        value = remark,\n",
-        "                    Button(onClick = { onSubmitDelivery(null) }, enabled = !uploading,\n"
-        "                        modifier = Modifier.fillMaxWidth().height(56.dp)) {\n"
-        '                            Text("提交送达（" + photos.size + " 张照片）", style = MaterialTheme.typography.titleSmall)\n'
-        "                        }\n"
-        "                    }\n"
-        "                    OutlinedTextField(\n"
-        "                        value = remark,\n",
-        "完成按钮在送达备注下面",
+        "                        Button(\n"
+        "                            onClick = onNavigate,\n",
+        '                        Text("提交送达（" + photos.size + " 张照片）")\n'
+        "                        Button(\n"
+        "                            onClick = onNavigate,\n",
+        "完成按钮在导航下面",
     ),
     (
         # 2026-10-06（台账 L-15）：从前这条注入的是"把内部备注挪到凭证上面"，它的 old 锚
@@ -145,20 +145,20 @@ MUTATIONS = [
         # 完成块必须留在 item 内部、且由 `photos.isNotEmpty()` 把门（不能换成别的条件）。
         "完成块外面那道门被换掉（挂车又能不拍照直接完成）",
         DETAIL,
-        "                if (photos.isNotEmpty()) {\n"
-        "                    Spacer(Modifier.height(12.dp))\n",
-        "                if (!order.freightVisible) {\n"
-        "                    Spacer(Modifier.height(12.dp))\n",
-        "完成块搬进了「送达凭证」那个 item",
+        "                        if (photos.isNotEmpty()) {\n"
+        "                            Spacer(Modifier.height(16.dp))\n",
+        "                        if (!order.freightVisible) {\n"
+        "                            Spacer(Modifier.height(16.dp))\n",
+        "完成块的闸门在 item 内部",
     ),
     (
         "完成块的门整个没了（一张没拍也能点提交）",
         DETAIL,
-        "                if (photos.isNotEmpty()) {\n"
-        "                    Spacer(Modifier.height(12.dp))\n",
-        "                if (true) {\n"
-        "                    Spacer(Modifier.height(12.dp))\n",
-        "完成块搬进了「送达凭证」那个 item",
+        "                        if (photos.isNotEmpty()) {\n"
+        "                            Spacer(Modifier.height(16.dp))\n",
+        "                        if (true) {\n"
+        "                            Spacer(Modifier.height(16.dp))\n",
+        "完成块的闸门在 item 内部",
     ),
     (
         "照片退回列表快照（外层传 photos = vm.capturedPhotos，item 只认旧值）",
@@ -172,14 +172,43 @@ MUTATIONS = [
         DETAIL,
         "                    val photos = photosOf()\n",
         "                    val photos = emptyList<String>()\n",
-        "各自读了实时值",
+        "司机动作块那一处 item 读了实时值",
     ),
     (
-        "送达凭证那张卡不再读实时值（照片到了它也不重跑）",
+        "「送达备注」那一格被抄到完成按钮上面（两块备注必须都沉在最底）",
         DETAIL,
-        "                val photos = photosOf()\n                SectionCard {\n",
-        "                val photos = emptyList<String>()\n                SectionCard {\n",
-        "各自读了实时值",
+        "                    val photos = photosOf()\n",
+        "                    val photos = photosOf()\n"
+        '                    Text("送达备注（可选）")\n',
+        "送达备注在完成按钮下面",
+    ),
+    (
+        "导航与完成按钮之间那道 16dp 被抽掉（两颗按钮又贴在一起，容易误触）",
+        DETAIL,
+        "                            Spacer(Modifier.height(16.dp))\n",
+        "                            Spacer(Modifier.height(0.dp))\n",
+        "完成按钮跟导航之间隔着 16dp",
+    ),
+    (
+        "带标题的「送达凭证」白卡又长回来（L-50 说的是不要标题、不要白卡）",
+        DETAIL,
+        "                        if (photos.isNotEmpty()) {\n"
+        "                            Hint(\n",
+        "                        SectionTitle(Icons.Default.PhotoCamera, Color(ProductPurple), "
+        '"送达照片（已拍 " + photos.size + " 张）")\n'
+        "                        if (photos.isNotEmpty()) {\n"
+        "                            Hint(\n",
+        "「送达凭证」白卡不许长回来",
+    ),
+    (
+        "照片预览被挪到拍照按钮下面（跟导航挤成一堆）",
+        DETAIL,
+        "                        if (photos.isNotEmpty()) {\n"
+        "                            Hint(\n",
+        '                        Text(if (photos.isEmpty()) "拍照送达" else "继续拍照（" + photos.size + " 张）")\n'
+        "                        if (photos.isNotEmpty()) {\n"
+        "                            Hint(\n",
+        "照片预览在拍照按钮上面",
     ),
     # ---- 4. 完成入口：至少一张照片 ----
     (

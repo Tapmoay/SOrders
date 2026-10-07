@@ -1,11 +1,11 @@
-"""司机「拍照送达」：点一下直接拍照、照片就长在订单页里、完成按钮在送达凭证下面、内部备注沉到最底（CHG-0045 / 台账 L-04；顺序被 2026-10-07 台账 L-49 / CHG-0079 调过）。
+"""司机「拍照送达」：点一下直接拍照、照片就长在订单页里、预览就贴在拍照按钮上面、完成按钮在导航下面、两块备注沉到最底（CHG-0045 / 台账 L-04；顺序被 2026-10-07 台账 L-49 / CHG-0079 调过一次，当天再被台账 L-50 / CHG-0080 调成现在这样）。
 
 ## 用户报的现象（2026-10-06，台账 L-04，原话七条）
 1. 「点击拍照送达就**直接拍照**」；
 2. 「拍完的照片就在订单界面里出现缩略图」，「然后再点击**继续拍照**」；
-3. 「**完成按钮就移到内部备注的最下面**（页面最底部）」—— ⚠️ **这一条已被 2026-10-07 台账 L-49 / CHG-0079 推翻**：完成按钮改到**送达凭证（照片预览）下面**、内部备注沉到最底；下面第 3 组钉的就是新顺序；
+3. 「**完成按钮就移到内部备注的最下面**（页面最底部）」—— ⚠️ **这一条已被 2026-10-07 台账 L-49 / CHG-0079 推翻**（改到照片预览下面），**当天又被台账 L-50 / CHG-0080 再调一次**：完成按钮改到**高德导航下面**（中间隔 16dp 防误触）、两块备注一起沉到最底；下面第 3 组钉的就是 L-50 的顺序；
 4. 「**只有上传最少一张照片之后才会有这个**（完成入口）」；
-5. 「**送达备注就写在内部备注的上面**」——L-49 之后仍然成立（备注在照片预览下面、完成按钮上面；内部备注在最后）；
+5. 「**送达备注就写在内部备注的上面**」——L-50 之后仍然成立（顺序＝完成按钮 →「送达备注（可选）」→ 内部备注最后）；
 6. 「**内部备注只有我们司机和派单员可以看**，其他的不可见」且**不要弹窗**；
 7. 弹窗里那个「**货物破损**」没必要存在 ——「因为已经有了」。
 
@@ -45,8 +45,9 @@ DeliverySheet / DamageCard / 自写大图弹层，编译器不会有意见。所
    抽屉定义（private fun DeliverySheet(）在任何 .kt 里都是 0 命中；
 2. 照片长在页面里：缩略图（AsyncImage(model = File(path))）可点开唯一那一份大图预览
    （preview.open(vm.capturedPhotos.map { File(it) }, i)）、右上角可移除；拍照入口文案跟随张数；
-3. 页面顺序 = 拍照 → 高德导航 → 送达凭证（照片预览 → 送达备注）→ 完成按钮 → 内部备注最后
-   （2026-10-07 台账 L-49 / CHG-0079 定稿；L-04 第 ③ 条已推翻）；
+3. 页面顺序 = 照片预览 → 拍照 → 高德导航 → 完成按钮 → 送达备注 → 内部备注最后
+   （2026-10-07 台账 L-50 / CHG-0080 定稿，推翻同日 L-49 / CHG-0079 的口径；L-04 第 ③ 条已推翻）；
+   预览不再单占一张「送达凭证」白卡、也不带标题，缩略图与那行小字直接贴在拍照按钮上面；
 4. 完成入口至少一张照片：闸门 = 司机 + 可完成 + photos.isNotEmpty()（**不再有** `!order.freightVisible`
    那半句，2026-10-06 台账 L-15），且 VM 里那道 capturedPhotos.isEmpty() 第二道门还在；
 5. 免拍照那一支不许长回来：界面里 `if (order.freightVisible) {` 命中 0、`onDirectCompleteClick(` 命中 0、
@@ -166,8 +167,14 @@ def main() -> int:
     c.present("拍完进 capturedPhotos 的那一步没动", detail_code, r"vm\.addCapturedPhoto\(out\.absolutePath\)")
 
     print("\n== 2. 照片就长在订单页里（缩略图 / 继续拍照 / 点开唯一那一份预览） ==")
-    c.present("「送达照片（已拍 N 张）」区在页面上", detail_code,
-              r'"送达照片（已拍 " \+ photos\.size \+ " 张）"')
+    # 2026-10-07（台账 L-50 / CHG-0080）：原来那张带标题的「送达凭证 / 送达照片（已拍 N 张）」
+    # 白卡已经撤掉，预览改成「缩略图 + 一行小字」直接贴在拍照按钮上面（用户口径：不要标题、不要白卡）。
+    c.present("照片预览块在页面上（缩略图 + 那行说明小字）", detail_code,
+              r'"点一下看大图（可双指放大、可存相册）；右上角的 ⊗ 是删掉这一张",')
+    c.present("缩略图带 contentDescription（无障碍与真机取证都认它）", detail_code,
+              r'contentDescription = "已拍照片",')
+    c.absent("⛔ 那张带标题的「送达凭证」白卡不许长回来（L-50 已撤）", detail_code,
+             r'"送达照片（已拍 " \+ photos\.size \+ " 张）"')
     c.present("缩略图是本地 File（还没上传的那张）", detail_code, r"AsyncImage\(\s*model = File\(path\),")
     c.present("点缩略图开大图（走 ui/common/ImagePreview.kt 那一份）", detail_code,
               r"\.clickable \{ onCapturedPhotoClick\(i\) \}")
@@ -181,39 +188,47 @@ def main() -> int:
     c.present("VM：拍完把路径记下来（addCapturedPhoto）", vm_code, r"fun addCapturedPhoto\(path: String\)")
     c.present("VM：能单独删掉某一张（removeCapturedPhoto）", vm_code, r"fun removeCapturedPhoto\(index: Int\)")
 
-    print("\n== 3. 页面顺序（2026-10-07 台账 L-49 / CHG-0079 定稿）：拍照 → 高德导航 → 照片预览 → 送达备注 → 完成按钮 → 内部备注 ==")
+    print("\n== 3. 页面顺序（2026-10-07 台账 L-50 / CHG-0080 定稿）：照片预览 → 拍照 → 高德导航 → 完成按钮 → 送达备注 → 内部备注 ==")
+    i_thumb = line_of(detail_code, "model = File(path),")
     i_photo = line_of(detail_code, '"拍照送达" else')
     i_nav = line_of(detail_code, 'Text("高德导航")')
-    i_thumb = line_of(detail_code, "model = File(path),")
-    i_remark = line_of(detail_code, '"送达备注（可选）"')
     i_submit = line_of(detail_code, '"提交送达（" + photos.size + " 张照片）"')
+    i_remark = line_of(detail_code, '"送达备注（可选）"')
     i_note = line_of(detail_code, 'SectionTitle(Icons.Default.Notes')
     c.ok("六处锚点都在页面上",
          i_photo > 0 and i_nav > 0 and i_thumb > 0 and i_remark > 0 and i_submit > 0 and i_note > 0,
-         f"拍照@{i_photo} / 导航@{i_nav} / 预览@{i_thumb} / 送达备注@{i_remark} / 完成@{i_submit} / 内部备注@{i_note}")
+         f"预览@{i_thumb} / 拍照@{i_photo} / 导航@{i_nav} / 完成@{i_submit} / 送达备注@{i_remark} / 内部备注@{i_note}")
+    c.ok("照片预览在拍照按钮上面（L-50：「把那个图片预览放到那个拍照按钮的上面」）",
+         0 < i_thumb < i_photo, f"{i_thumb} < {i_photo}")
     c.ok("拍照按钮在导航按钮上面（司机那一颗）", 0 < i_photo < i_nav, f"{i_photo} < {i_nav}")
-    c.ok("照片预览在导航下面（用户 m25030：拍完照片在高德导航下面、他框的位置）", i_nav < i_thumb, f"{i_nav} < {i_thumb}")
-    c.ok("送达备注在照片预览下面（拍完照接着就能写备注）", i_thumb < i_remark, f"{i_thumb} < {i_remark}")
-    c.ok("完成按钮在送达备注下面（L-49：「预览下面有个叫完成订单那个按钮才是完成订单」）", i_remark < i_submit, f"{i_remark} < {i_submit}")
-    c.ok("内部备注在完成按钮下面（L-49：内部备注沉到这一页最底）", i_submit < i_note, f"{i_submit} < {i_note}")
+    c.ok("完成按钮在导航下面（L-50：「完成订单就放在导航的下面，我画了那个圆圈的」）",
+         i_nav < i_submit, f"{i_nav} < {i_submit}")
+    i_gap16 = line_of(detail_code, "Spacer(Modifier.height(16.dp))")
+    c.ok("完成按钮跟导航之间隔着 16dp（L-50：「稍微隔点距离，省得出现误触」）",
+         i_nav < i_gap16 < i_submit,
+         f"导航@{i_nav} / 16dp@{i_gap16} / 完成@{i_submit} —— 中间那道 Spacer 没了就是又贴在一起了")
+    c.ok("送达备注在完成按钮下面（两块备注都在最底）", i_submit < i_remark, f"{i_submit} < {i_remark}")
+    c.ok("内部备注在送达备注下面（L-49 / L-50：内部备注沉到这一页最底）", i_remark < i_note, f"{i_remark} < {i_note}")
 
     print("\n== 4. 完成入口：至少一张照片才出现（所有司机一律，含挂车 · 台账 L-15）==")
     # 2026-10-07（台账 L-49 / CHG-0079，真机 emulator-5554 取证）：这道闸门原来是 **DSL 级**的
     # `if (role == DRIVER && COMPLETABLE && photos.isNotEmpty()) { item { … } }`。真机上拍完一张，
     # VM 里已经是 1 张、DetailBody 也按 1 张跑了，可那个 item **压根没注册过** ⇒ 之后再也不会被组合
     # （LazyColumn 的 item 闭包不随外层参数刷新），司机看到的页面纹丝不动、交不了单。
-    # 现在是：完成块搬进「送达凭证」这个**首帧就注册**的 item 里，闸门降到 item 内部的 if。
-    c.present("完成块搬进了「送达凭证」那个 item（闸门降到 item 内部，不再挂在 DSL 上）",
+    # 修法：完成块**留在司机动作块那个 item 里**（它首帧就注册），闸门降成块内的一道 if。
+    # ⚠️ 2026-10-07 台账 L-50 / CHG-0080 之后：完成块与预览都进了司机动作块，「送达凭证」那张卡撤了，
+    # 所以整页现在**只剩这一处** item 读实时值（n_live == 1）—— 它要是被挪走，拍完照那张卡就停在旧值上。
+    c.present("完成块的闸门在 item 内部（没照片时那个 item 也必须已经注册）",
               detail_code,
-              r"if \(photos\.isNotEmpty\(\)\) \{\s*\n\s*Spacer\(Modifier\.height\(12\.dp\)\)\s*\n"
+              r"if \(photos\.isNotEmpty\(\)\) \{\s*\n\s*Spacer\(Modifier\.height\(16\.dp\)\)\s*\n"
               r"\s*Column\(verticalArrangement = Arrangement\.spacedBy\(10\.dp\)\) \{")
     c.absent("⛔ 完成块不许再退回 DSL 级闸门（那张 item 没照片时根本不会注册）",
              detail_code,
              r"photos\.isNotEmpty\(\)\s*\n\s*\) \{\s*\n\s*item \{")
     c.present("照片在 item 里读**实时值**（val photos = photosOf()）", detail_code, r"val photos = photosOf\(\)")
     n_live = detail_code.count("val photos = photosOf()")
-    c.ok("两处 item（司机动作块 / 送达凭证块）各自读了实时值",
-         n_live >= 2, f"只数到 {n_live} 处 —— 少一处就有半张页面停在旧值上")
+    c.ok("司机动作块那一处 item 读了实时值（L-50 之后整页只剩这一处）",
+         n_live >= 1, f"只数到 {n_live} 处 —— 这处没了，拍完照整块动作卡就停在旧值上")
     c.present("DetailBody 收的是取值函数（photosOf: () -> List<String>）", detail_code,
               r"photosOf: \(\) -> List<String> = \{ emptyList\(\) \},")
     c.present("调用处传的也是取值函数（photosOf = { vm.capturedPhotos }）", detail_code,
