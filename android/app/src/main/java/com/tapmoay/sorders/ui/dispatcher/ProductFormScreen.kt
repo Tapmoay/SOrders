@@ -31,6 +31,7 @@ import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.ProductPurple
 import com.tapmoay.sorders.util.resolveStaticUrl
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
@@ -90,7 +91,18 @@ fun ProductFormScreen(
     var moreOpen by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
 
-    // 相册选图 → 拷贝到缓存 → 交给 VM（与旧页面同一条路径，上传时机也没变）
+    val scope = rememberCoroutineScope()
+
+    /**
+     * 正在裁的那张图：**源与输出是同一个文件**（CHG-0072 / 台账 L-33）。
+     * - 从相册新选 = 拷进缓存的**原图**（一个字节没改），进裁切页之前谁也不动它；
+     * - 「取消」 = 一个字都没写过，文件原样（调用方也不会 pickImage）；
+     * - 「完成」 / 「不裁切」 = **原地**换成摆正 + 压缩（+ 裁）之后的 JPEG，再交给 VM。
+     * 于是上传时机、上传路径、uploadIfPicked 三样都没动 —— 只是换了个字节更小的本地文件。
+     */
+    var cropPath by remember { mutableStateOf<String?>(null) }
+
+    // 相册选图 → 拷贝到缓存 → **先让人裁**（三个出口见 ImageCropDialog）
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             try {
@@ -98,10 +110,18 @@ fun ProductFormScreen(
                 context.contentResolver.openInputStream(uri)?.use { input ->
                     f.outputStream().use { output -> input.copyTo(output) }
                 }
-                vm.pickImage(f.absolutePath)
+                cropPath = f.absolutePath
             } catch (_: Exception) {
                 vm.error = "图片读取失败，请重试"
             }
+        }
+    }
+
+    /** 「裁切」那颗按钮：对**现在这张图**再框一次（本地草稿优先，否则把服务端那张取到缓存里）。 */
+    fun recropCurrentImage() {
+        scope.launch {
+            val src = vm.imageForCrop()
+            if (src == null) vm.error = "图片读取失败，请重试" else cropPath = src
         }
     }
 
@@ -137,6 +157,7 @@ fun ProductFormScreen(
                     localPath = vm.imageLocal,
                     remoteUrl = vm.currentImageUrl,
                     onPick = { pickImage.launch("image/*") },
+                    onCrop = { recropCurrentImage() },
                     onRemove = { vm.removeImage() },
                 )
 
@@ -325,6 +346,20 @@ fun ProductFormScreen(
         }
     }
 
+    // 裁切页（CHG-0072 / 台账 L-33）：从相册选完图、"裁切"那颗按钮点下去，都从这里进。
+    // ⚠️ 它是**整屏**的一层（Dialog usePlatformDefaultWidth = false），所以挂在 Scaffold 之外，
+    //    与上面那几个选择弹层同一层；出来时把裁好的 JPEG 原地交给 VM。
+    val cropping = cropPath
+    if (cropping != null) {
+        val outFile = File(cropping)
+        ImageCropDialog(
+            sourcePath = cropping,
+            outFile = outFile,
+            onCancel = { cropPath = null },
+            onCropped = { f -> cropPath = null; vm.pickImage(f.absolutePath) },
+        )
+    }
+
     if (showUnitPicker) {
         UnitPickerSheet(
             current = vm.unit,
@@ -405,6 +440,7 @@ private fun ProductImageBlock(
     localPath: String?,
     remoteUrl: String?,
     onPick: () -> Unit,
+    onCrop: () -> Unit,
     onRemove: () -> Unit,
 ) {
     Column(
@@ -450,6 +486,10 @@ private fun ProductImageBlock(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("商品图片", style = MaterialTheme.typography.bodyMedium)
             if (localPath != null || remoteUrl != null) {
+                Spacer(Modifier.width(10.dp))
+                // 「裁切」：对**现在这张图**重新框一次（m01347：「它上张图片点进去，它可以重新裁切、
+                // 也可以选择不裁切」）。老图**不批量重裁**，所以只有这一处单张入口，不做迁移。
+                TextButton(onClick = onCrop) { Text("裁切") }
                 Spacer(Modifier.width(10.dp))
                 TextButton(onClick = onRemove) { Text("移除", color = MaterialTheme.colorScheme.error) }
             }

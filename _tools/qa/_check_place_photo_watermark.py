@@ -244,18 +244,18 @@ def main() -> int:
     )
     pbody = fn_body(wm, "fun process(")
     c.ok(
-        "老链路一个字没改坏：EXIF 摆正 → 缩放 → 画 → JPEG 85",
-        "rotateByExif(raw, srcFile.absolutePath)" in pbody
-        and "scaleDown(rotated, MAX_EDGE)" in pbody
-        and "Bitmap.CompressFormat.JPEG, 85" in pbody,
+        "老链路一个字没改坏：摆正 → 缩放（两步在 ImageOps）→ 画 → JPEG 85（在 ImageOps.saveJpeg）",
+        "ImageOps.loadOriented(srcFile.absolutePath, MAX_EDGE)" in pbody
+        and "drawWatermark(scaled, locationText, tag)" in pbody
+        and "ImageOps.saveJpeg(marked, outFile)" in pbody,
     )
     c.ok("内存位图那条路（markBitmap）在", "fun markBitmap(" in wm)
     mbody = fn_body(wm, "fun markBitmap(")
     c.ok(
         "markBitmap 用的是同一套画法与同一个压缩质量（相机那条路不必先落盘再读回来）",
-        "scaleDown(src, MAX_EDGE)" in mbody
+        "ImageOps.scaleDown(src, MAX_EDGE)" in mbody
         and "drawWatermark(scaled, locationText, tag)" in mbody
-        and "Bitmap.CompressFormat.JPEG, 85" in mbody,
+        and "ImageOps.saveJpeg(marked, outFile)" in mbody,
     )
     c.ok(
         "⛔ markBitmap 不回收调用方的位图（那是系统相机回调给的）",

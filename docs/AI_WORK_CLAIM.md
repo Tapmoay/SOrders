@@ -6150,6 +6150,24 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 ---
 
+### [2026-10-07 08:0x → 待定 CST] 会话：**CHG-0072 上传的商品照片能自由框选裁切（先按 EXIF 摆正，再裁；老图不批量重裁、单张能重裁也能不裁）**（台账 L-33）（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**用户原话**（ref **m01280**，逐字）：「上传的商品照片是可以**自定义裁切**的啊，这个要注意一点。」口径 **m01347** 四条裁定（逐字）：①「裁切是**自由的**，是可以自己**选择框选**的，就是我们普通的手机裁切的功能嘛」；②「可以加一个上传前的**摆正**；**压缩**就不需要了 —— 压缩是我们**自动给它压缩**的，不需要它进行压缩」；③「对于**以前的老图就算了，不需要加个重新裁切的入口**」；④「就是它上张图片点进去，它**可以重新裁切、也可以选择不裁切**……可能裁切过了，以便发现可能没裁切好，它就**对那个裁切好的图片进行重新裁切**，这个是功能少的」。台账 `_tmp/USER_BUG_LEDGER_20261006.md:1568` 整节 ＋ 附录 O `:2563-2570`（L-33 与 L-34 各是独立新功能、⛔ 别合批）。
+
+**病灶**：`ui/dispatcher/ProductFormScreen.kt:93-106` 的选图回调 = `rememberLauncherForActivityResult(ActivityResultContracts.GetContent())` → `File(context.cacheDir, "product_img_" + System.currentTimeMillis() + ".jpg")` ← `openInputStream(uri).copyTo(output)` **原图一个字节不改**（后缀写死 `.jpg`，HEIC/PNG 进来也叫 .jpg；竖拍照片的 EXIF 方向也不摆正）→ `vm.pickImage(path)` → 保存时 `uploadIfPicked` → `backend/app/api/v1/products.py:296-346` 只做 `read_limited(file, MAX_IMAGE_BYTES, detail="图片过大（最大 4MB）")` ＋ `_sniff_image_mime`（前 32 字节，认 JPG/PNG/WebP/BMP）＋ 落盘 `uploads/products/<id>/<uuid>.<ext>` ⇒ **服务端零图像处理**；全库没有任何裁切实现，唯一那条位图流水线在 `util/Watermark.kt:30-48 fun process(`（`decodeFile` → `rotateByExif` → `scaleDown(rotated, MAX_EDGE)`（`:28 private const val MAX_EDGE = 2560`）→ `drawWatermark` → `Bitmap.CompressFormat.JPEG, 85`）。而商品图展示处全是 `ContentScale.Crop`（16 处，只按控件形状硬裁显示）⇒ 用户拍的商品照（背景里案板、秤、别人的货）在 168dp 方框 / 88dp 卡 / 56dp 行里"看到的"根本不是一回事，构图中心不可控。
+
+**改法（Android 3 个新文件 ＋ 2 个改动文件 ＋ 单测 1 份 ＋ 判据 / 反验各新建 1 份）**：① 新 `util/ImageOps.kt` —— 把 `util/Watermark.kt` 那条流水线提成公共件（`decodeOriented` / `rotateByExif` / `scaleDown` / `loadOriented(path, maxEdge = 2560)` / `crop` / `saveJpeg(quality = 85)`），`Watermark` 改成调它，⛔ 不复制第二份旋转与缩放（台账 `:1582` 的硬要求）；**顺序：先按 EXIF 摆正、再裁**（`:1583`：直接拿原始位图裁，竖拍照片裁出来是横的）；② 新 `ui/common/ImageCropGeometry.kt` —— 自由框选的几何全是**纯函数**（`hitHandle` / `dragHandle` / `moveRect` / `clampRect` / 最小尺寸 / 视口框 → 原图比例换算），零 Compose import（照 `ui/common/ImageSwipe.kt` 那个样板：手势那一层测不了，所以把手势的判据拆成纯函数）；③ 新 `ui/common/ImageCropDialog.kt` —— 全屏裁切层（图先按 EXIF 摆正、fit 显示；自由裁切框：拖四角 / 四边改大小、拖框内移动、框外拖动挪图；框外压暗；底部「取消 / 不裁切 / 完成」），⛔ **不用 `Canvas(`**（`_tools/qa/_check_ledger_dashboard.py:79` 第 9 条 ＋ `:120` 的白名单只放 `Charts.kt` 与 `util/Watermark.kt`）—— 遮罩/框/手柄都用 `Box` ＋ `Modifier.offset/size/background/border` 拼；④ `ProductFormScreen.kt:93-106` 接线：选完图 → 进裁切层 → 确认后把结果写回**新的 cacheDir 文件** → `vm.pickImage(path)`（`pickImage.launch("image/*")` 这个字符串**保留**，判据 `_check_product_card_single_source.py:94-127` 的 strip_comments 状态机逐字认它）；「不裁切」＝仍走一次「摆正 + 缩放 + JPEG 85」再交出去（m01347 ②：摆正与压缩恒做）；⑤ `ProductImageBlock`（`ProductFormScreen.kt:403-458`）那行「商品图片 / 移除」里加一颗「裁切」（有图时才出现）＝对当前这张重新裁一遍（源＝本地 `imageLocal`，没有就用服务端 `currentImageUrl`）＋ `ProductFormViewModel` 新增"把服务端图抓到 cache 再裁"的取图方法（照 `ui/common/ImagePreview.kt:299-308 downloadBytes` 用 `NetworkDns.okHttp`）。
+
+**明确不碰**：后端 / 端点 / DTO / 表结构（仍是 `POST /products/{id}/image`、仍限 4MB、仍零图像处理）＋ 上传时机与调用形态（仍是保存时才 `uploadIfPicked(id, path)`，⛔ 不新造上传路径）＋ 商品编辑页那颗 168dp「点图＝重新选图」（m01532：`_tools/qa/_check_image_preview.py:333` 逐字钉着 `productImageClickable(` 不许出现在这一页）＋ `ui/common/ImagePreview.kt` 那份唯一预览弹层 ＋ `ProductThumb` 零件与 `ProductsScreen` / `ProductPicker` / `ProductCheckList` 三处热区 ＋ `ProductFormViewModel.changed()` 的差集语义（裁切只换 `imageLocal` 指的那个文件，不新增可比较字段）＋ 老图不迁移、不回填、不给批量重裁入口。
+
+**判据 / 反验**：新建 `_tools/qa/_check_image_crop.py`（位图流水线只有一份且摆正在裁之前 / 自由框选几何是纯函数且零 Compose import / 「不裁切」仍摆正压缩 / 裁切层不用 `Canvas(` / 编辑页点图仍是重新选图 / 老图没有批量入口 / 空转闸）＋ 新建 `_tools/qa/_reverse_verify_image_crop.py`（注入：去掉裁切、拿未摆正的位图去裁、让「不裁切」绕过压缩、给老图加批量重裁入口 …… 每条都必须红）＋ 随动改 `_tools/qa/_check_place_photo_watermark.py` 那两条钉住 `Watermark.kt` 自己调私有函数的断言（流水线搬到 ImageOps 后断言跟着指过去，并且对 ImageOps 本身加更细的断言 —— 只许往更不藏的方向改）。
+
+**验证**（2026-10-07 08:0x–09:0x CST 全跑完）：判据 `python _tools/qa/_check_image_crop.py` **127/127 exit 0**；反验 `python _tools/qa/_reverse_verify_image_crop.py` **28/28 exit 0**（每条注入都让红线点出那一条，收尾还原后被碰文件按字节还原、判据复跑 127/127 绿）；`ImageCropGeometryTest` **22 条全过**；`gradle -p android :app:assembleEmuDebug :app:testEmuDebugUnitTest` **1293 tests completed / 1 failed（预存在的 `AiHabitTest.kt:76`，与本单无关）/ 2 skipped**，出包并 `adb -s emulator-5554 install -r` 成功；`python _tools/qa/_check_all.py` **210/210 exit 0（338.7 秒）**；`python backend/scripts/check_reachability.py` **可达文档 193/193 exit 0**；`python _tools/qa/_check_hints.py` **31/31 exit 0**；真机 emulator-5554 **十七张截图** `shots/chg0072_01…22_5554.png`（裁 950×586 / 再裁 836×335 / 不裁切 1080×1920 三档对象级产物 ＋ 提示开关关 / 开两态）。
+
+- 状态：已关闭（开工 2026-10-07 08:0x ／ 关闭 2026-10-07 09:0x；变更单 `docs/changes/CHG-0072.md`；Blast Radius L1；实现提交（SHA 见归档提交））
+
+---
+
 > 📦 **已归档 51 条**（2026-09-24 之前的已完成条目）→ `_archive/audit/AI_WORK_CLAIM-已完成-20260924.md`
 > ⚠️ **那个目录在 `/_archive/` 的忽略名单里（`.gitignore`），不进 git** —— 换一台机器就没有这份存档。
 > 真正丢不了的是 git 历史：任何一版旧内容都取得回来 ——

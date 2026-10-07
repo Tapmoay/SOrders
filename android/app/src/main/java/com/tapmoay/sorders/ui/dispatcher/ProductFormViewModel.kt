@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.NetworkDns
 import com.tapmoay.sorders.data.remote.api.ProductCreateRequest
 import com.tapmoay.sorders.data.remote.api.ProductUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.ProductCategoryDto
@@ -15,8 +16,12 @@ import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.DEFAULT_PRODUCT_NAME_COLOR
 import com.tapmoay.sorders.ui.common.DEFAULT_UNIT
 import com.tapmoay.sorders.ui.common.UnitConv
+import com.tapmoay.sorders.util.resolveStaticUrl
 import com.tapmoay.sorders.util.trimMoneyZeros
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.Request
 import java.io.File
 
 /**
@@ -173,6 +178,33 @@ class ProductFormViewModel(
     fun removeImage() {
         imageLocal = null
         if (!isNew) imageCleared = true
+    }
+
+    /**
+     * 「裁切」那颗按钮要一张**能被位图流水线读到的本地图**（CHG-0072 / 台账 L-33）：
+     * ① 本地已经选过图（[imageLocal]）→ 直接用它（"对裁好的图再裁一遍"，m01347 原话）；
+     * ② 否则把服务端那张下到缓存 —— 老图**不给批量重裁的入口**，这是**单张**入口；
+     * ③ 没有图 / 下不动 → null，调用方给一句提示。
+     *
+     * 不走 [container.repo]：这是"取一张图看看"，与业务接口无关，和 [ui.common.ImagePreview]
+     * 存相册那段同一口径（直接用 [NetworkDns.okHttp]，失败返回 null 而不是抛）。
+     */
+    suspend fun imageForCrop(): String? {
+        val local = imageLocal
+        if (local != null && File(local).exists()) return local
+        val url = resolveStaticUrl(currentImageUrl) ?: return null
+        return try {
+            val bytes = withContext(Dispatchers.IO) {
+                NetworkDns.okHttp.newCall(Request.Builder().url(url).get().build()).execute().use { resp ->
+                    if (resp.isSuccessful) resp.body?.bytes() else null
+                }
+            } ?: return null
+            val f = File(container.appContext.cacheDir, "product_src_" + System.currentTimeMillis() + ".jpg")
+            withContext(Dispatchers.IO) { f.outputStream().use { it.write(bytes) } }
+            f.absolutePath
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /**

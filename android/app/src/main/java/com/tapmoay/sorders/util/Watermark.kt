@@ -1,13 +1,10 @@
 package com.tapmoay.sorders.util
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.media.ExifInterface
 import java.io.File
-import java.io.FileOutputStream
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -20,12 +17,18 @@ import java.time.format.DateTimeFormatter
  * - [process]：磁盘上的文件（送达照链路，按 EXIF 摆正）；
  * - [markBitmap]：已经在内存里的位图（详情页「位置图片」的系统相机那条路）。
  *
+ * ⚠️ 2026-10-07（CHG-0072 / 台账 L-33）：位图流水线那几步（按 EXIF 摆正 / 缩到长边 ≤
+ * [ImageOps.MAX_EDGE] / 输出 JPEG [ImageOps.JPEG_QUALITY]）已经提成公共件 [ImageOps]，
+ * 商品照片的裁切也走它 —— 这里只留"水印怎么画"（画图是全库只许在两处出现的东西之一）。
+ * ⛔ 不许在本文件里再写一份旋转或缩放。
+ *
  * @param tag 补拍标识（台账 L-22）：传 [WatermarkText.MAKEUP_TAG] = 这张是事后补的，多画一行；
  *            留空 = 当场拍的（两行，与既有送达照逐字一致）。
  */
 object Watermark {
 
-    private const val MAX_EDGE = 2560
+    /** 长边上限 —— 与商品照共用同一个值，出处只有 [ImageOps.MAX_EDGE]。 */
+    private const val MAX_EDGE = ImageOps.MAX_EDGE
 
     fun process(
         srcFile: File,
@@ -33,16 +36,12 @@ object Watermark {
         locationText: String,
         tag: String? = null,
     ): File {
-        val raw = BitmapFactory.decodeFile(srcFile.absolutePath) ?: throw IllegalStateException("图片读取失败")
-        val rotated = rotateByExif(raw, srcFile.absolutePath)
-        val scaled = scaleDown(rotated, MAX_EDGE)
-        if (scaled !== rotated) rotated.recycle()
+        // 读 + 按 EXIF 摆正 + 缩到长边上限：三步都在 ImageOps 里，全库只有那一份实现。
+        val scaled = ImageOps.loadOriented(srcFile.absolutePath, MAX_EDGE)
         val marked = drawWatermark(scaled, locationText, tag)
         if (marked !== scaled) scaled.recycle()
 
-        FileOutputStream(outFile).use { fos ->
-            marked.compress(Bitmap.CompressFormat.JPEG, 85, fos)
-        }
+        ImageOps.saveJpeg(marked, outFile)
         marked.recycle()
         return outFile
     }
@@ -58,39 +57,13 @@ object Watermark {
         locationText: String,
         tag: String? = null,
     ): File {
-        val scaled = scaleDown(src, MAX_EDGE)
+        val scaled = ImageOps.scaleDown(src, MAX_EDGE)
         val marked = drawWatermark(scaled, locationText, tag)
         if (scaled !== src) scaled.recycle()
 
-        FileOutputStream(outFile).use { fos ->
-            marked.compress(Bitmap.CompressFormat.JPEG, 85, fos)
-        }
+        ImageOps.saveJpeg(marked, outFile)
         marked.recycle()
         return outFile
-    }
-
-    private fun rotateByExif(bmp: Bitmap, path: String): Bitmap {
-        val rotation = runCatching {
-            when (ExifInterface(path).getAttributeInt(
-                ExifInterface.TAG_ORIENTATION,
-                ExifInterface.ORIENTATION_NORMAL
-            )) {
-                ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-                ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-                ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-                else -> 0f
-            }
-        }.getOrDefault(0f)
-        if (rotation == 0f) return bmp
-        val matrix = android.graphics.Matrix().apply { postRotate(rotation) }
-        return Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
-    }
-
-    private fun scaleDown(bmp: Bitmap, maxEdge: Int): Bitmap {
-        val max = maxOf(bmp.width, bmp.height)
-        if (max <= maxEdge) return bmp
-        val ratio = maxEdge.toFloat() / max
-        return Bitmap.createScaledBitmap(bmp, (bmp.width * ratio).toInt(), (bmp.height * ratio).toInt(), true)
     }
 
     private fun drawWatermark(src: Bitmap, locationText: String, tag: String? = null): Bitmap {
