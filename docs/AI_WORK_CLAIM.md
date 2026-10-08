@@ -43,7 +43,7 @@
 
 `判据 / 反验`：`python _tools/qa/_check_ai_workflow.py`（十二节 **126/126 全绿**）/ `python _tools/qa/_reverse_verify_ai_workflow.py`（**35** 条注入全部报红 ＋ 12 个被碰过的文件逐字节还原），单测 **1424 tests · 0 failures · 0 errors · 2 skipped**（本单 ＋2 类 26 条）。
 
-- 状态：✅ **已关闭**（2026-10-09；变更单 `docs/changes/CHG-0096.md`；Blast Radius **L1 —— AI 能力面**；**不挂台账号** —— goal 驱动的功能单，与 CHG-0092 同例；提交 `⟪HASH⟫`）。
+- 状态：✅ **已关闭**（2026-10-09；变更单 `docs/changes/CHG-0096.md`；Blast Radius **L1 —— AI 能力面**；**不挂台账号** —— goal 驱动的功能单，与 CHG-0092 同例；提交 `0b0e438`）。
 - 真机：**对账** —— 「这个月对一下账，看看有没有漏记的」⇒ 结论（14 单 / ¥1,722.30，逐单对得上）＋ 两张口径表 ＋ 一句追问，全程只落两次读（`orders.list_orders` 14 条 / `ledger.list_entries` 27 条；AI 操作流水顶两条正是这两次）；**批量调价** —— 「把菜籽油降 5%」⇒ 名册里没这个商品就不编也不发卡，「把花生油降 5%」⇒ 先摆结论（默认价 ¥24.1 → ¥22.895，专属价另算）再给确认卡，工作流一步没写。截图：`shots/69_ai_工作流_对账_结论.png` / `69b_ai_工作流_对账_执行过程.png` / `70_ai_操作流水_对账那两次读.png` / `70b_ai_工作流_批量调价_没这个商品.png` / `71_ai_工作流_批量调价_结论与卡.png` / `71b_ai_工作流_批量调价_执行过程.png`。
 - 核心改动：**无** —— 为什么：改的 `ai/AiWorkflow.kt`（新）、`ai/AiWorkflowRunner.kt`（新）、`ai/AiTools.kt`、`ai/AiAgentLoop.kt` 都不在 `_tools/qa/_core_files.txt` 里。
 
