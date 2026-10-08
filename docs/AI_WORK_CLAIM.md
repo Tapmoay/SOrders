@@ -43,7 +43,7 @@
 
 `判据 / 反验`：`python _tools/qa/_check_ai_trace_collapse.py`（七节 **37/37 全绿**）/ `python _tools/qa/_reverse_verify_ai_trace_collapse.py`（**18** 条注入 ✅ 全部报红 ＋ 7 个被碰过的文件逐字节还原），单测 ✅ **1383 / 0 failed / 0 errors / 2 skipped**（97 个类，基线 1379 ＋ 本单 4 条）。
 
-- 状态：✅ **已关闭**（2026-10-09；变更单 `docs/changes/CHG-0094.md`；台账 **L-60**；Blast Radius **L1 —— AI 助手聊天页的痕迹带**；提交 `⟪HASH⟫`）。
+- 状态：✅ **已关闭**（2026-10-09；变更单 `docs/changes/CHG-0094.md`；台账 **L-60**；Blast Radius **L1 —— AI 助手聊天页的痕迹带**；提交 `b2f6ff3`）。
 - 真机：`shots/68_ai_执行过程_默认折叠.png`（1080×2400 / 279351 字节）＝**默认折叠**：助手气泡上方只有一行「查看执行过程 · 12 条」＋右端 chevron，`uiautomator dump` 里**一条步骤节点都没有**；`shots/68b_ai_执行过程_点开展开.png`（1080×2400 / 335230 字节）＝**点一下标题**：「收起执行过程」＋ 6 条「🔧 正在查…」＋ 6 条「✓ … → 返回 N 条」全在 dump 里（与改前逐行一致）；改前的样子（恒展开、占掉大半屏）：用户提供的截图 `shots/67_ai_执行过程_改前恒展开.png`（450×1000 / 162027 字节）。`emulator-5554`（派单员）、真模型 `deepseek-flash · 中`；取证走 **ADBKeyboard 输入法广播**（`emulator-5554` 没开剪贴板共享，`_tools/ai/_emulator_say.ps1` 的粘贴进不了输入框）。
 - 核心改动：**无** —— 为什么：改的 `ui/ai/AiChatScreen.kt` 与新建的 `ui/ai/AiTraceHeader.kt` 都不在 `_tools/qa/_core_files.txt` 里。
 
