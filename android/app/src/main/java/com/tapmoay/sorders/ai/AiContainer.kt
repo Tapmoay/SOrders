@@ -216,9 +216,10 @@ class AiContainer(
     val tools: AiToolset by lazy {
         AiTools(
             repo = repo,
-            // ⚠️ 必须把**角色**传进去：默认值是按角色给的（派单员全开，
-            //    其余角色除写工具外全开）——见 `AiKeyStore.defaultEnabledTools`。
-            enabledNames = { keyStore.enabledTools(role()) },
+            // 默认值**不分角色**：所有角色首装全开（2026-10-09 用户「所有功能的 AI 所有功能
+            //    默认是开的」）——见 `AiKeyStore.defaultEnabledTools`。能改数据的动作仍有
+            //    确认卡兜着（`preview_write` 只是申请），所以这里不需要再按角色裁。
+            enabledNames = { keyStore.enabledTools() },
             readModules = { keyStore.enabledReadModules() },
             allowCostProvider = { keyStore.costVisible(role()) },
             rememberFact = { subject, fact -> rememberFact(subject, fact) },

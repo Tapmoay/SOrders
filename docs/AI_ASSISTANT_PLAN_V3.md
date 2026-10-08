@@ -1173,9 +1173,11 @@ val hasPromptForPermission = !invocation.rawText.contains("deny_tool")
 1. **申请去重**：`AiWritePreviewStore.offer` 遇到 `actionId + payload` 完全相同的申请，
    复用同一张卡。模型重复调用是常态（某轮把工具调用重发一遍），
    而两张一样的卡会造出一条**真实的重复写入路径**：用户点了第一张，再看到第二张，很自然地又点一次。
-2. **默认关**：`preview_write` 进 `DEFAULT_ENABLED_TOOLS`（否则用户按了开关也不生效——§19.6 踩过），
-   但同时在 `OPT_IN_TOOLS` 里，于是首装和"新增工具自动开"两条路都**不会**替用户打开它。
-   老用户升级后不会凭空多出一个能记账的 AI。
+2. **默认开**（2026-10-09 改口径）：`preview_write` 进 `DEFAULT_ENABLED_TOOLS`
+   （否则用户按了开关也不生效——§19.6 踩过），而且首装与"新增工具自动开"两条路
+   对**所有角色**都替用户打开它。用户口径：「非派单的写工具默认开起来……所有功能的 AI 所有功能默认是开的」。
+   原先它是 `OPT_IN_TOOLS` 里**唯一**那个"必须自己打开"的工具（非派单员默认关、升级后也不自动开），
+   那套概念 2026-10-09 已删。⚠️ 成本开关（`defaultCostVisible`）**不在**这次口径里，仍旧按角色。
 3. **幂等键**：确认后发请求时带 `Idempotency-Key: ai-<token>`。OkHttp 默认
    `retryOnConnectionFailure=true`，POST 在连接断开时会自动重发一次——没有这个键，重发就是两笔支出。
    后端暂未实现（下一步做），但多带一个自定义头对 FastAPI/nginx 无害，等后端支持时客户端不用再改。
@@ -1285,7 +1287,7 @@ val hasPromptForPermission = !invocation.rawText.contains("deny_tool")
 改动：
 
 - `AiTools.kt` —— 第 8 个工具 `preview_write` + `requestWrite` 回调 + 工具分组 `Group`
-- `AiKeyStore.kt` —— `OPT_IN_TOOLS`；`enabledTools()` 的两处默认开逻辑把它排除在外
+- `AiKeyStore.kt` —— 工具开关的默认值收在 `DEFAULT_ENABLED_TOOLS` ＋ 纯函数 `resolveEnabledTools(saved, seenAtSave)` 里（⚠️ 2026-10-09 起 `OPT_IN_TOOLS` / `optInExclusion` 与 `role` 参数都已删 —— 默认值不分角色，见 §20.5 第 2 条）
 - `AiContainer.kt` —— `writes` / `writeService` 装配（聊天页与执行器必须看同一个暂存区）
 - `AiAgentLoop.kt` —— 规则 4/5 重写：业务数据默认只读 + "例外只有 `preview_write`，而它只是申请"
 - `AiChatViewModel.kt` —— `pendingWrites` / `writeBusy` / `confirmWrite` / `cancelWrite` / `appendLocal`；换对话时清空待确认

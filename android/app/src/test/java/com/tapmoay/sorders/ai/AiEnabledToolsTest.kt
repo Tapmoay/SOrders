@@ -20,12 +20,10 @@ import org.junit.Test
  * - **"读路径不许写盘"** 这条（bug 的根因）钉在红线 `_check_ai_guardrails.py` 的源码形状上，
  *   反向验证 `_reverse_verify_local_reads.py` 里有一条注入专门证明它会红。
  *
- * `defaultEnabledTools` / `OPT_IN_TOOLS` 的首装默认值由 `AiEndpointRulesTest` 钉着，这里不重复。
+ * `defaultEnabledTools` 的首装默认值（2026-10-09 起**所有角色一律全开**）由 `AiEndpointRulesTest`
+ * 钉着，这里不重复。
  */
 class AiEnabledToolsTest {
-
-    private val dispatcher = AiRole.DISPATCHER
-    private val shipper = AiRole.SHIPPER
 
     /** 用户在设置页存过的那一份（这里模拟"他当时只见过这两个、都开着"）。 */
     private val saved = setOf(AiTools.READ_DATA, AiTools.REMEMBER)
@@ -36,7 +34,7 @@ class AiEnabledToolsTest {
     @Test
     fun `新出现且用户没明确关过的工具，按默认打开`() {
         // EXPORT_SHEET 在默认集里，但**不在**"保存时见过的清单"里 = 保存之后新加的。
-        val effective = AiKeyStore.resolveEnabledTools(saved, seenAtSave, dispatcher)
+        val effective = AiKeyStore.resolveEnabledTools(saved, seenAtSave)
         assertTrue("新加的工具没按默认开（老用户升级后新功能会静默失效）：$effective", AiTools.EXPORT_SHEET in effective)
         // 同一个规矩对 CHG-0078 新加的 export_ledger 也成立（漏进默认集 = 静默筛掉）
         assertTrue("新加的工具没按默认开：$effective", AiTools.EXPORT_LEDGER in effective)
@@ -47,7 +45,7 @@ class AiEnabledToolsTest {
     fun `用户明确关掉的工具永远不自动开`() {
         // 他见过 SEARCH_SHIPPER 却没勾它 —— 那就是"我不要"。
         val seen = setOf(AiTools.READ_DATA, AiTools.REMEMBER, AiTools.SEARCH_SHIPPER)
-        val effective = AiKeyStore.resolveEnabledTools(setOf(AiTools.READ_DATA), seen, dispatcher)
+        val effective = AiKeyStore.resolveEnabledTools(setOf(AiTools.READ_DATA), seen)
         assertFalse("用户关掉的又被打开了：$effective", AiTools.SEARCH_SHIPPER in effective)
         assertTrue(AiTools.READ_DATA in effective)
     }
@@ -57,8 +55,8 @@ class AiEnabledToolsTest {
         // ⚠️ 这正是修掉的那个 bug 的形状：读的时候若顺手把"见过的清单"刷成全集，
         //    第二次读就会算出"没有新工具"，于是它又变回关的。
         //    纯函数天然满足"同一个状态读两次一模一样"——**这条断言就是那个不变量**。
-        val first = AiKeyStore.resolveEnabledTools(saved, seenAtSave, dispatcher)
-        val second = AiKeyStore.resolveEnabledTools(saved, seenAtSave, dispatcher)
+        val first = AiKeyStore.resolveEnabledTools(saved, seenAtSave)
+        val second = AiKeyStore.resolveEnabledTools(saved, seenAtSave)
         assertTrue("第一次读就没有新工具：$first", AiTools.EXPORT_SHEET in first)
         assertTrue("第一次读就没有新工具：$first", AiTools.EXPORT_LEDGER in first)
         assertEquals("读两次结果不一样 = 读路径在改状态：$first vs $second", first, second)
@@ -71,8 +69,8 @@ class AiEnabledToolsTest {
         // 老约定（类注释里写着）：有键但是空串 = 用户把开关全关了。
         // ⚠️ 这条在修之前是**假话**：`brandNew` 会把整份默认集重新填回来。
         assertTrue(
-            "全关的设备被重新打开了：${AiKeyStore.resolveEnabledTools(emptySet(), seenAtSave, dispatcher)}",
-            AiKeyStore.resolveEnabledTools(emptySet(), seenAtSave, dispatcher).isEmpty(),
+            "全关的设备被重新打开了：${AiKeyStore.resolveEnabledTools(emptySet(), seenAtSave)}",
+            AiKeyStore.resolveEnabledTools(emptySet(), seenAtSave).isEmpty(),
         )
     }
 
@@ -81,22 +79,20 @@ class AiEnabledToolsTest {
         // seenAtSave = null 对应"prefs 里有白名单、但没有「见过的清单」"（那机制之前存的）。
         // 两种猜法只能选一个：按"他都见过"（= 少给新工具，他下次保存就自愈）
         // 还是按"他什么都没见过"（= 把他明确关掉的工具全打开，其中有能改数据的 preview_write）。
-        val effective = AiKeyStore.resolveEnabledTools(setOf(AiTools.READ_DATA), null, dispatcher)
+        val effective = AiKeyStore.resolveEnabledTools(setOf(AiTools.READ_DATA), null)
         assertEquals("旧数据下不许凭空多给工具", setOf(AiTools.READ_DATA), effective)
     }
 
     @Test
-    fun `新增的写工具对派单员按默认开，对其余角色不自动开`() {
-        // 「新增默认开」对只读工具是对的；对能改业务数据的工具必须排除（除派单员，用户拍板他全开）。
+    fun `新增的能改数据的工具也按默认开（2026-10-09 起不分角色）`() {
+        // 这一条以前断的是"货主不该凭空多出一个会记账的 AI"——2026-10-09 用户改了口径：
+        // 「非派单的写工具默认开起来……所有功能的 AI 所有功能默认是开的」。
+        // 安全性没有交给开关：写工具永远只能**申请**，落库要用户在确认卡上点一下。
         val seen = setOf(AiTools.READ_DATA)
         val onlyRead = setOf(AiTools.READ_DATA)
         assertTrue(
-            "派单员的新增写工具该装上就能用（仍要过确认卡）",
-            AiTools.PREVIEW_WRITE in AiKeyStore.resolveEnabledTools(onlyRead, seen, dispatcher),
-        )
-        assertFalse(
-            "货主不该凭空多出一个会记账的 AI",
-            AiTools.PREVIEW_WRITE in AiKeyStore.resolveEnabledTools(onlyRead, seen, shipper),
+            "新增的写工具该装上就能用（仍要过确认卡）",
+            AiTools.PREVIEW_WRITE in AiKeyStore.resolveEnabledTools(onlyRead, seen),
         )
     }
 }

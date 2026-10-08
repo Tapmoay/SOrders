@@ -217,7 +217,8 @@ class AiKeyStore(
     /**
      * 用户启用的工具名集合。
      *
-     * 关键区分：**prefs 里没有这个 key** = 用户从没配过 → 按角色给默认（[defaultEnabledTools]）；
+     * 关键区分：**prefs 里没有这个 key** = 用户从没配过 → 用默认（[defaultEnabledTools]，2026-10-09 起
+     * **所有角色一律全开**）；
      * **有这个 key 但是空串** = 用户主动把开关全关了 → 必须返回空集。
      * （曾经这里用 `ifEmpty { 默认全开 }`，会把「全关」这件事悄悄变成「全开」。）
      *
@@ -229,12 +230,12 @@ class AiKeyStore(
      * 现在：合并规则收成纯函数 [Companion.resolveEnabledTools]（可单测、**不写盘**），
      * "见过的清单"只在 [saveEnabledTools] 里刷新。
      */
-    fun enabledTools(role: AiRole? = null): Set<String> {
+    fun enabledTools(): Set<String> {
         if (!prefs.contains(KEY_TOOLS)) {
-            // 首装：按**角色**给默认值 —— 派单员全开，其余角色除写工具外全开。
-            // （2026-09-20 用户：「派单员所有 AI 功能全都是默认开启」。）
+            // 首装：**默认全开，所有角色一样**（2026-10-09 用户：「非派单的写工具默认开起来……
+            // 所有功能的 AI 所有功能默认是开的」；此前 2026-09-20 只有派单员全开）。
             // ⛔ 这里**不许**顺手写"见过的清单"（那正是上面那条 bug 的根因）。
-            return defaultEnabledTools(role)
+            return defaultEnabledTools()
         }
         return resolveEnabledTools(
             saved = splitNames(prefs.getString(KEY_TOOLS, "")),
@@ -243,7 +244,6 @@ class AiKeyStore(
             //    键在但内容是空串同理：认不出"他见过什么"，别当成"他什么都没见过"——
             //    那会把用户明确关掉的工具全打开。
             seenAtSave = splitNames(prefs.getString(KEY_TOOLS_SEEN, "")).takeIf { it.isNotEmpty() },
-            role = role,
         )
     }
 
@@ -646,53 +646,29 @@ class AiKeyStore(
         )
 
         /**
-         * **必须由用户主动打开**的工具（即使它是"新增的工具"，也不自动开）。
+         * **首装默认开哪些工具** —— 现在是 [DEFAULT_ENABLED_TOOLS] **全开，不分角色**。
          *
-         * ### 为什么需要这么一个集合
-         * [enabledTools] 的规矩是"新增工具默认开"——那条规矩是为了修
-         * "记忆功能装了却没有任何反应"那个 bug（老用户的 prefs 里没有新工具名，
-         * 一 intersect 就被筛掉了）。但那条规矩对**能改业务数据**的工具是错的：
-         * 老用户升级后不该突然多出一个"能替你记账"的能力，哪怕它会弹确认。
+         * ### 用户口径改过两次（第二次覆盖第一次，别只记住一半）
+         * - 2026-09-20：「**派单员所有 AI 功能全都是默认开启**」—— 那时只有派单员全开，
+         *   其余角色把写工具（[AiTools.PREVIEW_WRITE]）留成"想用的人自己去设置页打开"
+         *   （原来那套 opt-in 概念 = `OPT_IN_TOOLS` / `optInExclusion`，2026-10-09 已删除）；
+         * - **2026-10-09**：「非派单的写工具默认开起来……所有功能的 AI 所有功能默认是开的」——
+         *   于是首装、以及"升级之后才出现的工具"，对**所有角色**一律默认开。
          *
-         * ### 它必须同时在 [DEFAULT_ENABLED_TOOLS] 里
-         * 这两个集合的分工容易搞反，写下来免得下次又踩：
-         * - [DEFAULT_ENABLED_TOOLS] 是**白名单**：不在里面的工具，连"被打开"的资格都没有
-         *   （`enabledTools()` 最后那个 `intersect` 会把它筛掉，用户按了开关也不生效）。
-         * - [OPT_IN_TOOLS] 只决定**默认值是开还是关**：首装和"新出现的工具"都不自动开，
-         *   但用户在设置页打开后能存下来、下次仍然生效。
-         */
-        val OPT_IN_TOOLS: Set<String> = setOf(AiTools.PREVIEW_WRITE)
-
-        /**
-         * 这个角色**首次使用**时默认开哪些工具（用户 2026-09-20 的决定）。
-         *
-         * 用户原话：「**派单员所有 AI 功能全都是默认开启**」。
-         * 所以派单员 = **全开**（含 [OPT_IN_TOOLS] 里的写工具）；其余角色仍按老规矩
-         * （除写工具外全开）。
-         *
-         * ### 为什么派单员可以默认全开（这不是把安全闸拆了）
-         * - 他本来就是**唯一**有写权限的角色：货主的动作白名单是
-         *   `AiWrites.SHIPPER_ACTIONS`（fail-closed），司机端连 AI 入口都没有；
-         * - "能改数据"这条路上还有**确认卡**：`preview_write` 只是**申请**，
-         *   真正落库要他本人在卡上点一下（`AiWriteService.execute` 的唯一调用点就是那个按钮）；
+         * ### 为什么现在敢对所有角色默认全开（这不是把安全闸拆了）
+         * - "能改数据"这条路上有**确认卡**：`preview_write` 只是**申请**，
+         *   真正落库要用户本人在卡上点一下（`AiWriteService.execute` 的唯一调用点就是那个按钮）；
+         * - **角色白名单另有一道**：货主的动作白名单是 `AiWrites.SHIPPER_ACTIONS`（fail-closed），
+         *   司机端连 AI 入口都没有 —— 开关开着，不等于他有那个动作；
          * - 开关仍然在设置页里，随时能关；关掉之后这一层照旧立刻生效。
          *
-         * 判据写成**纯函数**是为了能被单测钉住（`AiToolsTest`）——
+         * ⚠️ [defaultCostVisible] **不在**这次口径里：那是**数据外发**决定，仍旧按角色
+         * （派单员默认开、其余角色默认关）。
+         *
+         * 判据写成**纯函数**是为了能被单测钉住（`AiEndpointRulesTest`）——
          * 以前这段逻辑埋在 `enabledTools()` 里，只有真机能验。
          */
-        fun defaultEnabledTools(role: AiRole?): Set<String> =
-            if (role == AiRole.DISPATCHER) DEFAULT_ENABLED_TOOLS
-            else DEFAULT_ENABLED_TOOLS - OPT_IN_TOOLS
-
-        /**
-         * 「新增的工具」自动开时，**要不要把它排除**。
-         *
-         * 非派单员：写工具不自动开（老用户升级后不该凭空多出一个会记账的 AI）。
-         * 派单员：什么都不排除 —— 用户要的就是"派单员所有 AI 功能全都默认开启"，
-         * 新加的写动作对他也应该装上就能用（仍然要过确认卡）。
-         */
-        fun optInExclusion(role: AiRole?): Set<String> =
-            if (role == AiRole.DISPATCHER) emptySet() else OPT_IN_TOOLS
+        fun defaultEnabledTools(): Set<String> = DEFAULT_ENABLED_TOOLS
 
         /**
          * 「用户存过的那份工具白名单」要怎么算成这次生效的工具。**纯函数、且不碰任何存储**。
@@ -713,15 +689,16 @@ class AiKeyStore(
          *    而把用户**明确关掉**的工具重新打开（其中就有能改数据的 [AiTools.PREVIEW_WRITE]）
          *    比"暂时少一个新工具"严重得多 —— 他下次一进设置页保存就自愈。
          *    （镜像决定见 `AiReads.resolveEnabled` 的第 2 条：那边同样只补"能确定是后加的"那一类。）
-         * 3. `seenAtSave` 有值 → 补「现在默认集 − 保存时已知 − 这个角色排除的」= **保存之后新出现的**。
+         * 3. `seenAtSave` 有值 → 补「现在默认集 − 保存时已知」= **保存之后新出现的**
+         *    （所有角色同一个算法；2026-10-09 起不再有"按角色排除写工具"这一项）。
          *
          * @param saved 用户保存的那份（已 trim；**空集 = 他主动全关**）
          * @param seenAtSave 保存那一刻"见过"的全部工具；**null = 旧数据 / 认不出来**
          */
-        fun resolveEnabledTools(saved: Set<String>, seenAtSave: Set<String>?, role: AiRole?): Set<String> {
+        fun resolveEnabledTools(saved: Set<String>, seenAtSave: Set<String>?): Set<String> {
             if (saved.isEmpty()) return emptySet()
             val seen = seenAtSave ?: DEFAULT_ENABLED_TOOLS
-            val brandNew = DEFAULT_ENABLED_TOOLS - seen - optInExclusion(role)
+            val brandNew = DEFAULT_ENABLED_TOOLS - seen
             return (saved + brandNew).intersect(DEFAULT_ENABLED_TOOLS)
         }
 

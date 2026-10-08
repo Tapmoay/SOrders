@@ -16,34 +16,20 @@ import org.junit.Test
 class AiEndpointRulesTest {
 
     /**
-     * AI 工具的**默认开关按角色**（2026-09-20 用户：「派单员所有 AI 功能全都是默认开启」）。
+     * AI 工具的**默认开关不分角色、一律全开**（2026-10-09 用户：「非派单的写工具默认开起来……
+     * 所有功能的 AI 所有功能默认是开的」；此前 2026-09-20 的口径是"派单员全开、其余角色不含
+     * 写工具"，那套 opt-in 概念（`OPT_IN_TOOLS` / `optInExclusion`）当天已删）。
      *
      * 这条以前埋在 `AiKeyStore.enabledTools()` 里（要 Context + SharedPreferences，只有真机能验），
-     * 抽成纯函数之后这里能把它钉住：派单员一个不漏；其余角色**不含**写工具。
+     * 抽成纯函数之后这里能把它钉住。**写工具也在默认集里**是刻意的：它的安全边界不在开关上，
+     * 而在确认卡（`preview_write` 只能申请，落库要用户点一下，见 `AiWriteService`）
+     * 与角色白名单（货主 `AiWrites.SHIPPER_ACTIONS`，fail-closed）。
      */
     @Test
-    fun `派单员默认全开、其余角色不含写工具`() {
+    fun `默认全开：默认集里连写工具都在，且与角色无关`() {
         val all = AiKeyStore.DEFAULT_ENABLED_TOOLS
-        assertEquals("派单员应当全部默认开", all, AiKeyStore.defaultEnabledTools(AiRole.DISPATCHER))
-        for (role in listOf(AiRole.SHIPPER, null)) {
-            val d = AiKeyStore.defaultEnabledTools(role)
-            assertTrue("非派单员不该默认开写工具：$role", AiTools.PREVIEW_WRITE !in d)
-            assertEquals("除写工具外应当都一样", all - AiKeyStore.OPT_IN_TOOLS, d)
-        }
-    }
-
-    @Test
-    fun `新增工具：派单员不排除、其余角色排除写工具`() {
-        assertEquals(
-            "派单员对新增工具不该有任何排除",
-            emptySet<String>(),
-            AiKeyStore.optInExclusion(AiRole.DISPATCHER),
-        )
-        assertEquals(
-            "非派单员要把写工具排除在「新增默认开」之外",
-            AiKeyStore.OPT_IN_TOOLS,
-            AiKeyStore.optInExclusion(AiRole.SHIPPER),
-        )
+        assertTrue("写工具必须在默认集里（2026-10-09：写工具也默认开）", AiTools.PREVIEW_WRITE in all)
+        assertEquals("首装默认就是默认集本身", all, AiKeyStore.defaultEnabledTools())
     }
 
     /**

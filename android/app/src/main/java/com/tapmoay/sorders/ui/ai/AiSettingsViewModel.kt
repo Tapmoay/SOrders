@@ -304,9 +304,9 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
         apiKeyInput = ai.keyStore.apiKey().orEmpty()
         hasStoredKey = apiKeyInput.isNotBlank()
         usingDefaultKey = ai.keyStore.usingDefaultKey()
-        // 默认值按角色给（派单员全开）——设置页必须与 `AiContainer.tools` 用**同一个判据**，
-        // 否则会出现"开关显示关着、其实能用"（或反过来）。
-        val enabled = ai.keyStore.enabledTools(ai.currentRole)
+        // 默认值不分角色（2026-10-09 起首装全开）——设置页必须与 `AiContainer.tools` 用
+        // **同一个判据**，否则会出现"开关显示关着、其实能用"（或反过来）。
+        val enabled = ai.keyStore.enabledTools()
         tools.clear()
         // 按角色裁：货主不该看到"库存预警/司机跑车统计"这种他永远用不上的开关
         // （打开了也不生效 = "看起来有、其实没有"）。
@@ -323,7 +323,7 @@ class AiSettingsViewModel(private val ai: AiContainer) : ViewModel() {
      * ——问回来的那一刻这一屏已经画完了，得有个不重跑其余几十个字段的入口。
      */
     private fun reloadAbilityLists() {
-        val enabled = ai.keyStore.enabledTools(ai.currentRole)
+        val enabled = ai.keyStore.enabledTools()
         tools.clear()
         AiTools.settingsItems(ai.currentActor).forEach { t ->
             tools.add(AiToolToggle(t.name, t.title, t.hint, t.name in enabled, t.group))

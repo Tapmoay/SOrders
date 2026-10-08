@@ -118,9 +118,9 @@ MUTATIONS: list[tuple[str, Path, str, str, str]] = [
         # → 新加的工具只有第一次读是开的，之后自己变回关的（用户原话：AI 要具备**所有功能**）。
         "工具开关的读路径又去写盘（新加的工具会自己变回关的）",
         KEYSTORE,
-        "            return defaultEnabledTools(role)",
+        "            return defaultEnabledTools()",
         "            prefs.edit().putString(KEY_TOOLS_SEEN, DEFAULT_ENABLED_TOOLS.joinToString(\",\")).apply()\n"
-        "            return defaultEnabledTools(role)",
+        "            return defaultEnabledTools()",
         "工具开关的读路径不许写盘",
     ),
     (

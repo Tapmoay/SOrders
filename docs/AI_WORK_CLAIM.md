@@ -79,6 +79,22 @@
 - 真机：✅ 已跑（`emulator-5554`）：读目录两条 GET 落账（`invoices.list_invoices` 103 / 105）＋ 工具驱动的读落 `inventory_alerts` 行（截图 `shots/63_ai_log_read_rows.png`）；同一次走查里写动作仍是「确认之后才记」（104 / 107）。
 - 核心改动：**无** —— 为什么：改的是 `ai/AiReadService.kt` 与 `ai/AiTools.kt` 两个**非核心**文件（`_tools/qa/_core_files.txt` 里属于 AI 的只有 `ai/AiWriteService.kt`）。
 
+### [2026-10-09 01:1x → 02:1x CST 已完成] 会话：**CHG-0090 写工具对所有角色默认开：首装与「新增工具自动开」都不再按角色裁（台账 L-57 第三条）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径（ref `m34423`，目标 `goal-c44b7db2-bf4b-4df3-8c5f-0b25747b3e55` 原文，语音转写）：「非派单的写工具默认开起来……所有功能的 AI 所有功能默认是开的」`（台账出处 `:2967`，原来记的是「非派单员的写工具默认关（是设计，不是 bug）」）。
+
+`病灶`：`ai/AiKeyStore.kt` 里 `OPT_IN_TOOLS = setOf(AiTools.PREVIEW_WRITE)` ＋ `defaultEnabledTools(role)`（非派单员 = 默认集 − OPT_IN）＋ `resolveEnabledTools(saved, seenAtSave, role)` 的 `optInExclusion(role)` —— 两条路（首装 / 新增工具自动开）都替非派单员把「改数据（需你确认）」关着，用户口径是**全部默认开**。
+
+`改法`：① `ai/AiKeyStore.kt` 删掉 `OPT_IN_TOOLS` 与 `optInExclusion(role)`，`defaultEnabledTools(): Set<String> = DEFAULT_ENABLED_TOOLS`、`resolveEnabledTools(saved, seenAtSave)` 去掉 role、`enabledTools()` 无参；② 调用点随动（`ai/AiContainer.kt:220`、`ui/ai/AiSettingsViewModel.kt` 两处）；③ `ai/AiTools.kt:877-882` 的 `PREVIEW_WRITE` 注释改成「默认**开启**」；④ 判据 `_tools/ai/_check_ai_guardrails.py` 2d-8 段随动（`c.absent(... OPT_IN_TOOLS|optInExclusion)` ＋ 三条 `present` 钉住"默认值只有一个答案"）；⑤ 单测 `AiEnabledToolsTest` / `AiEndpointRulesTest` 随动（两条合成一条，**1362 → 1361**）；⑥ 文档口径三处：`docs/AI_ASSISTANT_PLAN_V3.md` §20.5 第 2 条（原文写着 `preview_write` 进 `OPT_IN_TOOLS`＝非派单员默认关）与「改动：」清单里 `AiKeyStore.kt` 那一行、`docs/changes/CHG-0084.md:215` 的走查前置（补记「2026-10-09 起这条前置作废」）。
+
+`明确不碰`：成本 / 毛利开关 `AiKeyStore.kt:711 fun defaultCostVisible(role: AiRole?): Boolean = role == AiRole.DISPATCHER`（**唯一**仍按角色的默认值 —— 那是数据外发口径，⛔ 不在本次口径里）、写动作仍然一律要用户点确认、货主清单 `SHIPPER_ACTIONS` 44 条不增、司机端不加 AI、后端一行不动。
+
+`判据 / 反验`：`python _tools/ai/_check_ai_guardrails.py`（1327 项，含 2d-8 四条）；单测 1361 / 0 failed / 2 skipped；`_check_ai_invoices.py` 262 项（它把 guardrails 当子进程跑）。
+
+- 状态：✅ **已关闭**（2026-10-09 01:1x 开工 · 关闭；变更单 `docs/changes/CHG-0090.md`；台账 **L-57** 第三条；Blast Radius **L1 —— AI 能力面**）。
+- 真机：✅ 已跑（`emulator-5556` 货主 `13800000002` `--fresh` 首装）：设置 →「AI 能用的能力」→「改数据（需你确认）」开（`shots/61_shipper_write_tool_default_on.png`）＋ 说一句话当场出确认卡（`shots/62_shipper_write_card_after_default_on.png`）。
+- 核心改动：**无** —— 为什么：改的四个文件（`ai/AiKeyStore.kt` / `ai/AiContainer.kt` / `ui/ai/AiSettingsViewModel.kt` / `ai/AiTools.kt`）都不在 `_tools/qa/_core_files.txt` 里（那里属于 AI 的只有 `ai/AiWriteService.kt`）。
+
 ### [2026-10-08 07:5x → 08:xx CST 已完成] 会话：**CHG-0087 钱相关四条开给 AI：手动定价 / 让价 / 取消让价 / 设挂账额度（台账 L-56）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径（ref `m28098`，目标 `goal-7564f8c1-48e7-4083-9d73-4fd51a21b64c` 原文，台账 `_tmp/USER_BUG_LEDGER_20261006.md:2891`）：「① `AI 覆盖补齐` —— 把「本轮不开放」的 15~16 个写端点（`发票台账 6、钱相关 7、订单结构 3`）开给对应角色，并开`下游定价两条读动作`，保持「不漏、不越」的三方对账全绿 …… `司机端维持不加 AI。`」本单是目标① 四单里的`第四单`（本批收口单）。

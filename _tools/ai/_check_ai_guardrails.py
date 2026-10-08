@@ -595,7 +595,7 @@ def main() -> int:
     c.present(
         "「上次保存后新增的工具」按默认开处理（老用户升级后新功能不能静默失效）",
         ks,
-        r"brandNew = DEFAULT_ENABLED_TOOLS - seen - optInExclusion\(role\)",
+        r"brandNew = DEFAULT_ENABLED_TOOLS - seen",
     )
     c.present("保存时刷新「见过的工具」清单", ks, r"KEY_TOOLS_SEEN, DEFAULT_ENABLED_TOOLS\.joinToString")
 
@@ -612,7 +612,7 @@ def main() -> int:
         r"prefs\.edit\(|markToolsSeen\(",
     )
     c.present("白名单的合并规则收成一处纯函数（只读、可单测）",
-              ks, r"fun resolveEnabledTools\(saved: Set<String>, seenAtSave: Set<String>\?, role: AiRole\?\)")
+              ks, r"fun resolveEnabledTools\(saved: Set<String>, seenAtSave: Set<String>\?\)")
     c.present("读侧走那条纯函数（而不是在 enabledTools 里再算一遍）", ks, r"return resolveEnabledTools\(")
     c.present(
         "旧数据（认不出他见过什么）按「他都见过」算，不把他明确关掉的又打开",
@@ -690,26 +690,28 @@ def main() -> int:
     for rel in ("AiWriteBasicHandlers.kt", "AiWriteOrderHandlers.kt"):
         c.absent(f"{rel} 里没有自己再写一遍金额上限", read(AI / rel), r'"1000000"')
 
-    # ---- 2d-8 默认值：**按角色**（2026-09-20 用户改的口径）----
+    # ---- 2d-8 默认值：**不分角色、一律全开**（2026-10-09 覆盖 2026-09-20 的口径）----
     #
-    # 用户原话：「**派单员所有 AI 功能全都是默认开启**」。
-    # 所以原来那两条"一律默认关"的判据换成了按角色的判据，而**安全边界没变**：
-    #   · 写工具仍然只能通过 `preview_write` **申请**，落库要用户点确认卡；
-    #   · 非派单员（货主）仍然默认关——他升级后不该凭空多出一个会记账的 AI；
+    # 用户口径改过两次，判据跟着改，但**安全边界一直没变、而且从来不在开关上**：
+    #   · 2026-09-20「**派单员所有 AI 功能全都是默认开启**」→ 只有派单员全开，
+    #     其余角色把写工具留成 opt-in（`OPT_IN_TOOLS` / `optInExclusion`）；
+    #   · **2026-10-09**「非派单的写工具默认开起来……所有功能的 AI 所有功能默认是开的」→
+    #     opt-in 整套删掉，首装与"新增工具"对**所有角色**一律默认开。
+    # 为什么照样安全：
+    #   · 写工具仍然只能通过 `preview_write` **申请**，落库要用户点确认卡（见 2d-1/2d-2）；
+    #   · 角色白名单是**另一道**（货主 `AiWrites.SHIPPER_ACTIONS` fail-closed，司机端没 AI 入口）；
     #   · 开关仍然在设置页里，随时能关。
-    c.present("写工具仍然走「主动申请」这一档（不是直接执行）", ks,
-              r"val OPT_IN_TOOLS: Set<String> = setOf\(AiTools\.PREVIEW_WRITE\)")
-    c.present("非派单员首装时写工具仍然是关的",
-              ks, r"else DEFAULT_ENABLED_TOOLS - OPT_IN_TOOLS")
-    c.present("**派单员首装全开**（用户 2026-09-20：「派单员所有 AI 功能全都是默认开启」）",
-              ks, r"if \(role == AiRole\.DISPATCHER\) DEFAULT_ENABLED_TOOLS")
-    c.present("「新增默认开」这条规矩：非派单员把写工具排除在外",
-              ks, r"DEFAULT_ENABLED_TOOLS - seen - optInExclusion\(role\)")
-    c.present("派单员对新增工具也不排除（否则新加的写动作对他装了没用）",
-              ks, r"if \(role == AiRole\.DISPATCHER\) emptySet\(\) else OPT_IN_TOOLS")
-    c.present("两个调用点都把角色传进去了（默认值按角色，不能只在一处生效）",
+    c.absent("opt-in 那套概念已经删干净（留着就等于还有一条「按角色默认关」的分叉）",
+             strip_comments(ks), r"OPT_IN_TOOLS|optInExclusion")
+    c.present("首装默认 = 默认集本身（所有角色同一个答案，不再看 role）",
+              ks, r"fun defaultEnabledTools\(\): Set<String> = DEFAULT_ENABLED_TOOLS")
+    c.present("「新增默认开」这条规矩里不再有角色排除项",
+              ks, r"brandNew = DEFAULT_ENABLED_TOOLS - seen")
+    c.present("读侧那条老约定不许动（空串 = 用户主动全关，不能悄悄变回全开）",
+              ks, r"if \(saved\.isEmpty\(\)\) return emptySet\(\)")
+    c.present("两个调用点都不再传角色（默认值只有一个答案，不能一处一套）",
               read(AI / "AiContainer.kt") + read(UI / "ai/AiSettingsViewModel.kt"),
-              r"enabledTools\(role\(\)\)|enabledTools\(ai\.currentRole\)")
+              r"enabledTools\(\)")
     c.present("但它必须在默认集里（否则用户按了开关也不生效）", ks, r"AiTools\.PREVIEW_WRITE,")
 
     # ---- 2d-9 设置页要把「哪些会改数据」摊开 ----
