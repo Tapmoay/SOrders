@@ -1,9 +1,12 @@
 package com.tapmoay.sorders.ai
 
+import com.tapmoay.sorders.data.remote.dto.ArrearsUnitEditRequest
 import com.tapmoay.sorders.data.remote.dto.ExpenseCreateRequest
 import com.tapmoay.sorders.data.remote.dto.InvoiceCreateRequest
 import com.tapmoay.sorders.data.remote.dto.InvoiceUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.LedgerCreateRequest
+import com.tapmoay.sorders.data.remote.dto.OrderDiscountBody
+import com.tapmoay.sorders.data.remote.dto.OrderFreightPriceRequest
 import com.tapmoay.sorders.data.remote.dto.OrderCreateRequest
 import com.tapmoay.sorders.data.remote.dto.PlaceDto
 import com.tapmoay.sorders.data.remote.dto.PlaceUpdateRequest
@@ -13,6 +16,8 @@ import com.tapmoay.sorders.data.remote.dto.PurchaseOrderDto
 import com.tapmoay.sorders.data.remote.dto.PurchaseOrderUpdateRequest
 import com.tapmoay.sorders.data.repo.AppRepository
 import com.tapmoay.sorders.ui.dispatcher.centsToMoney
+import com.tapmoay.sorders.ui.order.discountLineIds
+import com.tapmoay.sorders.ui.order.discountTrace
 import com.tapmoay.sorders.ui.dispatcher.lineReceivableCents
 import com.tapmoay.sorders.ui.shipper.customerNameOf
 import com.tapmoay.sorders.ui.shipper.customerPhoneOf
@@ -20,6 +25,7 @@ import com.tapmoay.sorders.ui.shipper.settledByLineCents
 import com.tapmoay.sorders.util.goodsTotalText
 import android.content.Context
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -160,6 +166,15 @@ class RepoWriteDataSource(
                 settledAmount = d.settledAmount,
                 arrearsAmount = d.arrearsAmount,
                 paymentMethod = d.paymentMethod,
+                // 钱相关四条（2026-10-08 CHG-0087）：定价与让价的卡片都要先说出"这一单现在是什么样"。
+                // ⚠️ freightCategoryId 是**必须跟着写回**的一项（定价端点"没给就清空"），见 [AiOrderRef]。
+                // 折扣那两行复用界面同一份算法（`ui/order/OrderDiscount.kt`）—— ⛔ 不在这里自己拼字符串。
+                freightFee = d.freightFee,
+                freightCategory = d.freightCategory,
+                freightCategoryId = d.freightCategoryId,
+                discountKind = d.discountKind,
+                discountTrace = discountTrace(d),
+                discountLineIds = discountLineIds(d),
             )
         }
 
@@ -215,6 +230,45 @@ class RepoWriteDataSource(
 
     override suspend fun updateFreight(orderId: Long, freightFee: String?) {
         repo.updateFreight(orderId, freightFee)
+    }
+
+    // ---- 钱相关三条（2026-10-08 CHG-0087）----
+
+    override suspend fun priceFreight(orderId: Long, freightFee: String, categoryId: Long?) {
+        repo.priceFreight(
+            orderId,
+            OrderFreightPriceRequest(
+                freightFee = freightFee,
+                categoryId = categoryId,
+                // ⛔ 不顺手沉淀价目：`save_template` 保持 false。沉淀会让"这条路线以后再下单自动带价"，
+                //    那是用户在运费定价页勾一下的事；AI 只做这一次定价。
+                saveTemplate = false,
+            ),
+        )
+    }
+
+    override suspend fun applyOrderDiscount(
+        orderId: Long,
+        kind: String,
+        value: String,
+        lineIds: List<Long>,
+        reason: String?,
+    ) {
+        repo.applyOrderDiscount(
+            orderId,
+            OrderDiscountBody(
+                kind = kind,
+                value = value,
+                // 空 = 整单（与手工页同一写法：`OrderDetailViewModel.applyDiscount()` 也是"整单发 null、勾选发行号"）。
+                lineIds = lineIds.ifEmpty { null },
+                reason = reason,
+            ),
+        )
+    }
+
+    /** 取消让价：后端按快照把每一行金额精确还原（⛔ 不是"再打一次反向折扣"）。 */
+    override suspend fun clearOrderDiscount(orderId: Long) {
+        repo.clearOrderDiscount(orderId)
     }
 
     override suspend fun payOrder(orderId: Long) {
@@ -1321,6 +1375,46 @@ class RepoWriteDataSource(
                 name = fields.str("name"),
                 phone = fields.str("phone"),
                 remark = fields.str("remark"),
+            ),
+        )
+    }
+
+    /**
+     * 单取一个挂账单位（含额度）。
+     *
+     * ⚠️ 名册 `GET /arrears-units` 就带额度，所以这里从名册里挑那一条 —— 不为卡片单开一个端点。
+     * 额度为 null = **不限额**（不是 0），要如实往下传。
+     */
+    override suspend fun arrearsUnit(id: Long): AiArrearsUnit? =
+        repo.arrearsUnits().firstOrNull { it.id == id }?.let {
+            AiArrearsUnit(
+                id = it.id,
+                name = it.name,
+                phone = it.phone,
+                remark = it.remark,
+                creditLimit = it.creditLimit,
+            )
+        }
+
+    /**
+     * 设额度（`PATCH /arrears-units/{id}` 的额度那一面）。
+     *
+     * ⛔ 必须走 [ArrearsUnitEditRequest]（**不是** `ArrearsUnitUpdateRequest`）：
+     *    额度这一项"传字面 null = 清空"是合法的一态，而 `explicitNulls = false` 会把值为 `null` 的键整个丢掉
+     *    —— 键一丢后端就当成"没提这事"，额度清不掉还不报错（`Dtos.kt:1322-1331` 那段注释是原话）。
+     * 那个请求体的三件套（名字/电话/备注）是**非空整份**，所以要先把现状读回来原样带上，只换额度。
+     * `creditLimit` 为 `JsonNull` = 不限额；`JsonPrimitive("5000.00")` = 设这个数。
+     */
+    override suspend fun setArrearsUnitCreditLimit(id: Long, creditLimit: JsonElement) {
+        val unit = repo.arrearsUnits().firstOrNull { it.id == id }
+            ?: error("找不到要设额度的挂账单位（$id）—— 它可能刚被删掉，这次没有改动任何数据。")
+        repo.editArrearsUnit(
+            id,
+            ArrearsUnitEditRequest(
+                name = unit.name,
+                phone = unit.phone,
+                remark = unit.remark,
+                creditLimit = creditLimit,
             ),
         )
     }

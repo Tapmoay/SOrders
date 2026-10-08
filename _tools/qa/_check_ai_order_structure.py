@@ -528,7 +528,8 @@ def main() -> int:
     wout, wrc = run_cmd([sys.executable, str(WRITE_COVERAGE)])
     c.ok("写覆盖脚本实跑通过（exit 0）", wrc == 0, "exit " + str(wrc))
     #    2026-10-08 随动（CHG-0086）：发票六条从 EXCLUDED 里删掉（写域开放）⇒ 未覆盖 29 → 23。
-    c.has("写覆盖表：三条已不在未覆盖里（23 条全有理由、0 条真缺口）", wout, "未覆盖 23（其中 23 条有写下来的「不做」理由，0 条是真缺口）")
+    #    2026-10-08 随动（CHG-0087）：钱相关四条（定价 / 让价 / 取消让价 / 设挂账额度）也删掉 ⇒ 未覆盖 23 → 19。
+    c.has("写覆盖表：四条已不在未覆盖里（19 条全有理由、0 条真缺口）", wout, "未覆盖 19（其中 19 条有写下来的「不做」理由，0 条是真缺口）")
     rout, rrc = run_cmd([sys.executable, str(READ_COVERAGE), "--check"])
     c.ok("读覆盖脚本 --check 实跑通过（exit 0）", rrc == 0, "exit " + str(rrc))
     c.has("读覆盖：没交代的仍然是 0", rout, "❓ 没交代：0")
@@ -541,7 +542,7 @@ def main() -> int:
         c.has("单测里有这一条：" + name, t, name)
     n_cases = subs(t, "fun `转货：") + subs(t, "fun `静默退回：") + subs(t, "fun `补联系信息：") + subs(t, "fun `订单结构三条的角色门")
     c.ok("单测里数到 13 条本单用例", n_cases == 13, "实际 " + str(n_cases))
-    c.ok("单测里钉住了动作总数上界 171", "AiWrites.ALL.size <= 171" in t)
+    c.ok("单测里钉住了动作总数上界 175", "AiWrites.ALL.size <= 175" in t)
     c.has("单测里钉住了角色矩阵：货主不能转货", t, "assertFalse(\"转货会同时改两张单，货主只能发起退货申请\", AiWrites.allows(shipper, AiWrites.ORDERS_TRANSFER))")
     c.has("单测里钉住了角色矩阵：货主能补联系信息", t, "assertTrue(AiWrites.allows(shipper, AiWrites.ORDERS_UPDATE_CONTACT))")
     c.has("单测里钉住了模型可见性（货主的清单里没有转货）", t, "assertFalse(AiWrites.forModel(shipper).any { it.id == AiWrites.ORDERS_TRANSFER })")

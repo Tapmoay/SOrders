@@ -300,7 +300,7 @@ def main() -> int:
     block = part_of(wc, "val SHIPPER_ACTIONS: Set<String> = setOf(", LF + "    )")
     c.ok("SHIPPER_ACTIONS 那个清单抽得出来（下面的判断才有意义）", len(block) > 500, "只抽到 " + str(len(block)) + " 字符")
     c.ok("六条一条都不在货主清单里（后端要 ledger:edit）", "INVOICES_" not in block and "invoices." not in block)
-    c.has("动作数那句话跟着改了（171 里 44 条）", w, "171 个动作里 44 条在清单内")
+    c.has("动作数那句话跟着改了（175 里 44 条）", w, "175 个动作里 44 条在清单内")
 
     print("== 2. 参数：定位五件套 ＋ 登记九样，没有以编号为名的输入 ==")
     loc = part_of(inv, "private fun locateParams(", LF + "val ACTIONS")
@@ -481,7 +481,7 @@ def main() -> int:
         c.has("单测里有这一条：" + name, t, name)
     n_cases = subs(t, "fun " + chr(96) + "发票·")
     c.ok("单测里数到 14 条本单用例", n_cases == 14, "实际 " + str(n_cases))
-    c.ok("单测里钉住了动作总数上界 171", "AiWrites.ALL.size <= 171" in t)
+    c.ok("单测里钉住了动作总数上界 175", "AiWrites.ALL.size <= 175" in t)
     # ⚠️ 2026-10-08（反验逮到的第二处空转）：原来这一条找的是整个测试文件里的 "createInvoice:" ——
     #    那句在断言里还出现两次（期望串本身），把假数据源那一行改坏它照样绿。改成钉**假数据源那一行**。
     c.has("假数据源记下了登记那一跳", t, 'invoiceCalls += "createInvoice:')

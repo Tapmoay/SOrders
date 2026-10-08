@@ -490,6 +490,29 @@ data class AiName(
 )
 
 /**
+ * 挂账单位的一条：**编号、名字，以及"还能赊多少"**（2026-10-08 CHG-0087）。
+ *
+ * ### 为什么额度要单独读一次（而不是塞进 [AiName]）
+ * 挂账单位的名册（`GET /arrears-units`）只回答"有哪些单位"，**不含额度**；额度只在单条详情里。
+ * 而"设额度"的确认卡必须写「原来是多少 → 改成多少」—— 少了"原来是多少"，用户没法核对这次改动的幅度。
+ * 所以这一条动作配一个单独的读方法（[AiWriteDataSource.arrearsUnit]），只为卡片服务。
+ *
+ * ⚠️ [creditLimit] 为 null 是**不限额**，不是 0：界面与卡片都不许把它显示成 ¥0.00
+ * （`Dtos.kt::ArrearsUnitDto.creditLimit` 上是同一句注释）。
+ *
+ * ⛔ 它必须是 **public**（不能标 internal）：[AiWriteDataSource] 是公开接口，公开接口不能暴露
+ * internal 类型（编译错误：public function exposes its internal return type）。
+ */
+data class AiArrearsUnit(
+    val id: Long,
+    val name: String,
+    val phone: String,
+    val remark: String,
+    /** 额度上限（元，两位小数字符串）；**null = 不限额**（不是 0）。 */
+    val creditLimit: String?,
+)
+
+/**
  * 某个货主/批发商**当前的**商品可见范围。
  *
  * 为什么单开一个类型而不是两个值糊在一起：卡片上要同时说清**模式**和**白名单**，
@@ -608,6 +631,35 @@ data class AiOrderRef(
      * 判据与界面那一半**共用** `OrderStatusModel.isChargedToArrears`（一处实现、两处消费）。
      */
     val paymentMethod: String = "cash",
+    /**
+     * 这一单定过的**司机运费**（后端 `order.freight_fee`；`null`/空串 = 还没定过价）。
+     *
+     * 为什么卡片要它（CHG-0087）：定价端点对**已送达 / 已退货**的单有一条硬规矩 ——
+     * 定过价的锁死（改它不动司机账单），**没定过价的仍然可以补**。AI 侧不先看这个字段，
+     * 就会给"已送达但没定价"的单弹一张注定被后端 400 拒掉的卡
+     * （2026-09-23 真机实测抓到过同一类病，见 [ChargeOrderHandler] 的注释）。
+     */
+    val freightFee: String? = null,
+    /** 当前运费分类的**名字**（后端 `order.freight_category` 快照；空串 = 没套分类）。只上卡片。 */
+    val freightCategory: String = "",
+    /**
+     * 当前运费分类的**编号**（后端 `order.freight_category_id`；`null` = 没套分类）。
+     *
+     * ⚠️ 它是**必须跟着写回**的一项：定价接口的契约是「给了分类就用它、**没给就清空**」
+     * （`backend/app/api/v1/orders_assignment.py:160` 附近），所以"这次不聊分类"也必须
+     * 把当前值原样发回去 —— 少了它，用户只是说了句"改成 80 元"，分类就被静默清掉了。
+     */
+    val freightCategoryId: Long? = null,
+    /** 这一单当前的让价方式（后端 `order.discount_kind`：`percent`/`amount`；`null` = 没有让价）。 */
+    val discountKind: String? = null,
+    /**
+     * 当前让价的**一句话快照**（`ui/order/OrderDiscount.kt::discountTrace`：方式 + 数值 + 谁在什么时候让的）。
+     *
+     * 卡片上要写"原来那套让价是：…"——只印 `percent`/`amount` 这两个英文枚举，用户看不懂"我要撤的是哪一套"。
+     */
+    val discountTrace: String? = null,
+    /** 当前让价**勾了哪几行**（空集 = 整单）。取消让价前要能说出"这次会还原哪几行的金额"。 */
+    val discountLineIds: Set<Long> = emptySet(),
 ) {
     /** 卡片上显示的中文状态（由 [status] 推出来，不再单独存一份）。 */
     val statusCn: String get() = statusLabel(status)
@@ -1194,6 +1246,32 @@ object AiWrites {
     const val ORDERS_RELEASE = "orders.release"
     const val ORDERS_UPDATE_CONTACT = "orders.update_contact"
 
+    // ---- 订单（第六批：钱相关三条 ＋ 挂账额度，2026-10-08 CHG-0087）----
+    //
+    // 台账 L-56 / 目标① **第四单**：这四条一直挂在写覆盖表的「本轮不开放」清单里，理由是
+    // 「写动作那条线正在重排，等它收工再按**一次问一件事**的口径做」（原始措辞在
+    // `_tools/ai/_write_coverage.py` 的 EXCLUDED 理由里，逐字保留）。它们**不是新能力**：
+    // 手工页（订单详情的「运费定价」/「让价」、挂账单位编辑弹窗）早就这么干了，
+    // 本批只是把它们接进 AI 的动作目录 —— 与 CHG-0085 / CHG-0086 同一处境。
+    //
+    // ⛔ 与既有的 [ORDERS_FREIGHT]（`orders.freight`，改司机运费）**不是同一条路**：
+    //    · `orders.freight`      → `PATCH /orders/{}`：只改"该给司机多少钱"这一个数字；
+    //    · `orders.price_freight` → `POST /orders/{}/price-freight`：定价，还要一起定**运费分类**，
+    //      而且**已送达/已退货的单是锁定的**（后端原话："事后改运费不会动司机账单，
+    //      只会在两个页面上显示两个数"）。两条都在动作目录里，说明书要写清"哪句话用哪条"。
+    const val ORDERS_PRICE_FREIGHT = "orders.price_freight"
+    const val ORDERS_DISCOUNT = "orders.discount"
+    const val ORDERS_DISCOUNT_CLEAR = "orders.discount_clear"
+
+    // ---- 挂账单位的**额度**（同上一批，CHG-0087）----
+    //
+    // 为什么不并进 [ARREARS_UNIT_UPDATE]（改单位名/电话/备注）：额度不是"资料"，
+    // 它是「这个单位还能赊多少」——直接决定挂账收不收得住（所以是 HIGH，卡片必须写
+    // "原额度 → 新额度"）。后端也确实是两条审计：同一个 PATCH，但**只有额度真变了**才写
+    // `ARREARS_UNIT_CREDIT_LIMIT` 日志（`backend/app/api/v1/arrears.py:153`）。
+    // ⛔ 「额度 0 元」（一分钱都不许赊）与「不限额」（显式 null）是两件事，别糊成一个。
+    const val ARREARS_UNIT_SET_CREDIT_LIMIT = "arrears_unit.set_credit_limit"
+
     // ---- 退货申请（第五批，2026-09-21 用户要求）----
     //
     // 用户原话：「批发商**只是一个申请**，派单员才是实际性的操作。派单员进行完了之后，
@@ -1658,7 +1736,9 @@ object AiWrites {
             // 我的下游价（2026-10-08 CHG-0084：把「本轮不开放」的那一批端点开给货主）
             AiWriteMyPrices.ACTIONS +
             // 发票台账六条（2026-10-08 CHG-0086：手工页早就能做这六件事，这次是排期）
-            AiWriteInvoices.ACTIONS
+            AiWriteInvoices.ACTIONS +
+            // 钱相关四条（2026-10-08 CHG-0087：定价 / 让价 / 取消让价 / 挂账额度）
+            AiWriteMoney.ACTIONS
 
     /** 手写处理器的动作清单（订单 / 账目 / 消息）。 */
     private val MANUAL: List<AiWriteAction> = listOf(
@@ -2669,7 +2749,7 @@ object AiWrites {
      * **货主能用的动作**（白名单，只此一处）。
      *
      * 为什么用"白名单"而不是给每个动作标角色：全表一百多个动作里货主能用的只有这份清单
-     * （2026-10-08 CHG-0086 时点：171 个动作里 44 条在清单内，其中 6 条还只有批发商货主能用），
+     * （2026-10-08 CHG-0087 时点：175 个动作里 44 条在清单内，其中 6 条还只有批发商货主能用），
      * 逐个标注的话**漏标一个就等于多给他一个权限**，而这一处一眼就能看全、能审计。
      * ⚠️ 改动作总数 / 清单条数时，上面这句数字要跟着改（判据会另算一遍，不等这句话）。
      *

@@ -1081,6 +1081,47 @@ class AiWriteTest {
             boom()
             invoiceCalls += "restoreInvoice:$id"
         }
+
+        // ---- 钱相关四条（CHG-0087）----
+        //
+        // 挂账单位的**额度**只有单读一行才拿得到（名册列表里没有这一列）：默认一行都没有，
+        // 要测"设额度"的用例自己往 arrearsUnitRows 里塞一条。四条写操作都记在 moneyCalls 里
+        // （读也记，断言"一个字都没写"时用 count { !it.startsWith("arrearsUnit:") }）——
+        // 与发票那一批同一个口径：读不到 = 如实说"没找到"，不许凭空写。
+        var arrearsUnitRows = emptyList<AiArrearsUnit>()
+        val moneyCalls = mutableListOf<String>()
+
+        override suspend fun priceFreight(orderId: Long, freightFee: String, categoryId: Long?) {
+            boom()
+            moneyCalls += "priceFreight:$orderId:$freightFee:$categoryId"
+        }
+
+        override suspend fun applyOrderDiscount(
+            orderId: Long,
+            kind: String,
+            value: String,
+            lineIds: List<Long>,
+            reason: String?,
+        ) {
+            boom()
+            moneyCalls += "applyOrderDiscount:$orderId:$kind:$value:${lineIds.joinToString(",")}:$reason"
+        }
+
+        override suspend fun clearOrderDiscount(orderId: Long) {
+            boom()
+            moneyCalls += "clearOrderDiscount:$orderId"
+        }
+
+        override suspend fun arrearsUnit(id: Long): AiArrearsUnit? {
+            boom()
+            moneyCalls += "arrearsUnit:$id"
+            return arrearsUnitRows.firstOrNull { it.id == id }
+        }
+
+        override suspend fun setArrearsUnitCreditLimit(id: Long, creditLimit: JsonElement) {
+            boom()
+            moneyCalls += "setArrearsUnitCreditLimit:$id:$creditLimit"
+        }
         override suspend fun createFreightTemplate(fields: JsonObject) = rec("createFreightTemplate", fields)
         override suspend fun updateFreightTemplate(id: Long, fields: JsonObject) {
             boom()
@@ -3751,10 +3792,12 @@ class AiWriteTest {
         //    2026-10-08 当天又给「订单结构」加 3 个（CHG-0085，台账 L-54）：转货 / 静默退回派单池 /
         //    补联系信息 —— 165；
         //    2026-10-08 当天再给「发票台账」加 6 个（CHG-0086，台账 L-55）：登记/改/开具/作废/撤票/恢复
-        //    —— 171（这六件事手工页早就能做，这次是把它们也开给 AI）。
+        //    —— 171（这六件事手工页早就能做，这次是把它们也开给 AI）；
+        //    2026-10-08 当天再给「钱相关四条」加 4 个（CHG-0087，台账 L-56）：定价 / 让价 /
+        //    取消让价 / 设挂账额度 —— 175。
         //    所以下面补了一条**真正的去重断言**——不然这条会退化成"一个过一阵就要手动抬的魔数"，
         //    而它本来想防的"同一个动作声明两遍"一次都拦不住。
-        assertTrue("动作数不该多于 171（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 171)
+        assertTrue("动作数不该多于 175（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 175)
         val ids = AiWrites.ALL.map { it.id }
         assertEquals(
             "动作 id 声明重复了：${ids.groupBy { it }.filter { it.value.size > 1 }.keys}",
@@ -7375,5 +7418,441 @@ class AiWriteTest {
         // 恢复自己走 undoOnly 那条路：不需要"撤不回来"的理由（也不该有撤回入口）
         assertNull(AiWrites.undoNoneOf(AiWrites.INVOICES_RESTORE))
     }
+
+    // ============================================================ 钱相关四条（CHG-0087）
+
+    @Test
+    fun `定价·给没定过价的单定价：金额分类都摆上卡，0 元也是合法的一个数`() = runBlocking<Unit> {
+        val r = Rig(60_000)
+        val card = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_PRICE_FREIGHT,
+                p("order" to "SOTEST2026091100230", "freight" to "80"),
+            ),
+        )
+        assertEquals("给 SOTEST2026091100230 定运费：80 元", card.summary)
+        val d = card.detailLines.toString()
+        assertTrue(d, card.detailLines.any { it.contains("司机运费：80 元") })
+        assertTrue(d, card.detailLines.any { it.contains("运费分类：（现在没有分类）（沿用现在的分类）") })
+        assertTrue(d, card.detailLines.any { it.contains("这一步不顺手沉淀价目") })
+        assertEquals("80.00", card.payload["freight_fee"]!!.jsonPrimitive.content)
+        assertTrue("这一单现在没有分类 ⇒ 发 JsonNull（不是省略这个键）", card.payload["freight_category_id"] is JsonNull)
+        // 撤回按钮给不出来：定价的常态就是给"从没定过价的单"定价，写之前没有旧运费可退
+        assertTrue(
+            card.detailLines.last(),
+            card.detailLines.last().startsWith("⚠️ 这一步撤不回来：手动定价没有「撤回」按钮"),
+        )
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertEquals("priceFreight:61:80.00:null", r.ds.moneyCalls.single())
+
+        // 0 元是合法的一个数（不收运费），卡片上要看得见
+        val free = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_PRICE_FREIGHT,
+                p("order" to "SOTEST2026091100230", "freight" to "0"),
+            ),
+        )
+        assertEquals("给 SOTEST2026091100230 定运费：0 元", free.summary)
+        assertTrue(free.detailLines.toString(), free.detailLines.any { it.contains("司机运费：0 元（不收运费）") })
+    }
+
+    @Test
+    fun `定价·没说分类＝沿用现在的分类（不是清空），说「不适用」才是清空`() = runBlocking<Unit> {
+        val r = Rig(60_000)
+        r.ds.orders = r.ds.orders + AiOrderRef(
+            63, "SOTEST2026091100231", "城东水果批发", "PENDING_DISPATCH", "地址2", null, "320.00",
+            freightFee = "50.00", freightCategory = "生鲜", freightCategoryId = 94,
+        )
+
+        // ① 没说 ⇒ 把**当前分类的编号**原样发回去
+        //    （后端是"键不在请求体里 = category_id 是 None = 清空分类"，所以"不说"绝不能翻成"发 null"）
+        val kept = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_PRICE_FREIGHT,
+                p("order" to "SOTEST2026091100231", "freight" to "80"),
+            ),
+        )
+        assertTrue(kept.detailLines.toString(), kept.detailLines.any { it.contains("运费分类：生鲜（沿用现在的分类）") })
+        r.svc.execute(kept.token)
+        assertEquals("priceFreight:63:80.00:94", r.ds.moneyCalls.last())
+
+        // ② 说「不适用」⇒ 清空分类
+        val cleared = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_PRICE_FREIGHT,
+                p("order" to "SOTEST2026091100231", "freight" to "70", "category" to "不适用"),
+            ),
+        )
+        assertTrue(cleared.detailLines.toString(), cleared.detailLines.any { it.contains("运费分类：不套分类") })
+        r.svc.execute(cleared.token)
+        assertEquals("priceFreight:63:70.00:null", r.ds.moneyCalls.last())
+
+        // ③ 说了名字 ⇒ 去名册里对出编号（日杂 = 93）
+        val named = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_PRICE_FREIGHT,
+                p("order" to "SOTEST2026091100231", "freight" to "70", "category" to "日杂"),
+            ),
+        )
+        assertTrue(named.detailLines.toString(), named.detailLines.any { it.contains("运费分类：日杂") })
+        r.svc.execute(named.token)
+        assertEquals("priceFreight:63:70.00:93", r.ds.moneyCalls.last())
+    }
+
+    @Test
+    fun `定价·已送达的单：定过价的锁死、没定过价的是补定，两种都当场说清`() = runBlocking<Unit> {
+        val r = Rig(60_000)
+        val delivered = AiOrderRef(
+            65, "SOTEST2026091400227", "城东水果批发", "DELIVERED", "地址4", "李强", "200.00",
+            freightFee = "50.00",
+        )
+        r.ds.orders = listOf(delivered)
+        val locked = rejected(
+            r.svc.preview(AiWrites.ORDERS_PRICE_FREIGHT, p("order" to "SOTEST2026091400227", "freight" to "80")),
+        )
+        assertTrue(locked.reason, locked.reason.contains("已经定过运费了"))
+        assertTrue("要说清去哪儿改：${locked.reason}", locked.reason.contains("司机结算"))
+        assertTrue("驳回＝一个字都不许写", r.ds.moneyCalls.isEmpty())
+
+        // 没定过价 ⇒ 允许补定，卡片上要说清"那张还没结算的司机应付明细会跟着改"
+        r.ds.orders = listOf(delivered.copy(freightFee = null))
+        val backfill = ok(
+            r.svc.preview(AiWrites.ORDERS_PRICE_FREIGHT, p("order" to "SOTEST2026091400227", "freight" to "80")),
+        )
+        assertTrue(
+            backfill.detailLines.toString(),
+            backfill.detailLines.any { it.contains("已经「已送达」、原先没定过运费 —— 这是补定：") },
+        )
+        r.svc.execute(backfill.token)
+        assertEquals("priceFreight:65:80.00:null", r.ds.moneyCalls.single())
+    }
+
+    @Test
+    fun `定价·已撤销的单一个字都不许写，卡片也不许弹`() = runBlocking<Unit> {
+        val r = Rig(60_000)
+        r.ds.orders = listOf(
+            AiOrderRef(71, "SOTEST2026090100220", "明辉食品商行", "CANCELLED", "地址9", null, "88.00"),
+        )
+        val cancelled = rejected(
+            r.svc.preview(AiWrites.ORDERS_PRICE_FREIGHT, p("order" to "SOTEST2026090100220", "freight" to "80")),
+        )
+        assertTrue(cancelled.reason, cancelled.reason.contains("这一单已经撤销了，不用再定价"))
+        // 金额非法同样在弹卡前拦下（负数 / 不是数 / 多打了零）
+        val negative = rejected(
+            r.svc.preview(AiWrites.ORDERS_PRICE_FREIGHT, p("order" to "SOTEST2026090100220", "freight" to "-5")),
+        )
+        assertTrue(negative.reason, negative.reason.contains("不能是负数"))
+        assertTrue("两次驳回都不许写任何东西", r.ds.moneyCalls.isEmpty())
+    }
+
+    @Test
+    fun `让价·整单抹零：方式数值范围写全，第二次让价是整份替换不是叠加`() = runBlocking<Unit> {
+        val r = Rig(60_000)
+        val card = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_DISCOUNT,
+                p("order" to "SOTEST2026091100230", "kind" to "抹零", "value" to "3.5", "reason" to "老客户"),
+            ),
+        )
+        assertEquals("给 SOTEST2026091100230 让价：抹零 ¥3.5", card.summary)
+        val d = card.detailLines.toString()
+        assertTrue(d, card.detailLines.any { it.contains("方式：抹零") })
+        assertTrue(d, card.detailLines.any { it.contains("让价：抹零 ¥3.5") })
+        assertTrue(d, card.detailLines.any { it.contains("范围：整单（每一行都按比例让）") })
+        assertTrue(d, card.detailLines.any { it.contains("这一单现在没有让价。") })
+        assertTrue(d, card.detailLines.any { it.contains("每一行的金额由后台重算") })
+        assertTrue(d, card.detailLines.any { it.contains("不参与打折") })
+        assertEquals("amount", card.payload["discount_kind"]!!.jsonPrimitive.content)
+        assertEquals("3.5", card.payload["discount_value"]!!.jsonPrimitive.content)
+        assertEquals("全部", card.payload["discount_line_ids"]!!.jsonPrimitive.content)
+        assertEquals("老客户", card.payload["discount_reason"]!!.jsonPrimitive.content)
+        assertTrue(
+            card.detailLines.last(),
+            card.detailLines.last().startsWith("⚠️ 这一步撤不回来：让价没有「撤回」按钮"),
+        )
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertEquals("applyOrderDiscount:61:amount:3.5::老客户", r.ds.moneyCalls.single())
+
+        // 已经有让价 ⇒ 一张单只有一套让价：再让一次是**整份替换**，卡片上必须说清
+        r.ds.orders = r.ds.orders.map {
+            if (it.id == 61L) {
+                it.copy(discountKind = "percent", discountTrace = "减 10% · 张三 · 2026-10-01 · 理由：老客户")
+            } else {
+                it
+            }
+        }
+        val again = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_DISCOUNT,
+                p("order" to "SOTEST2026091100230", "kind" to "减百分比", "value" to "10"),
+            ),
+        )
+        val t = again.detailLines.toString()
+        assertTrue(t, again.detailLines.any { it.contains("已经有一套让价：") })
+        assertTrue(t, again.detailLines.any { it.contains("整份替换掉") })
+    }
+
+    @Test
+    fun `让价·点名的商品：按名字找行、同名多行全都要；找不到就列出这一单的商品名`() = runBlocking<Unit> {
+        val r = Rig(60_000)
+        r.ds.lineRows = listOf(
+            AiOrderLine(901, "红富士苹果", 5, "12.00", "60.00"),
+            AiOrderLine(902, "红富士苹果", 3, "12.00", "36.00"),
+            AiOrderLine(903, "皇冠梨", 2, "20.00", "40.00"),
+        )
+        val card = ok(
+            r.svc.preview(
+                AiWrites.ORDERS_DISCOUNT,
+                p(
+                    "order" to "SOTEST2026091100230",
+                    "kind" to "减百分比",
+                    "value" to "10",
+                    "lines" to "红富士苹果",
+                ),
+            ),
+        )
+        assertTrue(card.detailLines.toString(), card.detailLines.any { it.contains("范围：红富士苹果（共 2 行）") })
+        assertEquals("同名多行全都要：901,902", "901,902", card.payload["discount_line_ids"]!!.jsonPrimitive.content)
+        r.svc.execute(card.token)
+        assertEquals("applyOrderDiscount:61:percent:10:901,902:null", r.ds.moneyCalls.single())
+
+        // 名字对不上 ⇒ 驳回，并把这一单里**有**的商品名列出来（让用户从里面挑）
+        val missing = rejected(
+            r.svc.preview(
+                AiWrites.ORDERS_DISCOUNT,
+                p(
+                    "order" to "SOTEST2026091100230",
+                    "kind" to "减百分比",
+                    "value" to "10",
+                    "lines" to "香蕉",
+                ),
+            ),
+        )
+        assertTrue(missing.reason, missing.reason.contains("这一单里没有叫「香蕉」的商品"))
+        assertTrue(missing.reason, missing.reason.contains("红富士苹果") && missing.reason.contains("皇冠梨"))
+        assertEquals("驳回不许写", 1, r.ds.moneyCalls.size)
+    }
+
+    @Test
+    fun `让价·值不对的四种：空、非数、零、百分比到 100，都在弹卡前拦下`() = runBlocking<Unit> {
+        val r = Rig(60_000)
+        val blank = rejected(
+            r.svc.preview(
+                AiWrites.ORDERS_DISCOUNT,
+                p("order" to "SOTEST2026091100230", "kind" to "抹零", "value" to ""),
+            ),
+        )
+        assertTrue(blank.reason, blank.reason.contains("缺少 value"))
+        val notNumber = rejected(
+            r.svc.preview(
+                AiWrites.ORDERS_DISCOUNT,
+                p("order" to "SOTEST2026091100230", "kind" to "抹零", "value" to "三块"),
+            ),
+        )
+        assertTrue(notNumber.reason, notNumber.reason.contains("只能填数字"))
+        val zero = rejected(
+            r.svc.preview(
+                AiWrites.ORDERS_DISCOUNT,
+                p("order" to "SOTEST2026091100230", "kind" to "减百分比", "value" to "0"),
+            ),
+        )
+        assertTrue(zero.reason, zero.reason.contains("要大于 0"))
+        val full = rejected(
+            r.svc.preview(
+                AiWrites.ORDERS_DISCOUNT,
+                p("order" to "SOTEST2026091100230", "kind" to "减百分比", "value" to "100"),
+            ),
+        )
+        assertTrue(full.reason, full.reason.contains("百分比要小于 100%"))
+        assertTrue("四种值不对都不许写", r.ds.moneyCalls.isEmpty())
+    }
+
+    @Test
+    fun `让价·状态门：已送达的单动不了钱，一个字都不许写`() = runBlocking<Unit> {
+        val r = Rig(60_000)
+        r.ds.orders = listOf(
+            AiOrderRef(65, "SOTEST2026091400227", "城东水果批发", "DELIVERED", "地址4", "李强", "200.00", true),
+        )
+        val discount = rejected(
+            r.svc.preview(
+                AiWrites.ORDERS_DISCOUNT,
+                p("order" to "SOTEST2026091400227", "kind" to "抹零", "value" to "3.5"),
+            ),
+        )
+        assertTrue(discount.reason, discount.reason.contains("只有待派单 / 派单中 / 已接单的单能让价"))
+        assertTrue(discount.reason, discount.reason.contains("动不了钱"))
+        val clear = rejected(r.svc.preview(AiWrites.ORDERS_DISCOUNT_CLEAR, p("order" to "SOTEST2026091400227")))
+        assertTrue(clear.reason, clear.reason.contains("动不了钱"))
+        assertTrue("状态门驳回了就不许写", r.ds.moneyCalls.isEmpty())
+    }
+
+    @Test
+    fun `取消让价·本来就没有让价：按后台原话拦下；有让价时按快照还原，且这一条能撤回`() = runBlocking<Unit> {
+        val r = Rig(60_000)
+        val none = rejected(r.svc.preview(AiWrites.ORDERS_DISCOUNT_CLEAR, p("order" to "SOTEST2026091100230")))
+        assertTrue("要原样引后台的话：${none.reason}", none.reason.contains("这一单本来就没有折扣。"))
+        assertTrue("驳回不许写", r.ds.moneyCalls.isEmpty())
+
+        r.ds.orders = r.ds.orders.map {
+            if (it.id == 61L) {
+                it.copy(discountKind = "amount", discountTrace = "抹零 ¥3.5 · 张三 · 2026-10-01 · 理由：老客户")
+            } else {
+                it
+            }
+        }
+        val card = ok(r.svc.preview(AiWrites.ORDERS_DISCOUNT_CLEAR, p("order" to "SOTEST2026091100230")))
+        assertEquals("取消 SOTEST2026091100230 的让价", card.summary)
+        assertTrue(card.detailLines.toString(), card.detailLines.any { it.contains("现在这套让价：抹零 ¥3.5") })
+        assertTrue(
+            card.detailLines.toString(),
+            card.detailLines.any { it.contains("按当时记下的快照精确还原，不是拿单价 × 数量重算") },
+        )
+        assertEquals("取消只带主键（撤回按同一把钥匙找回整份让价）", 1, card.payload.size)
+        assertTrue(card.detailLines.last(), card.detailLines.last().startsWith("误操作了不要紧"))
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        assertEquals("clearOrderDiscount:61", r.ds.moneyCalls.last())
+
+        // 撤回口径：取消让价能撤回；让价本身撤不回来（第一次让价时旧值是空的）
+        assertTrue(AiWrites.undoCapableOf(AiWrites.ORDERS_DISCOUNT_CLEAR))
+        assertNull(AiWrites.undoNoneOf(AiWrites.ORDERS_DISCOUNT_CLEAR))
+        assertFalse(AiWrites.undoCapableOf(AiWrites.ORDERS_DISCOUNT))
+        assertNotNull(AiWrites.undoNoneOf(AiWrites.ORDERS_DISCOUNT))
+    }
+
+    @Test
+    fun `额度·设一个数：卡片写「原来 → 改成」，payload 就是这两个键`() = runBlocking<Unit> {
+        val r = Rig(60_000)
+        r.ds.arrearsUnitRows = listOf(AiArrearsUnit(51, "明辉食品商行", "13800000002", "", "5000.00"))
+        val card = ok(
+            r.svc.preview(
+                AiWrites.ARREARS_UNIT_SET_CREDIT_LIMIT,
+                p("unit" to "明辉食品商行", "limit" to "8000"),
+            ),
+        )
+        assertEquals("把挂账单位「明辉食品商行」的额度改成 8000 元", card.summary)
+        val d = card.detailLines.toString()
+        assertTrue(d, card.detailLines.any { it.contains("单位：明辉食品商行（电话 13800000002）") })
+        assertTrue(d, card.detailLines.any { it.contains("额度上限：5000 元 → 8000 元") })
+        assertTrue(d, card.detailLines.any { it.contains("「不限额」和「额度 0 元」是两件事") })
+        assertTrue(d, card.detailLines.any { it.contains("会在后台留一条流水") })
+        assertEquals("51", card.payload["unit_id"]!!.jsonPrimitive.content)
+        assertEquals("8000.00", card.payload["credit_limit"]!!.jsonPrimitive.content)
+        assertTrue(card.detailLines.last(), card.detailLines.last().startsWith("误操作了不要紧"))
+        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Done)
+        // 设之前先**单读一行**（名册里没有额度这一列），再写
+        assertEquals(listOf("arrearsUnit:51", "setArrearsUnitCreditLimit:51:\"8000.00\""), r.ds.moneyCalls)
+    }
+
+    @Test
+    fun `额度·说「不限额」＝把额度清空（不是 0）`() = runBlocking<Unit> {
+        val r = Rig(60_000)
+        r.ds.arrearsUnitRows = listOf(AiArrearsUnit(51, "明辉食品商行", "13800000002", "", "5000.00"))
+        val unlimited = ok(
+            r.svc.preview(
+                AiWrites.ARREARS_UNIT_SET_CREDIT_LIMIT,
+                p("unit" to "明辉食品商行", "limit" to "不限额"),
+            ),
+        )
+        assertEquals("把挂账单位「明辉食品商行」的额度改成 不限额（清空额度）", unlimited.summary)
+        assertTrue("清空额度只有 JsonNull 发得出去", unlimited.payload["credit_limit"] is JsonNull)
+        assertTrue(r.svc.execute(unlimited.token) is AiWriteOutcome.Done)
+        assertEquals("setArrearsUnitCreditLimit:51:null", r.ds.moneyCalls.last())
+
+        // 反过来：现在是不限额，写 0 元 —— 这是"一分钱都不许赊"，不是"清空"
+        r.ds.arrearsUnitRows = listOf(AiArrearsUnit(51, "明辉食品商行", "13800000002", "", null))
+        val zero = ok(
+            r.svc.preview(
+                AiWrites.ARREARS_UNIT_SET_CREDIT_LIMIT,
+                p("unit" to "明辉食品商行", "limit" to "0"),
+            ),
+        )
+        assertEquals("把挂账单位「明辉食品商行」的额度改成 0 元", zero.summary)
+        assertTrue(zero.detailLines.toString(), zero.detailLines.any { it.contains("额度上限：不限额 → 0 元") })
+        assertTrue(r.svc.execute(zero.token) is AiWriteOutcome.Done)
+        assertEquals("setArrearsUnitCreditLimit:51:\"0.00\"", r.ds.moneyCalls.last())
+    }
+
+    @Test
+    fun `额度·原来就是这个数：如实说不用改，一条都不许写`() = runBlocking<Unit> {
+        val r = Rig(60_000)
+        r.ds.arrearsUnitRows = listOf(AiArrearsUnit(51, "明辉食品商行", "13800000002", "", "5000.00"))
+        val same = rejected(
+            r.svc.preview(
+                AiWrites.ARREARS_UNIT_SET_CREDIT_LIMIT,
+                p("unit" to "明辉食品商行", "limit" to "5000"),
+            ),
+        )
+        assertTrue(same.reason, same.reason.contains("现在的额度就是 5000 元，不用改"))
+        assertTrue("驳回＝一个字都不许写", r.ds.moneyCalls.count { !it.startsWith("arrearsUnit:") } == 0)
+
+        // 不限额 vs 不限额 也算"就是它"（两者都 = 清空额度）
+        r.ds.arrearsUnitRows = listOf(AiArrearsUnit(51, "明辉食品商行", "13800000002", "", null))
+        val still = rejected(
+            r.svc.preview(
+                AiWrites.ARREARS_UNIT_SET_CREDIT_LIMIT,
+                p("unit" to "明辉食品商行", "limit" to "不限额"),
+            ),
+        )
+        assertTrue(still.reason, still.reason.contains("现在的额度就是 不限额"))
+        assertTrue(r.ds.moneyCalls.count { !it.startsWith("arrearsUnit:") } == 0)
+    }
+
+    @Test
+    fun `额度·名册里没有这个单位、额度读不到：两种都不许改去设别的单位`() = runBlocking<Unit> {
+        val r = Rig(60_000)
+        val ghost = rejected(
+            r.svc.preview(
+                AiWrites.ARREARS_UNIT_SET_CREDIT_LIMIT,
+                p("unit" to "不存在商行", "limit" to "8000"),
+            ),
+        )
+        assertTrue(ghost.reason, ghost.reason.contains("没有匹配"))
+        assertTrue("名册里没有 = 一个字都不许写", r.ds.moneyCalls.isEmpty())
+
+        // 名册里有、但单读那一行读不到（比如刚被删掉）⇒ 驳回，绝不改去设别的单位
+        val gone = rejected(
+            r.svc.preview(
+                AiWrites.ARREARS_UNIT_SET_CREDIT_LIMIT,
+                p("unit" to "明辉食品商行", "limit" to "8000"),
+            ),
+        )
+        assertTrue(gone.reason, gone.reason.contains("它可能刚被删掉"))
+        assertTrue(gone.reason, gone.reason.contains("不要改去设别的单位"))
+        assertEquals("只读了一次，一次都没写", listOf("arrearsUnit:51"), r.ds.moneyCalls)
+    }
+
+    @Test
+    fun `钱相关四条·角色与撤回口径：都是派单员档，两条有按钮两条没有`() = runBlocking<Unit> {
+        val dispatcher = AiActor.byRole(AiRole.DISPATCHER)
+        val shipper = AiActor.byRole(AiRole.SHIPPER)
+        val ids = listOf(
+            AiWrites.ORDERS_PRICE_FREIGHT,
+            AiWrites.ORDERS_DISCOUNT,
+            AiWrites.ORDERS_DISCOUNT_CLEAR,
+            AiWrites.ARREARS_UNIT_SET_CREDIT_LIMIT,
+        )
+        ids.forEach { id ->
+            assertTrue("派单员该有 $id", AiWrites.allows(dispatcher, id))
+            assertFalse("货主不该有 $id（后端要的是派单/账本那两档权限）", AiWrites.allows(shipper, id))
+            assertFalse("$id 不在货主动作清单里", AiWrites.SHIPPER_ACTIONS.contains(id))
+        }
+
+        // 撤回：取消让价 / 设额度能撤回；定价 / 让价撤不回来，且理由里要给出"那该怎么办"
+        assertTrue(AiWrites.undoCapableOf(AiWrites.ORDERS_DISCOUNT_CLEAR))
+        assertTrue(AiWrites.undoCapableOf(AiWrites.ARREARS_UNIT_SET_CREDIT_LIMIT))
+        val price = AiWrites.undoNoneOf(AiWrites.ORDERS_PRICE_FREIGHT)
+        assertNotNull(price)
+        assertTrue(price!!, price.contains("手动定价没有「撤回」按钮"))
+        assertTrue("要说清改怎么办：$price", price.contains("把 XXX 的运费改成 YYY"))
+        val discount = AiWrites.undoNoneOf(AiWrites.ORDERS_DISCOUNT)
+        assertNotNull(discount)
+        assertTrue(discount!!, discount.contains("让价没有「撤回」按钮"))
+        assertTrue("不让了也有出路：$discount", discount.contains("取消让价"))
+        assertFalse(
+            "设额度是普通写动作（不是撤回专用）",
+            AiWrites.byId(AiWrites.ARREARS_UNIT_SET_CREDIT_LIMIT)!!.undoOnly,
+        )
+    }
+
 
 }

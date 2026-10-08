@@ -187,6 +187,13 @@ READ_METHODS = {
     # （「采购单 #12 不在系统里（编号对不对？）」就是拿它查出来的）。它是**读**：
     # AiWriteDataSource.kt:1612 override suspend fun purchaseOrder(id: Long): PurchaseOrderDto? = repo.purchaseOrder(id)。
     "purchaseOrder",
+    # 挂账单位**单条**（钱相关四条 CHG-0087，2026-10-08）：设额度之前必须把这一行单独读回来
+    # （`GET /arrears-units` → 按编号取一条）—— 名册列表里**没有额度**这个字段，
+    # 而卡片上那行「额度上限：5000 → 8000」只能从这一读来。
+    # ⚠️ 与上面那个复数的 `arrearsUnits`（名册列表，按名字定位用）是**两个方法**：
+    #    只加复数不加单数，prepare 里这一次读会被判成"写"。
+    #    真正写库的是 setArrearsUnitCreditLimit（不在白名单里，默认受「prepare 里不许写」的约束）。
+    "arrearsUnit",
 }
 
 

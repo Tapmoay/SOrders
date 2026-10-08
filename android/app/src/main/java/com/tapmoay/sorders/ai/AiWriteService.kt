@@ -8,6 +8,7 @@ import com.tapmoay.sorders.data.remote.dto.OrderCreateRequest
 import com.tapmoay.sorders.data.remote.dto.PlaceDto
 import com.tapmoay.sorders.data.remote.dto.PurchaseOrderDto
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.put
 
@@ -176,6 +177,43 @@ interface AiWriteDataSource {
     suspend fun returnOrder(orderId: Long, items: List<Pair<Long, Int>>, note: String)
 
     suspend fun updateFreight(orderId: Long, freightFee: String?)
+
+    // ---- 订单（第六批：钱相关三条，2026-10-08 CHG-0087 / 台账 L-56）----
+
+    /**
+     * 给这一单**定价**（`POST /orders/{id}/price-freight`）。
+     *
+     * ⛔ 与 [updateFreight] 是**两条路、两个端点**：那条走 `PATCH /orders/{}`，只改"该给司机
+     * 多少钱"这一个数字；这条走定价端点 —— 它连**运费分类一起定**，而且已送达/已退货的单
+     * 一旦定过价就锁死（后端 400）。卡片要说清是哪一条，别让用户以为改的是同一处。
+     *
+     * @param categoryId 运费分类；**null = 清空分类**（后端契约：给了就用、没给就清空）。
+     *   调用方要把"用户这次没提分类"翻译成"把当前分类的编号原样发回来"，⛔ 别顺手发 null。
+     */
+    suspend fun priceFreight(orderId: Long, freightFee: String, categoryId: Long?)
+
+    /**
+     * 让价（`POST /orders/{id}/discount`）。
+     *
+     * **整单替换**语义：再打一次＝按新值重算，不叠加；`lineIds` 空 = 整单；
+     * 勾到"不参与打折"的商品后端会 400（不静默过滤）。
+     * ⚠️ 每行的折后金额**由后端重算**，AI 不预演那个数（说一个自己算的数就该挨骂了）。
+     */
+    suspend fun applyOrderDiscount(
+        orderId: Long,
+        kind: String,
+        value: String,
+        lineIds: List<Long>,
+        reason: String?,
+    )
+
+    /**
+     * 取消让价（`DELETE /orders/{id}/discount`）：按后端快照把**每一行**还原成打折前的值。
+     * ⚠️ 本来就没折扣时后端是 400（不是"没事发生"）—— 所以 AI 侧要先看
+     * [AiOrderRef.discountKind]，别弹一张注定失败的卡。
+     */
+    suspend fun clearOrderDiscount(orderId: Long)
+
     suspend fun payOrder(orderId: Long)
     suspend fun chargeOrder(orderId: Long, arrearsUnitId: Long)
     suspend fun createOrder(req: OrderCreateRequest)
@@ -636,6 +674,29 @@ interface AiWriteDataSource {
     suspend fun updateArrearsUnit(id: Long, fields: JsonObject)
     suspend fun deleteArrearsUnit(id: Long)
 
+    // ---- 挂账单位的**额度**（2026-10-08 CHG-0087）----
+
+    /**
+     * 读一个挂账单位的**整行**（额度卡片要写"原额度 → 新额度"）。
+     *
+     * ⚠️ 这是**读**方法：必须登记进 `_tools/ai/_check_ai_guardrails.py` 的 `READ_METHODS`，
+     * 否则红线会把它算成写方法 —— prepare 里读一次额度就变成"prepare 里写后端"。
+     */
+    suspend fun arrearsUnit(id: Long): AiArrearsUnit?
+
+    /**
+     * 改一个挂账单位的**信用额度**（同一个 `PATCH /arrears-units/{}`，但只动额度这一项）。
+     *
+     * ⛔ 为什么不复用 [updateArrearsUnit]：那个端点的请求体是**整份**语义（名字/电话/备注
+     * 不带＝清空），而额度的 `null` 是**合法取值**（＝不限额），三件套各有各的"不改 / 清空"
+     * 含义 —— 糊进一个 `JsonObject` 就得靠"键在不在"来区分，那是 [CrudWriteHandler] 的活。
+     * 这里用参数说话：[kotlinx.serialization.json.JsonNull] 就是"不限额"。
+     *
+     * @param creditLimit `JsonPrimitive("5000.00")` 或 [kotlinx.serialization.json.JsonNull]（不限额）
+     */
+    suspend fun setArrearsUnitCreditLimit(id: Long, creditLimit: JsonElement)
+
+
     // ---- 单位换算（2026-09-24：一车 = 8 方）----
     // 判据在后端 `services/unit_conversion.py`：这里的四个方法只负责转发
     // （客户端再写一遍"能不能建"就会与后端走散，而两个数都不报错）。
@@ -1018,6 +1079,14 @@ class AiWriteService(
             IssueInvoiceHandler(ds, store),
             VoidInvoiceHandler(ds, store),
             DeleteInvoiceHandler(ds, store),
+            // 钱相关四条（2026-10-08 CHG-0087）：定价要同时决定"运费 + 分类"（后端对"没给分类"
+            // 的判据是"清空"，而用户没说时我们要沿用 —— 这个岔口只有手写处理器表达得了）、
+            // 让价要先把它那一串行号从商品名解析出来、取消让价与设额度都要先读现状再写
+            // （卡片上要写"原来是多少 → 改成多少"）。四条都超出声明式的表达力。
+            PriceFreightHandler(ds, store),
+            DiscountOrderHandler(ds, store),
+            DiscountClearHandler(ds, store),
+            CreditLimitWriteHandler(ds, store),
         ).forEach { put(it.actionId, it) }
 
         // 声明式：凡是带 crud 规格的动作，一律由通用处理器执行

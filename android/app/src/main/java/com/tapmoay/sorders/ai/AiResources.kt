@@ -26,6 +26,7 @@ import com.tapmoay.sorders.data.remote.dto.SupplierPayableDto
 import com.tapmoay.sorders.data.remote.dto.SupplierPaymentDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.remote.dto.VehicleDto
+import com.tapmoay.sorders.ui.order.discountLineIds
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -164,10 +165,24 @@ internal object AiResources {
         key = "arrears_unit",
         cn = "挂账单位",
         idKey = "unit_id",
-        readKeys = setOf("name", "phone", "remark"),
-        labels = mapOf("name" to "单位名", "phone" to "电话", "remark" to "备注"),
+        readKeys = setOf("name", "phone", "remark", "credit_limit"),
+        labels = mapOf(
+            "name" to "单位名",
+            "phone" to "电话",
+            "remark" to "备注",
+            // 中文名不是凑数：撤回读不到它时，卡上那句警告要用它（裸英文键等于没告诉用户）。
+            "credit_limit" to "额度上限",
+        ),
+        moneyKeys = setOf("credit_limit"),
+        // ⚠️ 额度**能被清空**（后端把 "不限额" 存成 null，而 `ArrearsUnitEditRequest.creditLimit`
+        // 只有 JsonNull 才发得出去）：不在这里点名，"原来是不限额 → 撤回回不限额"就会被写成
+        // 一句假话「这个接口清不掉它——撤回时它会保持现在的值」。
+        nullableWritable = setOf("credit_limit"),
         actions = listOf(
             update(AiWrites.ARREARS_UNIT_UPDATE),
+            // 设额度（2026-10-08 CHG-0087）：与"改单位资料"走**同一个** PATCH，但 payload 只带
+            // unit_id + credit_limit，所以撤回就是通用那条路（把这一个键写回旧值），不用额外声明。
+            update(AiWrites.ARREARS_UNIT_SET_CREDIT_LIMIT),
             delete(AiWrites.ARREARS_UNIT_DELETE),
             paired(AiWrites.ARREARS_UNIT_RESTORE, AiInverse(AiWrites.ARREARS_UNIT_DELETE, mapOf("unit_id" to AiRevert.ID)), idKey = "target_id"),
         ),
@@ -724,6 +739,10 @@ internal object AiResources {
             // 否则反悔之后这一单的钱悄悄变回规则里的默认值。
             "driver_piece_amount", "driver_commission_rate",
             GEO_LAT, GEO_LNG,
+            // 让价那四个键（2026-10-08 CHG-0087）：**只有「取消让价」的撤回用得上**——
+            // 它要把刚取消掉的那套让价整份打回去，参数只能从写之前的现场搬
+            //（那个方向没有"以后再重新说一次"的余地：用户点的是撤回，不是重新让价）。
+            "discount_kind", "discount_value", "discount_line_ids", "discount_reason",
         ),
         labels = mapOf(
             "freight_fee" to "司机运费",
@@ -737,6 +756,12 @@ internal object AiResources {
             "contact_boss_name" to "下单人名称",
             "remark" to "备注",
             "internal_notes" to "内部备注",
+            // 让价四键：撤回时读不到就得不带（见下面 paired 里那条说明），
+            // 那一行警告必须说人话，所以四个键都给中文名。
+            "discount_kind" to "让价方式",
+            "discount_value" to "让价数值",
+            "discount_line_ids" to "让价范围",
+            "discount_reason" to "让价理由",
             // 静默键也要有中文名：读不回来时它会以警告行的形式出现在卡上（见 ADDRESS 的同名处理）。
             GEO_LAT to "纬度",
             GEO_LNG to "经度",
@@ -806,6 +831,28 @@ internal object AiResources {
                     ),
                     lines = listOf("按刚才解除时记下的原因和预计送达时间，「重新标记为异常」"),
                 ),
+            ),
+            // 取消让价 ↔ 让价（2026-10-08 CHG-0087）：两件事互为反面，但**只有一个方向有撤回按钮**。
+            // 「给这一单让价」没有（第一次让价时旧值全是空的 —— 撤回拼不出任何一项，按钮根本不会出现，
+            // 而卡片最后一行是静态的、照样会承诺一个按钮；理由写在 AiRevert.undoNoneTable 里）；
+            // 「取消让价」有：它把刚取消掉的那套让价整份打回去，四个参数全部从写之前的现场搬。
+            paired(
+                AiWrites.ORDERS_DISCOUNT_CLEAR,
+                AiInverse(
+                    AiWrites.ORDERS_DISCOUNT,
+                    mapOf(
+                        "order_id" to AiRevert.ID,
+                        "discount_kind" to "discount_kind",
+                        "discount_value" to "discount_value",
+                        "discount_line_ids" to "discount_line_ids",
+                        "discount_reason" to "discount_reason",
+                    ),
+                    lines = listOf(
+                        "把刚才取消掉的那套让价整份打回去：方式、数值、范围、理由都是取消之前的样子",
+                        "后台按当时的快照精确还原每一行的金额（和手工重新让价是同一条路，也一样留痕）",
+                    ),
+                ),
+                idKey = "order_id",
             ),
             delete(AiWrites.ORDERS_SOFT_DELETE),
             paired(
@@ -1295,6 +1342,10 @@ internal object AiRevertRead {
         put("name", d.name)
         put("phone", d.phone)
         put("remark", d.remark)
+        // 额度（2026-10-08 CHG-0087）：撤回「设额度」要把这一个键写回旧值。
+        // ⚠️ null 必须**留一个位置**（JsonNull = 不限额，不是"没读这一项"）：只有 JsonNull
+        // 才会让撤回走 `nullableWritable` 那条路，把额度真的清回"不限额"。
+        text("credit_limit", d.creditLimit)
     }
 
     /**
@@ -1563,6 +1614,20 @@ internal object AiRevertRead {
         text("expected_before", d.expectedDeliverBefore)
         text(GEO_LAT, d.addressLat)
         text(GEO_LNG, d.addressLng)
+        // 让价四键（2026-10-08 CHG-0087）：**只给「取消让价」的撤回用**——它要把取消之前
+        // 那一套让价整份打回去（方式/数值/范围/理由），而按"撤回＝写回旧值"的通用规则，
+        // 旧值只能从这里来。
+        // 范围按 AiWriteMoney 的 payload 口径写成 "全部" 或 "12,15"：那一头
+        // `discountLineIdsOf` 不认别的写法，而且**缺席就报错**（宁可让用户重说一遍，
+        // 也不把范围悄悄放大成整单）。空集 = 老数据没有逐行快照 ⇒ 整单，
+        // 与 `discountLineIds` 的说明、后端 `plan_discount` 的退路一致。
+        text("discount_kind", d.discountKind)
+        text("discount_value", d.discountValue)
+        put(
+            "discount_line_ids",
+            JsonPrimitive(discountLineIds(d).let { if (it.isEmpty()) "全部" else it.sorted().joinToString(",") }),
+        )
+        text("discount_reason", d.discountReason)
     }
 
     fun orderLine(d: OrderProductRow): JsonObject = buildJsonObject {

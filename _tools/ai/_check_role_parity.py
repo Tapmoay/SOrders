@@ -68,6 +68,7 @@ IMPL_FILES = (
     "AiWriteOrderHandlers.kt",
     "AiWriteOrderLineHandlers.kt",
     "AiWriteInvoices.kt",
+    "AiWriteMoney.kt",
     "AiWriteLedgerHandlers.kt",
     "AiWriteNotificationHandlers.kt",
     "AiWriteShipperLedgerHandlers.kt",
