@@ -59,7 +59,7 @@
 
 `判据 / 反验`：`python _tools/qa/_check_ai_invoices.py`（262/262）/ `python _tools/qa/_reverse_verify_ai_invoices.py`（37 条注入，38/38 成立）/ `python _tools/ai/_check_ai_guardrails.py`（1327 项）。
 
-- 状态：✅ **已关闭**（2026-10-09 01:1x 开工 · 关闭；变更单 `docs/changes/CHG-0088.md`；台账 **L-57**；Blast Radius **L0 —— 展示层**）。
+- 状态：✅ **已关闭**（2026-10-09 01:1x 开工 · 关闭；变更单 `docs/changes/CHG-0088.md`；台账 **L-57**；Blast Radius **L0 —— 展示层**；提交 `d1e5e40`）。
 - 真机：✅ 已跑（`emulator-5554` 派单员 `13800000001`）：撤票卡新文案（`shots/57_invoice_delete_card_l57_fixed.png`）→ 结果消息上的「↩ 撤回」（`58`）→ 两步撤回后票回台账（`59`，库面 `invoices.id=8 status=REGISTERED deleted_at=None`）→ 对回收站里的票说改金额时指路台账回收站（`60`）。⚠️ 经验：那颗「撤回」胶囊会过期（约 5 分钟），撤票与撤回要连着做完。
 - 核心改动：**无** —— 为什么：`_tools/qa/_core_files.txt` 里属于 AI 的只有 `ai/AiWriteService.kt` 一行，本单改的是 `ai/AiWriteInvoices.kt`（不在核心区），那一行没碰。
 
@@ -75,7 +75,7 @@
 
 `判据 / 反验`：`python _tools/qa/_check_ai_operation_log.py`（106/106）/ `python _tools/qa/_reverse_verify_ai_operation_log.py`（25 条注入，26/26 成立）/ 单测 1361。
 
-- 状态：✅ **已关闭**（2026-10-09 01:1x 开工 · 关闭；变更单 `docs/changes/CHG-0089.md`；台账 **L-57** 的另一半；Blast Radius **L2 —— Contract / Data**）。
+- 状态：✅ **已关闭**（2026-10-09 01:1x 开工 · 关闭；变更单 `docs/changes/CHG-0089.md`；台账 **L-57** 的另一半；Blast Radius **L2 —— Contract / Data**；提交 `f8a1a10`）。
 - 真机：✅ 已跑（`emulator-5554`）：读目录两条 GET 落账（`invoices.list_invoices` 103 / 105）＋ 工具驱动的读落 `inventory_alerts` 行（截图 `shots/63_ai_log_read_rows.png`）；同一次走查里写动作仍是「确认之后才记」（104 / 107）。
 - 核心改动：**无** —— 为什么：改的是 `ai/AiReadService.kt` 与 `ai/AiTools.kt` 两个**非核心**文件（`_tools/qa/_core_files.txt` 里属于 AI 的只有 `ai/AiWriteService.kt`）。
 
@@ -91,7 +91,7 @@
 
 `判据 / 反验`：`python _tools/ai/_check_ai_guardrails.py`（1327 项，含 2d-8 四条）；单测 1361 / 0 failed / 2 skipped；`_check_ai_invoices.py` 262 项（它把 guardrails 当子进程跑）。
 
-- 状态：✅ **已关闭**（2026-10-09 01:1x 开工 · 关闭；变更单 `docs/changes/CHG-0090.md`；台账 **L-57** 第三条；Blast Radius **L1 —— AI 能力面**）。
+- 状态：✅ **已关闭**（2026-10-09 01:1x 开工 · 关闭；变更单 `docs/changes/CHG-0090.md`；台账 **L-57** 第三条；Blast Radius **L1 —— AI 能力面**；提交 `59ee5fc`）。
 - 真机：✅ 已跑（`emulator-5556` 货主 `13800000002` `--fresh` 首装）：设置 →「AI 能用的能力」→「改数据（需你确认）」开（`shots/61_shipper_write_tool_default_on.png`）＋ 说一句话当场出确认卡（`shots/62_shipper_write_card_after_default_on.png`）。
 - 核心改动：**无** —— 为什么：改的四个文件（`ai/AiKeyStore.kt` / `ai/AiContainer.kt` / `ui/ai/AiSettingsViewModel.kt` / `ai/AiTools.kt`）都不在 `_tools/qa/_core_files.txt` 里（那里属于 AI 的只有 `ai/AiWriteService.kt`）。
 
