@@ -43,7 +43,7 @@
 
 `判据 / 反验`：`python _tools/qa/_check_ai_answer_style.py`（新增第 12 节 **72 项全过 / 0 失败**）/ `python _tools/qa/_reverse_verify_ai_answer_style.py`（25 条注入**逐条报红**、被碰过的 15 个文件**与运行前逐字节一致**），单测 **1379 tests / 0 failures / 0 errors / 2 skipped**；`python _tools/qa/_check_dev_spec.py` 对账 README ↔ 目录文件。
 
-- 状态：✅ **已关闭**（2026-10-09；变更单 `docs/changes/CHG-0092.md`；Blast Radius **L1 —— AI 回答的排版**；提交 `⟪HASH⟫`）。
+- 状态：✅ **已关闭**（2026-10-09；变更单 `docs/changes/CHG-0092.md`；Blast Radius **L1 —— AI 回答的排版**；提交 `22440b5`）。
 - 真机：`shots/65_ai_answer_表格_改后.png`（新构建，问「城东水果批发这个货主的资料…」→ 正文 4 行「标签：值」被排成**无表头两列表**）＋ `shots/66_ai_answer_单句不改写.png`（同一台机器问新增地址 → 回答是**一整句** `·` 串起来的话，兜底不误伤、一个字节不改）；`emulator-5554`（派单员）、真模型 `deepseek-flash · 中`；取证走 **ADBKeyboard 输入法广播**（`emulator-5554` 没开剪贴板共享，`_tools/ai/_emulator_say.ps1` 的粘贴进不了输入框）
 - 核心改动：**无** —— 为什么：改的六个文件（`ai/AiAnswerSkills.kt`、`ai/AiAnswerShape.kt`、`ai/AiCardTable.kt`、`ai/AiAgentLoop.kt`、`ui/ai/AiRichText.kt`、`_tools/ai/_sysprompt_size.py`，另加两个单测）都不在 `_tools/qa/_core_files.txt` 里。
 
