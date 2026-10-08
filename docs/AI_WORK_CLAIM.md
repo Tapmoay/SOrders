@@ -43,7 +43,7 @@
 
 `判据 / 反验`：`python _tools/qa/_check_ai_money.py`（257 条，全绿）/ `python _tools/qa/_reverse_verify_ai_money.py`（逐条注入 → 要求判据报出那一条红 → 逐字节还原），另跑 `_write_coverage.py` / `_read_coverage.py --check` / `_check_ai_guardrails.py`（1328 项）/ `_check_role_parity.py`（17/17）。
 
-- 状态：✅ 已关闭（2026-10-08；变更单 `docs/changes/CHG-0087.md`；台账 **L-56**；全量静检 **222/222**；Blast Radius **L1**；提交 `（待回填）`）。
+- 状态：✅ 已关闭（2026-10-08；变更单 `docs/changes/CHG-0087.md`；台账 **L-56**；全量静检 **222/222**；Blast Radius **L1**；提交 `c224cce`）。
 - 真机：⚠️ 未做（本单不加界面、不加端点 —— 四条手工路径早就在，要真机验就得跑一次真实模型会话；留待本批四单做完后的整体真机）。
 - 核心改动：`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt` —— 为什么必须动核心：数据源接口（四个方法）与处理器注册表都在这个文件里，钱相关四条按既有域的形状接进去，不另起一层框架（`AiWriteMoney.kt` 只提供规格与处理器）。
 
