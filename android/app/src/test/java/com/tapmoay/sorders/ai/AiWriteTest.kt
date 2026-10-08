@@ -7153,7 +7153,11 @@ class AiWriteTest {
         )
         assertTrue(upd.reason.contains("在回收站里"))
         assertTrue(upd.reason.contains("回收站里的票改不动"))
-        assertTrue(upd.reason.contains("恢复这张票"))
+        assertTrue(upd.reason.contains("先到「发票台账」页顶部切到"))
+        assertFalse(
+            "卡片不许再教用户说「恢复这张票」（那是 undoOnly 的恢复动作，模型念了也做不到）",
+            upd.reason.contains("恢复这张票"),
+        )
 
         assertTrue(
             rejected(r.svc.preview(AiWrites.INVOICES_ISSUE, p("invoice_no" to "INV2026090001")))
@@ -7327,6 +7331,14 @@ class AiWriteTest {
         assertEquals("撤票（进回收站）销项票 INV2026090001：1130 元", card.summary)
         assertTrue(card.detailLines.any { it.contains("但票号仍然占着") })
         assertTrue(card.detailLines.any { it.contains("放回去随时可以") })
+        assertTrue(
+            "撤票卡要把恢复办法写成聊天里那个「撤回」按钮",
+            card.detailLines.any { it.contains("会有一个「撤回」") },
+        )
+        assertFalse(
+            "撤票卡不许再说「恢复这张票」（L-57：那是 undoOnly，照念一遍只会白说）",
+            card.detailLines.any { it.contains("恢复这张票") },
+        )
         assertTrue(card.detailLines.any { it.contains("它和「作废」不是一件事") })
 
         val done = r.svc.execute(card.token) as AiWriteOutcome.Done

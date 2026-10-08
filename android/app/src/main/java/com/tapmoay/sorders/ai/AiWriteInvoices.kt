@@ -683,7 +683,8 @@ internal class UpdateInvoiceHandler(
         val inv = resolveInvoice(params)
         if (inv.isDeleted) {
             throw AiWriteArgException(
-                "这张票在回收站里：${label(inv)}。回收站里的票改不动 —— 先说「恢复这张票」，把它放回台账再改。",
+                "这张票在回收站里：${label(inv)}。回收站里的票改不动 —— 先到「发票台账」页顶部切到" +
+                    "「回收站」，把它恢复回来再来改。",
             )
         }
         if (inv.status != AiInvoiceRef.ST_REGISTERED) {
@@ -958,7 +959,8 @@ internal class DeleteInvoiceHandler(
         details += "这张票：${label(inv)}"
         details += "撤票 = 放进回收站：台账列表里默认看不见它了"
         details += "但票号仍然占着 —— 同一张票再登记一次会被后端拒掉（号没释放）"
-        details += "放回去随时可以：说「恢复这张票」，票号、日期、金额、税额、备注都会原样回来"
+        details += "放回去随时可以：聊天里那条结果消息上会有一个「撤回」，点它、再确认一次就恢复 —— " +
+            "票号、日期、金额、税额、备注都会原样回来"
         details += if (inv.untaxed) {
             "税汇上没什么变化：它本来就是未税票，不进税汇"
         } else {
