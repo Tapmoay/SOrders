@@ -31,6 +31,8 @@ import com.tapmoay.sorders.util.formatDateCN
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.dispatcher.centsToMoney
 import com.tapmoay.sorders.ui.theme.MoneyOrange
+import com.tapmoay.sorders.ui.theme.ProductPurple
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import com.tapmoay.sorders.util.formatDateTime
 import com.tapmoay.sorders.util.formatMoney
 
@@ -1088,7 +1090,8 @@ private fun LedgerCard(
                     Icon(
                         if (e.source == "manual") Icons.Default.EditNote else Icons.Default.ReceiptLong,
                         contentDescription = null,
-                        tint = Color(if (e.source == "manual") 0xFF8455E6 else 0xFF1E6FFF),
+                        // 手动记账＝商品管理紫、其余（核销/订单）＝主操作色绿（CHG-0091 收 token）
+                        tint = Color(if (e.source == "manual") ProductPurple else ThemeGreen),
                         modifier = Modifier.size(14.dp),
                     )
                     Spacer(Modifier.width(5.dp))

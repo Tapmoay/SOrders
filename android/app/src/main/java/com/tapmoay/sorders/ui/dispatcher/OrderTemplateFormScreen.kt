@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.dispatcher
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -344,7 +345,7 @@ fun OrderTemplateFormScreen(
                             onValueChange = { vm.address = it },
                             placeholder = "送货地址",
                             icon = Icons.Default.Place,
-                            iconTint = Color(0xFF1E6FFF),
+                            iconTint = Color(ThemeGreen),
                         )
                         FormInputRow(
                             label = "起点",
@@ -515,7 +516,7 @@ private fun LineQtyRow(
             "$qty " + unit.ifBlank { "件" },
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF1E6FFF),
+            color = Color(ThemeGreen),
         )
         IconButton(onClick = { onQty(qty + 1) }) {
             Icon(Icons.Default.Add, contentDescription = "加", modifier = Modifier.size(18.dp))

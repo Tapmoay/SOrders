@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.profile
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -239,7 +240,7 @@ fun ProfileScreen(
                             } else {
                                 Icons.Default.NotificationsActive
                             },
-                            tint = Color(0xFF1E6FFF),
+                            tint = Color(ThemeGreen),
                             title = "消息提醒",
                             // 副标题按角色说：**货主**没有语音，对他写「语音播报」就是承诺一件不会发生的事
                             // （司机与派单员各有一句，见 NewOrderAlert.voiceKind）。

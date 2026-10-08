@@ -7,7 +7,21 @@ val SeedBlue = Color(0xFF1E6FFF)
 val SeedBlueDark = Color(0xFF90CAF9)
 
 // ===== 模块语义色（一色一功能：老人可快速定位；均为亮色高对比）=====
-val NavBlue = 0xFF1E6FFFL          // 派单作业 / 主操作：亮蓝
+//
+// ⚠️ 2026-10-09 CHG-0091：这里的**主操作色**由「亮蓝」换成「深绿」。
+//    用户原话（ref m01501 / m01927）：「整体的颜色……**从蓝色变成绿色**，像微信那样子」
+//    「颜色的话就选**深绿色**……因为太亮了不好，因为我们的**核心要求是低饱和**」。
+//    换的是**身份色**（主操作 / 派单作业 / 信息），不是把每一处蓝都涂绿：
+//    报表里那些"这一段卖出去的货"之类跟着走，是因为它们**本来就是主操作色**。
+val ThemeGreen = 0xFF00A870L       // 主操作 / 派单作业 / 信息：低饱和深绿（原 NavBlue #1E6FFF）
+// ⚠️ 旧名保留成**同一个值的别名**：全仓 16 处引用（`ui/nav/Modules.kt` 的底部 Tab、
+//    `ui/dispatcher/` 那一批页面里的编辑动作等）不改调用点，语义也没变——它指的一直是"主操作色"。
+//    将来若真要拆开（例如"编辑"该有自己的色），再一处一处换掉，别在这一轮顺手改行为。
+//
+//    ⛔ 这段注释里**不许出现斜杠紧跟星号**（那种写法会让 `_tools/qa` 的 `strip_comments()`
+//    误以为块注释开始了，一路吃到下一个块注释结尾 —— 实测把本文件第 18~110 行整片吃掉，
+//    `_check_ledger_cash.py` 当场找不到 92/93 行的收支色）。写目录名时**不要带通配符**。
+val NavBlue = ThemeGreen
 val MgrGreen = 0xFF00B578L         // 司机管理 / 已完成：青绿
 val ProgressYellow = 0xFFFFB300L   // 进行中：黄
 val ShipperTeal = 0xFF00A2C7L      // 货主管理：湖蓝
@@ -129,7 +143,27 @@ val AiPink = 0xFFD96570L           // Google 粉（渐变终点）
 val SuccessGreen = 0xFF00B578L     // 成功 / 正常
 val WarningAmber = 0xFFFF9F1CL     // 提醒 / 待处理
 val DangerRed = 0xFFFF5252L        // 危险 / 异常
-val InfoBlue = 0xFF1E6FFFL         // 信息
+val InfoBlue = ThemeGreen          // 信息（原 #1E6FFF：跟着主操作色一起换）
+
+// ===== 商品行（2026-10-09 CHG-0091：绿主题）=====
+//
+// 用户口径（ref m01501 / m01927）：「底下有个**颜色比较深的**……让这个信息比较重要，
+// 能一眼看得出来」「商品名称**不留紫色**」「**低饱和**」。
+//
+// ⚠️ 2026-10-09 当天还立过一条"页面顶上一段深绿→白渐变"，同一天被用户撤掉
+//    （ref m02715：「那个背景的渐变，就去掉吧……就是白色的默认色」）⇒ 那个起色 token
+//    （`PageGradientGreen = 0xFF0B6644L`）**已经删掉**，页面背景不留绿。
+//
+// ⛔ 这一组**只给商品行用**，不要借去别的语义位置。
+// ⚠️ 必须跟上面那批一样用 `0x…L` 这种字面量（不是 `Color(0x…)`）：
+//    本仓库的语义色 token 统一是"裸 ARGB 值"（`Long`），用色的地方自己写 `Color(token)`。
+//    写成 `Color(0x…)` 会让这一组变成**另一种类型**，同一条 `Row` 里混用就编译不过
+//    （`TintedIcon(…, Color(ThemeGreen))` 与 `TintedIcon(…, ProductPurple)` 才是同一种）。
+// 深一档：数量块的底。压白字 ≈ 5.2:1（对 #00A870 更差，只有 2.9:1）⇒ **只许大色块 / 大字号**，
+// 小字不要往这两种绿上放（要用就再压深一档，别直接刷白字上去）。
+val ThemeGreenDeep = 0xFF0E7A50L
+val ProductRowTint = 0xFFE6F7EEL      // 商品行：极浅绿底（比白卡浅一点点的"绿系白"）
+val OnProductRowTint = 0xFF10331FL    // 浅绿底上的品名（近黑的墨绿，对比 ≈ 13:1）
 
 // AI 回答正文里的「重要信息」用色（台账 L-24 / CHG-0060）。
 // ⛔ 只借上面这四个语义色，**一个新色都不造**。颜色由界面按类别确定性地地上
@@ -142,10 +176,16 @@ val AiToneWarn = WarningAmber      // 提醒 / 待处理
 val AiToneOk = SuccessGreen        // 成功 / 正常
 
 // Light
-val Primary = Color(0xFF1E6FFF)
+//
+// ⚠️ 2026-10-09 CHG-0091：这里原来是一整套**蓝**（Primary #1E6FFF / PrimaryContainer #D9E8FF /
+//    OnPrimaryContainer #0A3168）。用户要求"整体基调从蓝变绿"后换成绿家族，但**只换色相、不动结构**：
+//    Primary 仍是"主操作按钮底"、PrimaryContainer 仍是"浅底 + 深字"那一对（工作台顶部那条读的就是它）。
+//    对比度：白字压在 #00A870 上 ≈ 2.9:1（不到 AA 的 4.5）⇒ 它只当**大色块 / 大字号**的底
+//    （主按钮、整条顶栏），小字用 [OnPrimaryContainer] 那种深绿（对浅绿底 ≈ 8:1）。
+val Primary = Color(0xFF00A870)
 val OnPrimary = Color(0xFFFFFFFF)
-val PrimaryContainer = Color(0xFFD9E8FF)
-val OnPrimaryContainer = Color(0xFF0A3168)
+val PrimaryContainer = Color(0xFFD6F2E4)
+val OnPrimaryContainer = Color(0xFF0B4A32)
 val SecondaryContainer = Color(0xFFD2F2E3)
 val OnSecondaryContainer = Color(0xFF0B3D2E)
 val Tertiary = Color(0xFFF57F17)
@@ -153,22 +193,30 @@ val ErrorLight = Color(0xFFFF4D4F)
 val ErrorContainerLight = Color(0xFFFFECEC)
 // ── 暖白家族（台账 L-19 · CHG-0063，2026-10-06）──────────────────────────────
 // 用户口径（ref m00481）：「我们的整体背景基调，颜色太过于灰蓝了不好看。我更偏向于
-// 稍微偏白一点啊，整体的基调。」随后选定方向：**暖一点**（R 比 B 高），不是中性灰。
-// 这四层是**页面底与它周围那几层**（顶栏读的就是 BackgroundLight），一起往暖白走；
+// 稍微偏白一点啊，整体的基调。」随后选定方向：**偏白**（亮、且不偏蓝），不是灰蓝。
+//
+// ⚠️ 2026-10-09 CHG-0091 改过一次（绿主题）：用户要「背景加一个由深绿往下到白色……
+//    大概到 1/3 的位置就全白了」。**页面底那一层因此改成近白的中性色**
+//    （原来 #F8F7F4 的暖白在纯白渐变下会露出一条暖色带），其余三层同步提亮——
+//    ⛔ **分层与"不偏蓝"这两条口径没变**：R ≥ B、白卡仍是最亮那层、四层仍严格递减。
+//    为什么是"中性"而不是原来那种"暖"：页面底现在**大面积被渐变盖住**，
+//    剩下露出来的地方大半是"白卡与白卡之间的缝"，那里要的是**不抢色**（中性），
+//    而"偏暖"这个诉求由卡片自己（白卡 + 阴影）与顶栏那条绿来承担。
+// 这四层是**页面底与它周围那几层**（顶栏读的就是 BackgroundLight），一起往白走；
 // 越往下越深一档，白卡（SurfaceLight）仍是最亮的那一层，分层不许塌。
 // ⛔ 底部抽屉与侧面抽屉**不在此列**（用户 ref m09782：「底部抽屉啊，侧面抽屉啊，
 //    那些都不要搞啊别搞反了嘞」）：它们读的是 SheetSurface，那个值一个字都不许动。
 // ⛔ 描边（OutlineLight / OutlineVariantLight）与暗色那一套也都不在此列。
 // 判据：_tools/qa/_check_warm_surface_palette.py（R >= B、分层递减、抽屉层没动都在里面）。
-val BackgroundLight = Color(0xFFF8F7F4)
+val BackgroundLight = Color(0xFFFBFBFA)
 val OnBackgroundLight = Color(0xFF17181C)
 val SurfaceLight = Color(0xFFFFFFFF)
 val OnSurfaceLight = Color(0xFF17181C)
-val SurfaceVariantLight = Color(0xFFF1EEE9)
+val SurfaceVariantLight = Color(0xFFF3F2EF)
 val OnSurfaceVariantLight = Color(0xFF3B404A)
 val SurfaceContainerLow = Color(0xFFEDEFF4)  // 死值：亮色下被 Theme.kt 换成 SheetSurface（抽屉的面）
-val SurfaceContainer = Color(0xFFE9E6DF)
-val SurfaceContainerHigh = Color(0xFFE1DDD5)
+val SurfaceContainer = Color(0xFFEFEEEB)
+val SurfaceContainerHigh = Color(0xFFE9E7E3)
 
 /**
  * **底部抽屉的面** —— 全 App 所有 `ModalBottomSheet` 的底色（2026-09-22）。

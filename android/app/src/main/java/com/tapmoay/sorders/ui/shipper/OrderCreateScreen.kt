@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.shipper
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -356,7 +357,7 @@ fun OrderCreateScreen(
                                         qtyWithUnitConverted(line.quantity, line.unit, conversions),
                                         style = MaterialTheme.typography.bodySmall,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = Color(0xFF1E6FFF),
+                                        color = Color(ThemeGreen),
                                     )
                                 }
                             }
@@ -369,7 +370,7 @@ fun OrderCreateScreen(
                                 )
                                 Row {
                                     IconButton(onClick = { vm.editingLineIndex = i }, modifier = Modifier.size(32.dp)) {
-                                        Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(15.dp), tint = Color(0xFF1E6FFF))
+                                        Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(15.dp), tint = Color(ThemeGreen))
                                     }
                                     IconButton(onClick = { vm.removeLine(i) }, modifier = Modifier.size(32.dp)) {
                                         Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.error)
@@ -642,7 +643,7 @@ fun OrderCreateScreen(
                         onValueChange = { vm.bossName = it },
                         placeholder = if (vm.proxyMode) "选择货主后自动填入" else "默认当前账号",
                         icon = Icons.Default.Person,
-                        iconTint = Color(0xFF1E6FFF),
+                        iconTint = Color(ThemeGreen),
                     )
                     FormInputRow(
                         label = "下单人电话",
@@ -1417,7 +1418,7 @@ private fun SheetRow(
     /** 行尾 `⋮` 里的管理动作（**只有派单员**会给；空 = 不画那个按钮）。 */
     actions: List<RowAction> = emptyList(),
 ) {
-    val headColor = if (isPlace) Color(0xFF00A2C7) else Color(0xFF1E6FFF)
+    val headColor = if (isPlace) Color(0xFF00A2C7) else Color(ThemeGreen)
     val headIcon = if (isPlace) Icons.Default.Place else Icons.Default.Person
     // ⛔ 2026-09-22 用户：「那个**共享库**…那个**不要用列表的形式**，也使用**卡片**的形式，
     //    就是**类似商品一样**…而且那个共享库那个卡片形式要改一下，**重要的信息要优先显示**」。

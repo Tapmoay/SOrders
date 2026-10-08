@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.profile
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -177,7 +178,7 @@ fun AlertSettingsScreen(
             Spacer(Modifier.height(12.dp))
             SwitchRow(
                 icon = if (background) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
-                color = Color(0xFF1E6FFF),
+                color = Color(ThemeGreen),
                 title = backgroundRow.first,
                 subtitle = if (running) {
                     "正在后台接收（通知栏有一条常驻提示，随时可关）"
@@ -287,7 +288,7 @@ private fun ChoiceRow(title: String, role: Role?, current: Int, onPick: (Int) ->
             NewOrderAlert.REPEAT_CHOICES.forEach { n ->
                 val selected = n == current
                 Surface(
-                    color = if (selected) Color(0xFF1E6FFF) else MaterialTheme.colorScheme.surfaceVariant,
+                    color = if (selected) Color(ThemeGreen) else MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(20.dp),
                     modifier = Modifier.clickable { onPick(n) },
                 ) {

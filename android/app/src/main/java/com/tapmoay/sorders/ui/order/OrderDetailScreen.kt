@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.order
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -961,7 +962,7 @@ private fun DetailBody(
                         Icon(
                             Icons.Default.Place,
                             contentDescription = "地址",
-                            tint = androidx.compose.ui.graphics.Color(0xFF1E6FFF),
+                            tint = androidx.compose.ui.graphics.Color(ThemeGreen),
                             modifier = Modifier.size(22.dp),
                         )
                         Spacer(Modifier.width(8.dp))
@@ -1459,7 +1460,7 @@ private fun DetailBody(
         }
         item {
             SectionCard {
-                SectionTitle(Icons.Default.History, Color(0xFF1E6FFF), "流转记录")
+                SectionTitle(Icons.Default.History, Color(ThemeGreen), "流转记录")
                 Spacer(Modifier.height(8.dp))
                 TimeRow("下单", order.createdAt)
                 order.dispatchedAt?.let { TimeRow("派单", it) }
@@ -1913,7 +1914,7 @@ private fun DetailBody(
         if (role == Role.DRIVER && order.status in OrderStatusModel.COMPLETABLE) {
             item {
                 SectionCard {
-                    SectionTitle(Icons.Default.Notes, Color(0xFF1E6FFF), "内部备注")
+                    SectionTitle(Icons.Default.Notes, Color(ThemeGreen), "内部备注")
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "只有司机和派单员看得到。写进去是追加一条，已有的那条不会被改动。",

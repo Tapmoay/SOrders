@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.common
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -364,7 +365,7 @@ fun AmapPickerDialog(
                         Icon(
                             Icons.Default.LocationOn,
                             contentDescription = "中心选点",
-                            tint = androidx.compose.ui.graphics.Color(0xFF1E6FFF),
+                            tint = androidx.compose.ui.graphics.Color(ThemeGreen),
                             modifier = Modifier.size(40.dp).offset(y = (-15).dp),
                         )
                     }

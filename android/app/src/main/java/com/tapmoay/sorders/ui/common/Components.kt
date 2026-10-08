@@ -1,4 +1,5 @@
 package com.tapmoay.sorders.ui.common
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -209,6 +210,13 @@ fun AppTopBar(
 ) {
     TopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(
+            // ⚠️ 2026-10-09 CHG-0091：这条 `containerColor` 当天被改过一次又被改回来，
+            //    留个记录免得下次有人再"顺手"刷绿。上午按用户要求读过 `primaryContainer`
+            //    （浅绿底 #D6F2E4 + 深绿字 #0B4A32），下午用户撤掉了（ref m02715 逐字）：
+            //    「就像那个 ai 聊天框的上面，它不是有个绿色嘛，那个也去掉啊，就是白色的默认色」。
+            //    ⇒ 回到 `background`：它跟着页面底走，随页面一起是白的，不需要为顶栏单造颜色。
+            //    ⛔ 别再改这一行来"让顶栏有颜色"：全 App 的二级页共用一个 AppTopBar，
+            //    在这里换一次色＝每一页的头都换。
             containerColor = MaterialTheme.colorScheme.background,
         ),
         title = {
@@ -420,7 +428,7 @@ fun PrimaryActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
-    containerColor: Color = Color(0xFF1E6FFF),
+    containerColor: Color = Color(ThemeGreen),
     enabled: Boolean = true,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -1068,7 +1076,7 @@ fun SegmentedPicker(
     selected: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    accent: Color = Color(0xFF1E6FFF),
+    accent: Color = Color(ThemeGreen),
     height: Dp = 44.dp,
     fontSize: TextUnit = 16.sp,
 ) {

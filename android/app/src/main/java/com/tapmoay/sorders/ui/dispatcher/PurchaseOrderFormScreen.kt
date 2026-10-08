@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.dispatcher
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -404,7 +405,7 @@ fun PurchaseOrderFormScreen(
                             onClick = { showDatePicker = true },
                             required = true,
                             icon = Icons.Default.Event,
-                            iconTint = Color(0xFF1E6FFF),
+                            iconTint = Color(ThemeGreen),
                         )
                         FormTextAreaRow(
                             label = "备注",
@@ -600,7 +601,7 @@ private fun PurchaseLineEditor(
             // 用户点进来直接打 15 ⇒ 15（不是 115）。
             selectAllOnFocus = true,
             icon = Icons.Default.SwapVert,
-            iconTint = Color(0xFF1E6FFF),
+            iconTint = Color(ThemeGreen),
         )
         // ⚠️ 单价走 `InputRules.priceInput`（4 位小数）：它与 `products.cost_price` 是同一档
         //    精度 `Numeric(14,4)`，不是金额那档 2 位 —— 别合并（见 InputRules.PRICE_DECIMALS）。

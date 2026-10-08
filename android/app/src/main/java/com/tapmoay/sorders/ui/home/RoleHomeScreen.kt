@@ -167,6 +167,12 @@ fun RoleHomeScreen(
     val showAiButton = role == Role.DISPATCHER
     val aiSlot = tabs.size / 2 // 4 个 Tab 时 = 2，正好落在中间
 
+    // ⚠️ 2026-10-09 CHG-0091：这里**曾经**铺过一层"深绿往下渐到白"（`TopGreenFade`），
+    //    当天就被用户撤掉了（ref m02715 逐字）：「算了，算了，那个背景的渐变，就去掉吧……
+    //    就是白色的默认色」。所以现在**不铺任何东西**，Scaffold 用它自己的页面底色
+    //    （M3 默认 containerColor = colorScheme.background = #FBFBFA 近白）。
+    //    ⛔ 别再往这一层加背景：主界面是 4 个 Tab 共用的最外层，在这里画一笔
+    //    等于给「派单池 / 工作台 / 消息 / 我的」四页同时换底。
     Scaffold(
         bottomBar = {
             // 顶部留出 AiNavButton.Protrude 的内边距：给凸起的那部分腾地方，

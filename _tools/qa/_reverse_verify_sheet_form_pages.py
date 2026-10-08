@@ -86,12 +86,15 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
      "            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),\n"
      "            containerColor = Color(0xFFEDEFF4),",
      "ModalBottomSheet 没有自己传 containerColor"),
+    # ⚠️ 2026-10-09 复核：下面 ⑩ 与 ⑫ 两条的锚点是在动作行**返工之前**写的（12 空格缩进那版），
+    #    返工后左栏整体缩进到 16 空格、右栏注释也续写了几句描述 ⇒ 三条锚点全部失配、
+    #    反验恒 MISS（实测踩到）。锚点按现在的真实写法重写；⛔ 断言的意图一个字没变。
     ("⑩ 「编辑」被摆到最左边（用户说的「惯用手在右」反了）",
      A + "ui/dispatcher/AccountManageScreen.kt",
-     '            // 左栏：先删除（最不可逆的那个）再停用/启用\n'
-     '            AccountAction("删除", Icons.Default.DeleteOutline, Color(MessageRed), onDelete)',
-     '            AccountAction("编辑", Icons.Default.Edit, Color(NavBlue), onEdit)\n'
-     '            AccountAction("删除", Icons.Default.DeleteOutline, Color(MessageRed), onDelete)',
+     '                // 左栏：先删除（最不可逆的那个）再停用/启用\n'
+     '                AccountAction("删除", Icons.Default.DeleteOutline, Color(MessageRed), onDelete)',
+     '                AccountAction("编辑", Icons.Default.Edit, Color(NavBlue), onEdit)\n'
+     '                AccountAction("删除", Icons.Default.DeleteOutline, Color(MessageRed), onDelete)',
      "动作行里第一个动作是「删除」"),
     ("⑪ 「编辑」被换掉（右栏那个位置变成删除，两个删除、没有编辑）",
      A + "ui/dispatcher/AccountManageScreen.kt",
@@ -101,9 +104,8 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     ("⑫ 左右两栏之间不再撑开（一排四个动作挤在一起，左右分区看不出来）",
      A + "ui/dispatcher/AccountManageScreen.kt",
      '            Spacer(Modifier.weight(1f))\n'
-     '            // 右栏：编辑（惯用手那一侧）\n'
-     '            AccountAction("编辑", Icons.Default.Edit, Color(NavBlue), onEdit)',
-     '            AccountAction("编辑", Icons.Default.Edit, Color(NavBlue), onEdit)',
+     '            // 右栏：编辑（惯用手那一侧）',
+     '            // 右栏：编辑（惯用手那一侧）',
      "左右两栏之间有 Spacer(weight 1f)"),
     # 2026-10-05 名册卡返工：电话行搬进了共用件 `ui/common/RosterCard.kt::RosterPhoneRow`，
     # 注入点跟着搬家（⛔ 不是把这一条删掉 —— 删掉就是"没人证明这条判据真的会红"）。

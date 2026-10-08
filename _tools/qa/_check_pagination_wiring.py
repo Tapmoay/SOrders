@@ -72,10 +72,67 @@ def ok(label: str, cond: bool, detail: str = "") -> None:
 
 
 def strip_comments(src: str) -> str:
-    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
-    src = re.sub(r"(?m)^\s*//.*$", "", src)
-    src = re.sub(r"//[^\n\"']*$", "", src, flags=re.M)
-    return src
+    """抹掉注释，**保留换行数**（判据全靠行号定位，少一行就全错位）。
+
+    ⚠️ 这里**不能**图省事写成「一条正则把 `/* … */` 整片删掉」（本节 2026-10-09
+    CHG-0091 改写过，就是被这个坑咬的）：注释里只要出现一个**通配符**
+    （`ui/**`、`"image/*"`、`ui/dispatcher/*`），那条正则就以为块注释开始了，
+    一路吃到**下一个块注释的结尾**。实测 `ui/theme/Color.kt` 第 18 行那句
+    `ui/dispatcher/*` 把第 18~110 行整片吃掉 —— `_check_ledger_cash.py` 当场报
+    「没找到 val CashIn = MgrGreen」，而那两个颜色明明就写在 92/93 行。
+    （本仓还有 3 处同类写法：`ui/dispatcher/PriceMatrixViewModel.kt`、
+    `ui/dispatcher/ProductCategoriesScreen.kt` 的 `ui/**`，
+    `ui/dispatcher/ProductFormScreen.kt` 的 `"image/*"`。）
+
+    ⇒ 改成按字符扫一遍：认得字符串字面量、`//` 行注释、真正以 `/*` 开头的块注释。
+    三条自检钉在 `main()` 末尾（通配符不吃代码 / 真块注释要删掉 / 尾注要删掉）。
+    """
+    out: list[str] = []
+    i, n = 0, len(src)
+    while i < n:
+        ch = src[i]
+        if ch in "\"'":
+            # 字符串 / 字符字面量：整段照抄（里面的 `//`、`/*` 都只是字符）
+            quote = ch
+            out.append(ch)
+            i += 1
+            while i < n:
+                if src[i] == "\\" and i + 1 < n:
+                    out.append(src[i:i + 2])
+                    i += 2
+                    continue
+                out.append(src[i])
+                if src[i] == quote:
+                    i += 1
+                    break
+                if src[i] == "\n":
+                    # 没闭合的字面量：到此为止，别把后面整篇吞掉
+                    i += 1
+                    break
+                i += 1
+            continue
+        if ch == "/" and i + 1 < n and src[i + 1] == "/":
+            while i < n and src[i] != "\n":
+                i += 1
+            continue
+        if ch == "/" and i + 1 < n and src[i + 1] == "*":
+            end = src.find("*/", i + 2)
+            if end == -1:
+                # ⚠️ 没闭合的块注释：**一个字都不许删**。老实现那条正则要求先找到 `*/`
+                # 才动手，这里必须一样 —— 否则一句注释里写了通配符（`backend/app/*`），
+                # 就会把后面**整篇文件**吃掉。实测 `backend/app/commands/order.py`
+                # 44177 字节被吃成 1341 字节，`_check_shipper_pricing.py` 当场两条红。
+                out.append("/*")
+                i += 2
+                continue
+            for c in src[i + 2:end]:
+                if c == "\n":
+                    out.append("\n")  # 换行补回去，行号不漂
+            i = end + 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def main() -> int:
@@ -228,6 +285,39 @@ def main() -> int:
         )
         total = sum(b.count("hasMore") for b in body.values())
         ok("链路上 hasMore 至少出现 5 次（防止某一环被删掉而判据仍绿）", total >= 5, f"实际 {total}")
+
+    # ---- strip_comments 自己的三条红线（CHG-0091：它曾经把整个文件吃掉）----
+    print("\n判据工具的判据：strip_comments 不许把真代码当注释吃掉")
+    _src = (
+        "// 扫 ui/** 下所有页面，还有 \"image/*\" 这种通配符\n"
+        "val keep1 = 1\n"
+        "/**\n * KDoc 该删\n */\n"
+        "val keep2 = 2 // 尾注该删\n"
+        "val keep3 = \"a // b /* c */ d\"\n"
+    )
+    _sc = strip_comments(_src)
+    ok(
+        "注释里的通配符（ui/**、image/*、dispatcher/*）不算块注释开始",
+        "val keep1 = 1" in _sc and "val keep2 = 2" in _sc,
+        "通配符把后面的真代码吃掉了",
+    )
+    ok("真块注释仍然被删掉（KDoc 不留）", "KDoc 该删" not in _sc, "块注释没删掉")
+    ok("尾注仍然被删掉", "尾注该删" not in _sc, "行尾注释没删掉")
+    ok(
+        "字符串里的 // 与 /* */ 一个字符都不许动",
+        'val keep3 = "a // b /* c */ d"' in _sc,
+        "把字符串字面量当注释删了",
+    )
+    ok(
+        "没闭合的块注释一个字都不删（否则注释里一个通配符就能吃掉后面整篇）",
+        "val keep4 = 4" in strip_comments("// 见 backend/app/* 下面\nval keep4 = 4\n"),
+        "一句带通配符的注释把后面整篇吃掉了",
+    )
+    ok(
+        "行数不变（判据靠行号定位，少一行就全错位）",
+        _sc.count("\n") == _src.count("\n"),
+        f"输入 {_src.count(chr(10))} 行、出来 {_sc.count(chr(10))} 行",
+    )
 
     print("\n" + "=" * 60)
     if fails:

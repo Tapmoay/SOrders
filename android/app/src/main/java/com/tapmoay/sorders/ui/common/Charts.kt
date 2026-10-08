@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.common
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
@@ -22,7 +23,7 @@ import kotlin.math.max
 fun LineChart(
     values: List<Float>,
     labels: List<String>,
-    color: Color = Color(0xFF1E6FFF),
+    color: Color = Color(ThemeGreen),
     modifier: Modifier = Modifier,
 ) {
     Column(modifier) {

@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.dispatcher
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -411,7 +412,7 @@ private fun MovementRow(m: InventoryMovementDto, onOpenPurchaseOrder: (Long) -> 
                         Text(
                             text,
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF1E6FFF),
+                            color = Color(ThemeGreen),
                             modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                         )
                     }

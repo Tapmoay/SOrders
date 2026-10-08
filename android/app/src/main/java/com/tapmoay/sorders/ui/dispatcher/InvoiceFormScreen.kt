@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.dispatcher
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -294,7 +295,7 @@ class InvoiceFormViewModel(private val container: AppContainer, private val invo
 // ------------------------------------------------------------ 这一页自己的几个色与小块
 
 private val TAX_BROWN = Color(0xFFC08A4E)   // 与工作台那一格 / 报表第 10 格同色（#795548 太深，宫格亮度带判据否过）
-private val FORM_BLUE = Color(0xFF1E6FFF)
+private val FORM_BLUE = Color(ThemeGreen)
 private val FORM_GREEN = Color(0xFF00B578)
 private val FORM_ORANGE = Color(0xFFFF9500)
 

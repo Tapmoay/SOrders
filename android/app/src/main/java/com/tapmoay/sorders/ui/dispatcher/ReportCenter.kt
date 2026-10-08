@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.dispatcher
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -314,7 +315,7 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (data != null) {
             item {
-                StatBig("实际营业金额", money(data.totalAmount), Color(0xFF1E6FFF))
+                StatBig("实际营业金额", money(data.totalAmount), Color(ThemeGreen))
             }
             item {
                 SectionCard {
@@ -357,7 +358,7 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
                     StatRow("挂账未收", money(data.arrearsTotal), Color(0xFFFF6B2C))
                     val all = (data.collected.toDoubleOrNull() ?: 0.0) + (data.arrearsTotal.toDoubleOrNull() ?: 0.0)
                     val rate = if (all > 0) ((data.collected.toDoubleOrNull() ?: 0.0) / all * 100).toInt() else 0
-                    StatRow("收款率", rate.toString() + " %", Color(0xFF1E6FFF))
+                    StatRow("收款率", rate.toString() + " %", Color(ThemeGreen))
                 }
             }
             item {
@@ -396,7 +397,7 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
                     val vals = data.series.map { it.amount.toDoubleOrNull()?.toFloat() ?: 0f }
                     val labels = data.series.map { it.label }
                     when {
-                        vals.any { it > 0f } && vm.chartType == "line" -> LineChart(vals, labels, Color(0xFF1E6FFF))
+                        vals.any { it > 0f } && vm.chartType == "line" -> LineChart(vals, labels, Color(ThemeGreen))
                         vals.any { it > 0f } -> BarChart(vals, labels, Color(0xFF00B578))
                         else -> ChartEmpty("该时段暂无送达数据")
                     }
@@ -415,7 +416,7 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
                             Text(s.label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
                             Text(s.orders.toString() + " 单", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End, modifier = Modifier.width(48.dp))
                             Spacer(Modifier.width(12.dp))
-                            Text(money(s.amount), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFF1E6FFF), textAlign = TextAlign.End, modifier = Modifier.width(84.dp))
+                            Text(money(s.amount), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(ThemeGreen), textAlign = TextAlign.End, modifier = Modifier.width(84.dp))
                         }
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
@@ -637,8 +638,8 @@ private fun CustomerTab(vm: ReportCenterViewModel) {
                 // 口径写进名字（2026-10-03 E2E 走查 P32）：原来叫「客单价」，算的却是 订货总额 ÷ 客户数；
                 // 中文「客单价」通常读作每单均价，客户数 1 家时两行数字还会完全相同 —— 看着像算重了。
                 // 两个名字对称，把两种读法都写实（户均 = 每个客户，每笔 = 每笔订单）。
-                StatRow("户均订货额", if (all.isNotEmpty()) money((totalAmount / all.size).toString()) else "¥0.00", Color(0xFF1E6FFF))
-                StatRow("每笔订货额", if (totalCount > 0) money((totalAmount / totalCount).toString()) else "¥0.00", Color(0xFF1E6FFF))
+                StatRow("户均订货额", if (all.isNotEmpty()) money((totalAmount / all.size).toString()) else "¥0.00", Color(ThemeGreen))
+                StatRow("每笔订货额", if (totalCount > 0) money((totalAmount / totalCount).toString()) else "¥0.00", Color(ThemeGreen))
                 StatRow("临时货主", shippers.count { it.tempName != null }.toString() + " 家", Color(0xFF8A8A8E))
             }
         }
@@ -1330,12 +1331,12 @@ private fun ProfitTab(vm: ReportCenterViewModel) {
                 SectionCard {
                     Text("利润构成", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
-                    StatRow("营业收入(应收)", money(data.revenueTotal), Color(0xFF1E6FFF))
+                    StatRow("营业收入(应收)", money(data.revenueTotal), Color(ThemeGreen))
                     // ⚠️ 这两行是**必须**的（2026-10-04 真机实测才发现）：没有它们，上面那行营业额减去下面那行成本 ≠ 再下面那行毛利
                     //    （实测 7020.2 − 186 = 60.4，看着像算错了 —— 真因是「算不出成本的那部分收入不进毛利」）。
                     //    这条链现在每一步都能自己算通：营业额 − 算不出成本 = 参与毛利；参与毛利 − 商品成本 = 商品毛利。
                     StatRow("− 算不出成本的收入", money(data.revenueUncovered), Color(0xFF8A8A8E))
-                    StatRow("= 参与毛利的收入", money(data.revenueCovered), Color(0xFF1E6FFF))
+                    StatRow("= 参与毛利的收入", money(data.revenueCovered), Color(ThemeGreen))
                     StatRow("− 商品成本", money(data.costTotal))
                     val gp = data.grossProfit.toDoubleOrNull() ?: 0.0
                     val gpColor = if (gp >= 0) Color(0xFF00B578) else Color(0xFFE53935)
@@ -1356,7 +1357,7 @@ private fun ProfitTab(vm: ReportCenterViewModel) {
                 SectionCard {
                     Text("增值税（价外税，不进上面的营业利润）", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
-                    StatRow("销项税额（开出去的票）", money(data.vatOutput), Color(0xFF1E6FFF))
+                    StatRow("销项税额（开出去的票）", money(data.vatOutput), Color(ThemeGreen))
                     StatRow("进项税额（拿到手的票）", money(data.vatInput), Color(0xFF00B578))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     // ⚠️ 留抵（进项比销项多，带负号）⇒ 红（CHG-0037：「带负号的金额一律红」）；
@@ -1614,7 +1615,7 @@ private fun CostCoverageTab(vm: ReportCenterViewModel) {
             item { ChartEmpty("该时段暂无成本覆盖数据") }
         } else {
             item {
-                StatBig("这一段卖出去的货", money(data.revenueTotal), Color(0xFF1E6FFF))
+                StatBig("这一段卖出去的货", money(data.revenueTotal), Color(ThemeGreen))
             }
             item {
                 SectionCard {
@@ -1726,7 +1727,7 @@ private fun TaxTab(vm: ReportCenterViewModel) {
                     StatRow("张数", data.output.count.toString() + " 张")
                     StatRow("价税合计", money(data.output.amount))
                     StatRow("不含税", money(data.output.netAmount))
-                    StatRow("税额", money(data.output.taxAmount), Color(0xFF1E6FFF))
+                    StatRow("税额", money(data.output.taxAmount), Color(ThemeGreen))
                     if (data.output.untaxedCount > 0) {
                         StatRow(
                             "其中未税票",

@@ -93,7 +93,11 @@ MIGRATED = [(SHIPPER, 3, "货主账本"), (DISPATCHER, 2, "派单员账本")]
 UNTOUCHED = [(DETAIL, 8, "司机端订单详情"), (DISP_ORDERS, 5, "派单员订单列表"),
              (ORDER_CREATE, 4, "货主下单页"), (PROFILE, 3, "我的")]
 #: 主题 token 的消费者（本事项明确没碰它们；数字是实测的）。
-CONSUMERS = [(AI_RICH, 1, "富文本引用块底"), (AI_CHAT, 4, "AI 聊天 4 处"), (MSGS, 1, "消息未读底色")]
+#: ⚠️ 2026-10-09 复核：`AiChatScreen.kt` 里 `surfaceContainerHigh` 的实测处数已从 4 涨到 **5**
+#:     （后来的人又加了一处消费者）。阈值停在 4 的话，反验那条「顺手改了 token 的消费者」
+#:     注入只把 5 减到 4、仍在阈值之上 ⇒ 判据不红、反验恒 MISS（实测踩到）。
+#:     这里按实测把阈值提到 5，让那条注入重新咬得住；意图一个字没变（消费者一处都不许少）。
+CONSUMERS = [(AI_RICH, 1, "富文本引用块底"), (AI_CHAT, 5, "AI 聊天 5 处"), (MSGS, 1, "消息未读底色")]
 REQUIRED_FILES = [COMP, SHIPPER, DISPATCHER, COLOR, THEME, AI_RICH, AI_CHAT, MSGS, CHG, REVERSE]
 
 #: ⛔ 数裸弹窗时必须排除 `Card` 前缀（`CardAlertDialog(` 里含子串 `AlertDialog(`），

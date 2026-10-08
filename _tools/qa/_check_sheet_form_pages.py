@@ -283,9 +283,13 @@ def main() -> int:
     # ⚠️ 只数整个文件里的 SectionCard 是不够的：**列表卡**自己也是一张 SectionCard，
     #    于是"抽屉里少一张白卡"照样能凑够数（反向验证 ⑯ 抓出来的）。
     #    所以数的是**抽屉那一段**里的白卡。
+    # ⚠️ 2026-10-09 复核：抽屉里的白卡实测已从 2 张涨到 **3** 张（后来又加了一组）。
+    #    下限停在 2 的话，反验第 ⑯ 条注入只把 3 减到 2、仍在阈值之上 ⇒ 判据不红、
+    #    那条反验恒 MISS（实测踩到）。这里按实测把下限提到 3，让注入重新咬得住；
+    #    意图一个字没变（抽屉里的分组必须是白卡，不许退回裸 Column）。
     sheet = slice_fun(screen, "fun AccountFormSheet(")
     n_cards = len(re.findall(r"\bSectionCard\s*[({]", sheet))
-    c.ok("抽屉的分组是白卡（抽屉里 SectionCard ≥ 2：账号一张、角色一张）", n_cards >= 2,
+    c.ok("抽屉的分组是白卡（抽屉里 SectionCard ≥ 3：账号、角色、分类各一张）", n_cards >= 3,
          f"抽屉里实际 {n_cards} 处")
     c.ok("没有 FilterChip（未选中带描边＝线框；角色改成下拉点选）",
          "FilterChip" not in screen,

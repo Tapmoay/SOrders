@@ -102,7 +102,7 @@ MUTATIONS = [
     (
         "方案 C 回潮：把主题 token 改成白的（顺手改掉 6 处消费者）",
         COLOR,
-        "val SurfaceContainerHigh = Color(0xFFE1DDD5)",
+        "val SurfaceContainerHigh = Color(0xFFE9E7E3)",
         "val SurfaceContainerHigh = Color(0xFFFFFFFF)",
         "SurfaceContainerHigh 仍是",
     ),

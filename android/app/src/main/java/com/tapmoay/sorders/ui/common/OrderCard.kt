@@ -24,7 +24,11 @@ import coil.compose.AsyncImage
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.ui.theme.DangerRed
 import com.tapmoay.sorders.ui.theme.MoneyOrange
+import com.tapmoay.sorders.ui.theme.OnProductRowTint
 import com.tapmoay.sorders.ui.theme.ProductPurple
+import com.tapmoay.sorders.ui.theme.ProductRowTint
+import com.tapmoay.sorders.ui.theme.ThemeGreen
+import com.tapmoay.sorders.ui.theme.ThemeGreenDeep
 import com.tapmoay.sorders.util.formatDateTime
 import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.util.moneyToDouble
@@ -164,7 +168,7 @@ fun OrderCard(
             //    地址再长也是它先省略，**徽章始终完整可读**（状态是扫一眼就要看到的信息，
             //    地址可以点进详情看）。
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TintedIcon(Icons.Default.Place, Color(0xFF1E6FFF), size = 15.dp)
+                TintedIcon(Icons.Default.Place, Color(ThemeGreen), size = 15.dp)
                 Spacer(Modifier.width(8.dp))
                 Text(
                     order.addressDetail.ifBlank { "未填写收货地址" },
@@ -241,48 +245,87 @@ fun OrderCard(
             HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
             Spacer(Modifier.height(10.dp))
 
-            // 行4：商品摘要（紫 tinted 图标）
-            Row(verticalAlignment = Alignment.Top) {
-                TintedIcon(Icons.Default.Inventory2, Color(ProductPurple), size = 15.dp)
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f)) {
-                    order.orderProducts.take(3).forEachIndexed { idx, op ->
-                        // 多商品时行与行之间加一条**虚线**：名字在左、数量在右，两行紧挨着排，
-                        // "×3 / ×4"很容易被看成同一行的（用户 2026-09-20：「多个商品……
-                        // 中间做虚线横杠稍微做一个区分，省的看错位」）。
-                        if (idx > 0) DashedLine()
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                op.productNameSnapshot,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                // 数量后面**要带单位**（用户 2026-09-22：「商品后面的数字没有单位啊……
-                                // 这是要有单位的」）。单位是下单那一刻定格的（`unit_snapshot`），
-                                // 老单没填过就只给数字 —— 拼法只有一处：`Units.kt::qtyWithUnit`。
-                                //
-                                // 2026-09-24 起再带**换算**：设过「1 车 = 8 方」时这一格写
-                                // 「×10 车 ≈ 80 方」（用户：「我下的十车，会有 2 个数据」）。
-                                // 换算表是**全库共用的一份**（`UnitConv`），四个列表页共用这一张卡片。
-                                "×" + qtyWithUnitConverted(op.quantity, op.unit, conversions),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(ProductPurple),
-                            )
-                        }
-                    }
-                    if (order.orderProducts.isEmpty() && order.deliveryDescription.isNotBlank()) {
+            // 行4：商品摘要（**圆角胶囊行**：绿 tinted 图标 + 深色品名 + 深绿数量块）
+            //
+            // ⚠️ 2026-10-09 CHG-0091 换的皮（用户定稿「**甲方案**」，ref m01927）。改前是
+            //    「紫底方块图标 + 紫字品名 + 右侧紫字数量」，一行挨一行、中间拿虚线分隔；
+            //    用户要的是照他给的那张表单图（称呼/电话/备注/分类）的样式：
+            //    **每一个商品都是一块圆角浅绿胶囊**，右侧数量压成**深绿圆角块 + 白字**
+            //    （原话：「底部有个**颜色比较深的**……让这个信息比较重要，能一眼看得出来」
+            //     「如果是多个商品的话，他就是**多个样式**」）。
+            //    ⇒ 多商品时**不再需要虚线**：一块一块自己就分得开，块间距承担了原先那份
+            //      "别把两行看串"的活（块间距 = 上面 `spacedBy(6.dp)`，⛔ 别拿它调排版）。
+            //      原来那条 `DashedLine` 因此**没人调用了** —— 按仓库的红线
+            //      （`_check_dead_code.py`：没人调用的私有声明要删）**已经删掉**。
+            //      删它时把它的两条结论搬到这里，免得下一个人重新踩：
+            //      ① 分隔线**不要用 `HorizontalDivider`** —— 它只会画实线，实线的语义是
+            //         "分组到此结束"，而这里是"同一组的相邻两项"；
+            //      ② **不要自己上 `Canvas` 画** —— 本仓有一条红线「自己画的图只许在
+            //         `Charts.kt`」（`_check_ledger_dashboard.py`，白名单只有 `Charts.kt`
+            //         与 `util/Watermark.kt`）。真要画虚线，就用一串小方块拼
+            //         （段数按可用宽度算，见 git 历史里的 `DashedLine`）。
+            //      ③ 多商品之间**只靠块间距**：这是用户 2026-10-09 亲自定的（甲案），
+            //         ⛔ 别再加回任何分隔线。
+            // ⛔ 品名**不留紫**（用户定稿原话：「商品名称**不留紫色**」）——改深墨绿 [OnProductRowTint]。
+            // ⛔ 数量那一格的**拼法与单位一个字没动**（`qtyWithUnitConverted`），只换它穿的衣服。
+            // ⛔ 这一层**不许带 `Modifier.weight(1f)`**（2026-10-09 真机抓到的回归，见 CHG-0091 ⑧）：
+            //    改前这一块套在 `Row(verticalAlignment = Alignment.Top)` 里，`weight(1f)` 是**横向**权重
+            //    （占满宽度）；甲案把外面那层 Row 去掉之后，它成了页面级
+            //    `Column(Modifier.padding(16.dp))`（第 153 行）的**直接子节点** —— 在 ColumnScope 里
+            //    `weight(1f)` 是**纵向**权重，而外层高度是 wrap content ⇒ 这一块拿到 **0 高**，
+            //    整块商品区一个像素都不画（真机现象：`共 16 筐` 照常显示、两个商品名一个都不见）。
+            //    这一层要的只是「占满宽度」，而下面每一行自己就带 `.fillMaxWidth()`，不需要在这里再要宽度。
+            Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                order.orderProducts.take(3).forEach { op ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(MaterialTheme.shapes.medium)
+                            .background(Color(ProductRowTint))
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                    ) {
+                        TintedIcon(Icons.Default.Inventory2, Color(ThemeGreen), size = 13.dp, container = 22.dp)
+                        Spacer(Modifier.width(8.dp))
                         Text(
-                            order.deliveryDescription,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 2,
+                            op.productNameSnapshot,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(OnProductRowTint),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            // 数量后面**要带单位**（用户 2026-09-22：「商品后面的数字没有单位啊……
+                            // 这是要有单位的」）。单位是下单那一刻定格的（`unit_snapshot`），
+                            // 老单没填过就只给数字 —— 拼法只有一处：`Units.kt::qtyWithUnit`。
+                            //
+                            // 2026-09-24 起再带**换算**：设过「1 车 = 8 方」时这一格写
+                            // 「×10 车 ≈ 80 方」（用户：「我下的十车，会有 2 个数据」）。
+                            // 换算表是**全库共用的一份**（`UnitConv`），四个列表页共用这一张卡片。
+                            "×" + qtyWithUnitConverted(op.quantity, op.unit, conversions),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .clip(MaterialTheme.shapes.small)
+                                .background(Color(ThemeGreenDeep))
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
                         )
                     }
+                }
+                if (order.orderProducts.isEmpty() && order.deliveryDescription.isNotBlank()) {
+                    Text(
+                        order.deliveryDescription,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                    )
                 }
             }
 
@@ -348,31 +391,3 @@ fun OrderCard(
     }
 }
 
-/**
- * 商品行之间的**虚线**横杠（用户 2026-09-20 点名）。
- *
- * 为什么不用 [HorizontalDivider]：它只会画实线，而这里的语义是"同一组的相邻两项"——
- * 实线看起来像"分组到此结束"，虚线才是"接着下一项"。
- *
- * 为什么不用 `Canvas` 自己画：本仓库有一条红线「**自己画的图只许在 Charts.kt**」
- * （`_tools/qa/_check_ledger_dashboard.py`，白名单只有 `Charts.kt` 与 `util/Watermark.kt`）。
- * 这里用一串小方块拼出来（段数按可用宽度算），既守规矩也不依赖 `PathEffect`。
- */
-@Composable
-private fun DashedLine(modifier: Modifier = Modifier) {
-    val lineColor = MaterialTheme.colorScheme.outlineVariant
-    BoxWithConstraints(modifier.fillMaxWidth().height(9.dp)) {
-        val dash = 5.dp
-        val gap = 4.dp
-        val count = ((maxWidth + gap) / (dash + gap)).toInt().coerceAtLeast(1)
-        Row(
-            Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(gap),
-        ) {
-            repeat(count) {
-                Box(Modifier.width(dash).height(1.dp).background(lineColor))
-            }
-        }
-    }
-}

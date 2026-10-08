@@ -353,7 +353,10 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "㉙ 语义色 token 从 Color.kt 里被改名（就地手写 0xFF 的入口）",
         COLOR,
-        lambda s: s.replace("val NavBlue = 0xFF1E6FFFL", "val NavBlueX = 0xFF1E6FFFL", 1),
+        # ⚠️ 2026-10-09 / CHG-0091：主操作色换绿后这一行成了别名 `val NavBlue = ThemeGreen`
+        #    （旧名保留，全仓 16 处调用点不动）。锚点跟着改成现在的真实写法；
+        #    ⛔ 只改锚点，断言的意图一个字没变：token 在 Color.kt 里被改名 ⇒ 判据必须报红。
+        lambda s: s.replace("val NavBlue = ThemeGreen", "val NavBlueX = ThemeGreen", 1),
         "色常量都在 ui/theme/Color.kt 里有定义",
     ),
     (

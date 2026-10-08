@@ -1,12 +1,18 @@
 #!/usr/bin/env python
-"""亮色下「页面底那一层」必须是暖白，而且分层与抽屉那一层一个字没动 —— 台账 L-19 / CHG-0063。
+"""亮色下「页面底那一层」必须是**不偏蓝的近白**，而且分层与抽屉那一层一个字没动 —— 台账 L-19 / CHG-0063。
+
+⚠️ 2026-10-09 **CHG-0091（绿主题）改过一次口径**，改的是"偏哪一边"，**不是**把这条规矩废掉：
+   用户给了「背景加一个由深绿往下到白色……大概到 1/3 的位置就全白了」（ref m01501），
+   页面底于是从「暖白 #F8F7F4」改成「**中性近白**」—— 原来那种暖白压在纯白渐变尾巴上
+   会露出一条肉眼可见的暖色带。**分层、不偏蓝、抽屉层与暗色一个字没动**这三条原样保留。
+   改口径的同时必须改本文件 + 反验 + 设计基线文档，三处一起（否则这条判据会挡住绿主题）。
 
 盯住八件事：
 
 1. 四个 token 的精确值：`BackgroundLight` / `SurfaceVariantLight` / `SurfaceContainer` /
-   `SurfaceContainerHigh` 是一套「暖白家族」，不是中性灰、更不是原来那套灰蓝。
-2. 暖：每一层 R > B（原来的 #F2F3F7 / #ECEFF5 / #E6E9F0 / #DDE1EA 全是 B > R，
-   这正是用户说的「灰蓝」）；R == B 也不行 —— 那是中性灰，用户要的是「稍微偏白、暖一点」。
+   `SurfaceContainerHigh` 是一套「近白家族」，不是原来那套灰蓝、也不是纯白一色到底。
+2. 不偏蓝：每一层 R >= B（原来的 #F2F3F7 / #ECEFF5 / #E6E9F0 / #DDE1EA 全是 B > R，
+   这正是用户说的「灰蓝」）。
 3. 分层还在：白卡（`SurfaceLight` = #FFFFFF）仍是最亮的一层，往下 BackgroundLight →
    SurfaceVariantLight → SurfaceContainer → SurfaceContainerHigh 严格变暗、四个值互不相同。
    ⛔ 分层一塌（比如都刷成同一个白）不会有任何编译错误，只有这一组在盯。
@@ -52,12 +58,13 @@ CHG = ROOT / "docs" / "changes" / "CHG-0063.md"
 README = ROOT / "docs" / "changes" / "README.md"
 CLAIM = ROOT / "docs" / "AI_WORK_CLAIM.md"
 
-#: 亮色这几层：页面底 → 周围那几层（越往下越深一档）。从 2026-10-06（台账 L-19）起是暖白家族。
-WARM = {
-    "BackgroundLight": 0xF8F7F4,
-    "SurfaceVariantLight": 0xF1EEE9,
-    "SurfaceContainer": 0xE9E6DF,
-    "SurfaceContainerHigh": 0xE1DDD5,
+#: 亮色这几层：页面底 → 周围那几层（越往下越深一档）。
+#: 2026-10-06（台账 L-19）定的是暖白；2026-10-09（CHG-0091）随绿主题改成**中性近白**。
+NEAR_WHITE = {
+    "BackgroundLight": 0xFBFBFA,
+    "SurfaceVariantLight": 0xF3F2EF,
+    "SurfaceContainer": 0xEFEEEB,
+    "SurfaceContainerHigh": 0xE9E7E3,
 }
 
 #: 那四个 token 的**旧值**（B 比 R 高 = 用户说的「灰蓝」）：亮色区一处都不许剩。
@@ -133,17 +140,17 @@ def main() -> int:
     c.ok(f"Color.kt 里认出 {len(found)} 个亮色常量（下限 {MIN_TOKENS}）", len(found) >= MIN_TOKENS,
          "解析规则被改坏的话，下面每一组都会空过")
 
-    c.section("1. 暖白家族：四个精确值 ＋ 每一层 R > B")
-    vals = {name: hexes(color, name) for name in WARM}
-    for name, want in WARM.items():
+    c.section("1. 近白家族：四个精确值 ＋ 每一层 R >= B（不偏蓝）")
+    vals = {name: hexes(color, name) for name in NEAR_WHITE}
+    for name, want in NEAR_WHITE.items():
         got = vals[name]
         c.ok(f"Color.kt：{name} = {show(want)}", got == want, f"现在是 {show(got)}")
     for name, got in vals.items():
         if got is None:
             continue
         r, g, b = channels(got)
-        c.ok(f"{name} 是暖的（R {r} > B {b}）", r > b,
-             f"{show(got)} 的 B 通道不低于 R —— 又回到用户说的「灰蓝 / 中性灰」那一侧了")
+        c.ok(f"{name} 不偏蓝（R {r} >= B {b}）", r >= b,
+             f"{show(got)} 的 B 通道高过 R —— 又回到用户说的「灰蓝」那一侧了")
 
     c.section("2. 分层没塌：白卡最亮，四层严格变暗")
     white = hexes(color, "SurfaceLight")
@@ -191,7 +198,7 @@ def main() -> int:
     c.section("6. 设计基线文档同步 ＋ 描边仍是原来那一份 ＋ 本事项的登记")
     design = read(DESIGN) if DESIGN.exists() else ""
     c.ok("docs/PROJECT_MAP/06_DESIGN_SYSTEM.md 在", DESIGN.exists(), "设计基线文档被搬走/改名了？")
-    c.present("设计基线里页面底写的是新值", design, r"BackgroundLight=#F8F7F4")
+    c.present("设计基线里页面底写的是新值", design, r"BackgroundLight=#FBFBFA")
     c.absent("设计基线里不再写旧值", design, r"BackgroundLight=#F2F3F7")
     c.present("设计基线点了「暖」这条口径（改色的人得看得到为什么）", design, r"暖")
     c.present("描边没动：EntryGrid 那一圈仍是 1dp 的 #ECEFF5", read(ENTRY_GRID),
@@ -207,13 +214,13 @@ def main() -> int:
         for label, _ in c.fails:
             print(f"   - {label}")
         return 1
-    print(f"✅ 全部 {c.n_ok} 项通过：亮色四层是暖白家族、分层还在、抽屉与暗色一个字没动、设计基线已同步。")
+    print(f"✅ 全部 {c.n_ok} 项通过：亮色四层是近白家族、分层还在、抽屉与暗色一个字没动、设计基线已同步。")
     return 0
 
 
 if __name__ == "__main__":
     if "--list" in sys.argv:
-        print("亮色暖白家族：", ", ".join(f"{k}={show(v)}" for k, v in WARM.items()))
+        print("亮色近白家族：", ", ".join(f"{k}={show(v)}" for k, v in NEAR_WHITE.items()))
         print("旧的灰蓝（亮色区不许剩）：", " ".join(OLD))
         print("动不了的那几档：", ", ".join(f"{k}={show(v)}" for k, v in KEEP.items()))
         print("抽屉那一层的面：", show(SHEET))

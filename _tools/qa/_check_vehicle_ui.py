@@ -280,8 +280,13 @@ def main() -> int:
     c.ok("反向验证脚本在（_tools/qa/_reverse_verify_vehicle_ui.py）", REVERSE.exists(),
          "没有反向验证的判据＝没人证明它真的会红")
     doc = read(DOC) if DOC.exists() else ""
+    # ⚠️ 2026-10-09 复核：这里原来判的是「裸圈码在不在全文里」。但 CHG-0016 的 ⑦ 节表格里
+    #    列反向验证条目时也用了圈码（「⑨ 撑开左右两端的 Spacer 被删」），于是
+    #    `## ⑨` 那一行被整行删掉之后，⑨ 这个字符在全文里**还在** ⇒ 判据不红、
+    #    反验第 ⑲ 条恒 MISS（实测踩到）。九节指的是**小节标题**，所以改成只看标题形式。
     c.ok("文档九节齐全（docs/changes/CHG-0016.md）",
-         all(s in doc for s in ("①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨")), "文档缺节")
+         all(re.search(r"^## " + s, doc, re.M) for s in
+             ("①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨")), "文档缺节")
     c.ok("登记簿里有 CHG-0016 这一行（整行，不是一个链接里的字样）",
          bool(re.search(r"^\|\s*[\x60]?CHG-0016[\x60]?\s*\|", read(REGISTRY), re.M)),
          "没登记（别人不知道这个 ID 用掉了）")

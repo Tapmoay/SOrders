@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.common
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -488,7 +489,7 @@ private fun ProductRow(
                         onClick = { if (!soldOut) onAdd() },
                         enabled = !soldOut,
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (pickedQty > 0) Color(0xFF00A56E) else Color(0xFF1E6FFF),
+                            containerColor = if (pickedQty > 0) Color(0xFF00A56E) else Color(ThemeGreen),
                             contentColor = Color.White,
                             disabledContainerColor = MaterialTheme.colorScheme.outlineVariant,
                             disabledContentColor = MaterialTheme.colorScheme.outline,

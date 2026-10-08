@@ -168,9 +168,16 @@ def main() -> int:
     action_row = card[row_start:] if row_start >= 0 else ""
     c.ok("动作行里不许出现 MoneyOrange（那是「钱」的语义色，规范 :151 明说不许染按钮）",
          "MoneyOrange" not in action_row)
+    # ⚠️ 2026-10-09 / CHG-0091：这条原来写死成 `f"val {t} = 0xFF"`。绿主题把主操作色换掉之后，
+    #    `val NavBlue = ThemeGreen` 是**别名**（旧名保留，全仓 16 处调用点不动），
+    #    写死 `= 0xFF` 就会把一次合法的换色报成「常量没定义」。
+    #    这里放宽成「要么直接是 0xFF 字面量，要么别名到另一个标识符」——
+    #    意图一个字没变（色值必须住在 Color.kt，不是各页各写一遍），只是认下了别名这种写法。
+    _COL_DEF = re.compile(r"^val (" + "|".join(("NavBlue", "MemberGold", "DriverLime",
+                                                "InventoryTeal", "WarningAmber"))
+                          + r") = (?:0xFF[0-9A-Fa-f]{6}L?|[A-Za-z_][A-Za-z0-9_]*)\b", re.M)
     c.ok("色常量都在 ui/theme/Color.kt 里有定义（不是就地手写的 0xFF…）",
-         all(f"val {t} = 0xFF" in color
-             for t in ("NavBlue", "MemberGold", "DriverLime", "InventoryTeal", "WarningAmber")))
+         len({m.group(1) for m in _COL_DEF.finditer(color)}) == 5)
 
     # ── 3. 卡头与老画法归零 ──────────────────────────────────────────────
     c.section("3. 卡头不再挂动作键，老的两种画法归零")

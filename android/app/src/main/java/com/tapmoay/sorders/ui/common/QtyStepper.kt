@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.common
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -122,7 +123,7 @@ private val STEP_CELL = 52.dp
 private val STEP_SHAPE = RoundedCornerShape(14.dp)
 
 /** 数量与加减号一律用这一个蓝（与选品页那个圆「＋」、订单行的数量同色）。 */
-private val StepBlue = Color(0xFF1E6FFF)
+private val StepBlue = Color(ThemeGreen)
 
 /**
  * 数量步进器：`−` | 数量 | `+`，一组三格。

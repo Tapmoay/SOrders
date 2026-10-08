@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.common
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -34,7 +35,7 @@ import androidx.compose.ui.unit.dp
  *    判据：`_tools/qa/_check_order_list_ui.py` 有一条"每个 `OrderStatus` 至少落在一个档位里"。
  */
 val ORDER_TAB_COLORS = listOf(
-    Color(0xFF1E6FFF),  // 全部 · 蓝
+    Color(ThemeGreen),  // 全部 · 主色绿（CHG-0091 前是蓝 #1E6FFF）
     Color(0xFFFFB300),  // 派单中 · 黄
     Color(0xFF00A2C7),  // 已接单 · 湖蓝
     Color(0xFF00B578),  // 已送达 · 绿
@@ -92,7 +93,7 @@ fun SegmentedStatusTabs(
             labels.forEachIndexed { i, label ->
                 TabPill(
                     label = label,
-                    accent = colors.getOrElse(i) { Color(0xFF1E6FFF) },
+                    accent = colors.getOrElse(i) { Color(ThemeGreen) },
                     selected = selected == i,
                     onClick = { onSelect(i) },
                     // 放得下：等宽分掉整行（原样：文字居中、**不加内边距**）；

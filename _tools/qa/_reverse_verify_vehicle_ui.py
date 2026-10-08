@@ -161,8 +161,8 @@ CASES: list[tuple[str, str, object, str]] = [
         "⑬ 按人搜那个框又写上了自己的一句提示语（规范 §4.4 要治的病）",
         VEHICLE,
         lambda s: s.replace(
-            "                    value = vm.driverQuery," + chr(10) + "                    onValueChange = { vm.driverQuery = it },",
-            "                    value = vm.driverQuery," + chr(10) + "                    placeholder = " + chr(34) + "搜司机" + chr(34) + "," + chr(10) + "                    onValueChange = { vm.driverQuery = it },",
+            "                        value = vm.driverQuery," + chr(10) + "                        onValueChange = { vm.driverQuery = it },",
+            "                        value = vm.driverQuery," + chr(10) + "                        placeholder = " + chr(34) + "搜司机" + chr(34) + "," + chr(10) + "                        onValueChange = { vm.driverQuery = it },",
             1,
         ),
         "按人搜那个不写自己的提示语",

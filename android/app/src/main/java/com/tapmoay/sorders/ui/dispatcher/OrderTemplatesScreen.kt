@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.dispatcher
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -474,7 +475,7 @@ private fun TemplateCard(
                 Color(ShipperTeal),
             )
             if (t.address.isNotBlank()) {
-                TemplateFactRow(Icons.Default.Place, "送到", t.address, Color(0xFF1E6FFF), maxLines = 2)
+                TemplateFactRow(Icons.Default.Place, "送到", t.address, Color(ThemeGreen), maxLines = 2)
             }
             val receiver = (t.receiverName + " " + t.receiverPhone).trim()
             if (receiver.isNotBlank()) {

@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.dispatcher
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,7 +36,7 @@ import kotlinx.coroutines.launch
  *      再登记同一个号会被后端 409 拦住并指路"先把它恢复出来"；
  *    - **恢复**：把回收站里的票放回来（放回时票号若被别人用了，后端如实报冲突，⛔ 不悄悄改号）。
  */
-private val OUTPUT_BLUE = Color(0xFF1E6FFF)
+private val OUTPUT_BLUE = Color(ThemeGreen)
 private val INPUT_GREEN = Color(0xFF00B578)
 private val VOID_RED = Color(0xFFE53935)
 

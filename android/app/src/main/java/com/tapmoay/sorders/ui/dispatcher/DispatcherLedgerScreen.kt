@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.dispatcher
 
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -468,7 +469,7 @@ private fun LedgerRow(
             Icon(
                 if (e.source == "manual") Icons.Default.EditNote else Icons.Default.ReceiptLong,
                 contentDescription = null,
-                tint = if (e.source == "manual") Color(ProductPurple) else Color(0xFF1E6FFF),
+                tint = if (e.source == "manual") Color(ProductPurple) else Color(ThemeGreen),
                 modifier = Modifier.size(15.dp),
             )
             Spacer(Modifier.width(8.dp))

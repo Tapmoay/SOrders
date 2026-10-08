@@ -7,7 +7,7 @@
 ## 1. 核心设计原则
 
 - **一色一功能**：每个功能/模块有唯一语义色，跨端同功能同色（下单绿/账本橙/消息红/地址湖蓝）
-- **背景分层**：页面底 `BackgroundLight=#F8F7F4`（**暖白**：R 比 B 高，不是中性灰、更不是灰蓝）—— 台账 L-19 / CHG-0063 起，顶栏与周围那几层 `SurfaceVariantLight=#F1EEE9` / `SurfaceContainer=#E9E6DF` / `SurfaceContainerHigh=#E1DDD5` 一起往暖白走，**分层不许塌**（白卡 `#FFFFFF` 仍是最亮的一层）；卡片白底圆角（`MaterialTheme.shapes`），信息用 SectionCard。⛔ 底部抽屉与侧面抽屉那一层是 `SheetSurface=#F0F0F0`（纯中性，用户点名「那些都不要搞」）
+- **背景分层**：页面底 `BackgroundLight=#FBFBFA`（**中性近白**：R 略高于 B、离纯白只差两档，不是灰蓝）—— 台账 L-19 / CHG-0063 起立的是「暖白」那一版，**2026-10-09 / CHG-0091（绿主题）改成近白**（用户当天口径：「就是**白色的默认色**」，ref m02715 —— 绿只当主色，**不铺背景**：同一天上午还立过一条「页面顶上一段深绿→白渐变」，当天就被撤掉了，`RoleHomeScreen` 那一层不许再加背景）；顶栏与周围那几层 `SurfaceVariantLight=#F3F2EF` / `SurfaceContainer=#EFEEEB` / `SurfaceContainerHigh=#E9E7E3` 跟着一起走，**分层不许塌**（白卡 `#FFFFFF` 仍是最亮的一层）；卡片白底圆角（`MaterialTheme.shapes`），信息用 SectionCard。⛔ 底部抽屉与侧面抽屉那一层是 `SheetSurface=#F0F0F0`（纯中性，用户点名「那些都不要搞」）
 - **低调卡片**：白底 + 浅描边（#ECEFF5）或极浅阴影；不要重边框/大圆/浓渐变
 - **文字层级**：关键是重要的数字/名称用色加粗，次要说明用灰色 `onSurfaceVariant` 小字
 - **按钮风格**：默认 Material3 样式（用户否决过大圆圈/胶囊大按钮）；加减等主操作色可自定义淡蓝底
@@ -23,7 +23,7 @@
 
 | 模块 | 色值 | 常量 |
 |---|---|---|
-| 派单作业 / 主操作 | 蓝 #1E6FFF | NavBlue |
+| 派单作业 / 主操作 | 深绿 #00A870 | NavBlue |
 | 代理下单 / 已完成 | 青绿 #00B578 | MgrGreen |
 | 地址与联系人 | 湖蓝 #00A2C7 | ShipperTeal |
 | 订单管理 | 黄 #FFB300 | ProgressYellow |
@@ -38,6 +38,12 @@
 | 挂账单位 | 橙红 #FF6B2C | ArrearsTangerine |
 | 报表中心 | 靛紫 #6950F5 | ReportIndigo |
 | 消息中心 | 红 #FF4D4F | MessageRed |
+
+> ⚠️ 2026-10-09 / CHG-0091（绿主题）：主操作色从蓝 `#1E6FFF` 换成深绿 `#00A870`。
+> 常量名**仍是 `NavBlue`**——它是个**别名**（`val NavBlue = ThemeGreen`），全仓 16 处引用
+> 一处调用点都没改；新代码请用 `ThemeGreen`。上表「常量」那一列必须写**裸标识符**
+> （`_tools/qa/_check_vehicle_ui.py` 会把这一列当标识符拿去 Color.kt 里核对定义），
+> 所以别名这件事写在这里、不写进表格。
 
 ### 线路语义色（起点 / 终点）
 
@@ -59,11 +65,11 @@
 
 ### 语义状态色
 
-成功/正常 #00B578｜进行中/提醒 #FFB300/#FF9F1C｜危险/异常 #FF4D4F/#FF5252｜信息 #1E6FFF｜挂账警示 #FF6B2C
+成功/正常 #00B578｜进行中/提醒 #FFB300/#FF9F1C｜危险/异常 #FF4D4F/#FF5252｜信息 #00A870｜挂账警示 #FF6B2C
 
 ### 订单状态五色（ORDER_TAB_COLORS）
 
-全部 #1E6FFF｜派单中 #FFB300｜已接单 #00A2C7｜已送达 #00B578｜已撤销 #8A8A8E
+全部 #00A870（原蓝 #1E6FFF，CHG-0091 随主色换绿）｜派单中 #FFB300｜已接单 #00A2C7｜已送达 #00B578｜已撤销 #8A8A8E
 
 ## 3. 组件风格速查（ui/common/）
 
@@ -91,10 +97,12 @@
 
 - 金额（钱）：橙 #FF9500；小计/合计 同理
 - 数量：蓝 #1E6FFF（如 "· 数量 5"）
-- 商品名：紫 #8455E6（SemiBold）
+- 商品名：紫 #8455E6（SemiBold）—— ⚠️ **订单卡与订单详情的商品行是例外**：2026-10-09 / CHG-0091 起那里不画紫，见 §4.2e
+- **订单卡 / 订单详情页的商品行**（CHG-0091 甲案）：行底 `ProductRowTint=#E6F7EE` 极浅绿、品名 `OnProductRowTint=#10331F` 近黑墨绿（**不留紫**）、行首 `TintedIcon` 底＝`ThemeGreen`、右侧数量那块＝`ThemeGreenDeep=#0E7A50` 深绿底 + 白字
 - 货损/异常：红 #FF4D4F/#E53935
 - 毛利/成功：绿 #00B578
 - 加减按钮淡蓝：底 #E8F2FF / 图标 #1E6FFF（**用户明确要求保留，勿改回青绿**）
+  ⚠️ 2026-10-09 / CHG-0091 的绿主题**只换身份色**（主操作 / 派单作业 / 信息 / 订单状态「全部」），**没有**把这两个功能色一起刷绿：数量仍 `#1E6FFF`、加减按钮仍 `#E8F2FF`/`#1E6FFF` —— 它是「加减/数量」这个功能在用的颜色，同一屏里与主色绿分得开，四张列表与商品卡都还没改口径。
 - 工资制司机：灰 #8A8A8E 标注「工资制」；计件司机待结运费：橙红 #FF6B2C
 
 ### 4.1 商品卡上那两个数字（2026-09-19 用户要求"用对应的语义色和图标"）
@@ -353,6 +361,23 @@ container = 30.dp)`）—— 真机核对过：那一页的观感与改前**完�
 **判据**：`_tools/qa/_check_driver_card_ack.py`（**47 项**：签名默认值为空 / 全卡**恰好一处**调用且排在动作行之后 /
 调用点的两条闸门与 `vm.ack(order)` / **门上没有 `!order.isNewForDriver`**（查去注释后的代码）＋ 那条理由留在注释里 / 详情页那颗逐字未动 / VM 的并发锁与错误落点 / 全仓 `Text("确认接单"` **恰好两处**）
 ＋ 反向验证 `_tools/qa/_reverse_verify_driver_card_ack.py`（**22 条注入**，含"整句搬到卡片最上面""第三处「确认接单」冒出来"）。
+
+### 4.2e 订单行上的**商品块**：一块一个商品（2026-10-09，CHG-0091）
+
+> 用户原话（ref **m01501**）：「订单卡片的商品的图商品样式啊，以图一的那个样式」「如果是多个商品的话，他就是多个样式」
+> 「包括订单详情进去也是这个样式」「商品名称不留紫色」（定稿 ref **m01927**）
+
+1. **一块一个商品**（甲案，用户从三案里挑的）：浅绿圆角胶囊行 —— 行底 `ProductRowTint=#E6F7EE`、圆角 `MaterialTheme.shapes.medium`、内边距 `horizontal = 8.dp, vertical = 6.dp`；块与块之间 `Arrangement.spacedBy(6.dp)`。
+2. **行内三件**：行首 `TintedIcon(Icons.Default.Inventory2, Color(ThemeGreen), size = 13.dp, container = 22.dp)`（圆底 tint 图标，§3 那一件）＋ 品名 `bodyLarge` **SemiBold**、色 `OnProductRowTint=#10331F`（近黑墨绿，对浅绿底 ≈ 13:1，**不留紫**）＋ 右侧数量 `labelLarge` Bold **白字**压在 `ThemeGreenDeep=#0E7A50` 深绿块上（`shapes.small` + `horizontal = 8.dp, vertical = 3.dp`）。
+3. **块是用来分「重不重要」的**：用户要的是「底部有个颜色比较深一点的……让这个信息比较重要嘛，能一眼看得出来」⇒ 数量那一块是整行**最重**的一处，品名正常字重、不再用颜色加粗抢戏。
+4. ⛔ **数量的拼法与单位一个字没动**：仍是 `"×" + qtyWithUnitConverted(op.quantity, op.unit, conversions)`（§4.20 的「数量必须带单位」照旧，`_check_order_row_columns.py` 的正则就钉在这句上）；`order.orderProducts.take(3)`（只画前三个）也逐字保留。
+5. **虚线分隔退休**：多商品改由块间距来分，`DashedLine()` **不再被调用 ⇒ 函数本体已删**（红线 `_tools/qa/_check_dead_code.py` 不许留没人调用的私有声明 —— 留了一天就当场报红）。删之前把它那两条踩过的结论搬进了 `ui/common/OrderCard.kt` 的「行4」注释：⛔ 不用 `HorizontalDivider`（实线语义不对）、⛔ 不自己上 `Canvas`（自绘图只许在 `Charts.kt`）。
+6. **落地面**：`ui/common/OrderCard.kt` 商品摘要那一段（四张列表同卡）。订单详情页与 `OrderPeek` 的商品明细**下一轮**按同一样式对齐（判决记录在 `docs/changes/CHG-0091.md` 的 Known Limitations）。
+7. ⛔ **本单当天撤掉的两件，别再加回来**（用户 ref **m02715** 逐字：「算了，算了，那个背景的渐变，就去掉吧……就像那个 ai 聊天框的上面，它不是有个绿色嘛，那个也去掉啊，就是**白色的默认色**」）：① 页面顶那条「深绿→白」渐变（连起色 token `PageGradientGreen` 一起删了）；② 顶栏的浅绿底（`AppTopBar` 回到读 `background`）。**绿只当主色（身份色），不当底色**——背景与顶栏都是白的。
+
+8. ⛔ **商品块那一层不许挂 `Modifier.weight(1f)`**（2026-10-09 **真机抓到的回归**）：改前这一块套在 `Row(verticalAlignment = Alignment.Top)` 里，`weight(1f)` 是**横向**权重（占满宽度）；甲案把外面那层 `Row` 去掉之后，它成了页面级 `Column(Modifier.padding(16.dp))` 的**直接子节点** —— 在 `ColumnScope` 里 `weight(1f)` 是**纵向**权重，而外层高度是 wrap content ⇒ 这一块拿到 **0 高**，整块商品区**一个像素都不画**（真机现象：`共 16 筐` 照常显示、两个商品名一个都不见）。⚠️ 编译、单测、**所有只看源码文本的判据当时全是绿的**。⇒ 这一层现在**只许有 `verticalArrangement`**；宽度由块内每一行自己的 `.fillMaxWidth()` 出。判据从两头钉着（`_check_green_theme.py` 第 3 节一正一反两条 ＋ 反验第 21 条注入）。
+
+**判据**：`_tools/qa/_check_green_theme.py` ＋ 反向验证 `_tools/qa/_reverse_verify_green_theme.py`。
 
 ### 4.2b 商品卡本身：大图 + **售价在上、库存在售价下面**（2026-09-21，同日第二轮改）
 
@@ -1475,6 +1500,20 @@ val netTotal = netOrderMoneyText(order)                       // 合计同理（
 
 判据 `_tools/qa/_check_ai_answer_style.py` ＋ 反向验证 `_tools/qa/_reverse_verify_ai_answer_style.py`（判定表被摘掉一档 / 两条上限改大 / 「无异常」那条被删 / 开关不再往下传 / 渲染器默认关掉上色 / 用户气泡那行被写死成 true / 认不出来的键不再原样返回 / 换标签挪到兜底之前 / 提示词两处口径被删 / 单测里那条反例被换掉 / 判据清单指向不存在的文件 / 反验脚本自己不见了 / 设计规范这段被改成别的名字 —— 逐条注入都要能报红）。
 
+### 4.25b AI 回答的**信息排版**：按**内容形状**自己选 ＋ 渲染层兜底（2026-10-09 用户点名，CHG-0092）
+
+用户原话（`m35395`）：AI 的回答「**最好都要用表格的样式**」；「上面有文字下面有信息混在一起就很难分辨出来，他具体想表达的核心内容是什么」；而且**不要一个场景一条规则地加**（「不要就是他啊就是搞一个我们来搞一个搞一个我们来搞一个，这样子太麻烦了」），要**直接让 AI 自主判断**用什么样式；「其实基本上只要涉及到信息的基本上他都要想啊想办法比如说像表格呀或者是其他的样式把信息给表达出来」。紧接着一句（`m35399`）：「所以说我们可以**内置对应的 skills 和工作流**」。
+
+**病根**：4.25 那条规则写的是「条目**超过 3 项**才用表格 / 每项一行」—— 用户截图那条只有 3 个字段 ＋ 一句追问，正好落在规则之外，于是字段跟问题糊在同一段。另一半在渲染器：`MdTable` 开头是 `if (table.header.isEmpty()) return`，**无表头的表整块不画**。
+
+**落法（两层，判据守接缝）**：
+- **提示词侧：技能表，不是场景表** —— `ai/AiAnswerSkills.kt`（编号 **12**，`AiAnswerSkills.RULES`，由 `ai/AiAgentLoop.kt` 的 `systemPrompt` 在 `AiAnswerStyle.RULES` 之后 `append`）按**内容形状**给 6 条：一个对象的一组字段 → **两列表**「标签 | 值」（⛔ 不写成「• 标签：值」散行）；多条同类记录 → 多列表（≤4 列）；一条结论 ＋ 依据 → 结论先行；有先后的步骤 → 编号列表；**要用户回答的问题 → 单独一行、放在最后**（⛔ 不塞进字段行）；一句话能说完的 → ⛔ 不硬凑表。并写明「第 9 条那个『超过 3 项』是**下限不是门槛**：只要有 ≥2 行同类信息就该排开」。⛔ 不按业务场景套模板（那就是「一个一个加规则」，用户明确否掉）。
+- **渲染层兜底：形状识别只有一份** —— `ai/AiAnswerShape.kt`：连续「标签：值」行（≥ `MIN_ROWS = 2`、值 ≤ `MAX_VALUE_WIDTH = 24` 显示宽度、不带句读）自动并成 `AiMarkdown.Block.Table(header = emptyList())`；只吸 `Kind.TEXT` / `Kind.BULLET`（标题、编号列表、模型自己写的表原样不动）。**冒号切分复用确认卡那一份** `ai/AiCardTable.kt` 的 `internal fun asPair`（⛔ 不许第二份 —— 两处判定迟早分叉）。
+- **顺序**：`AiMarkdown.parse` → `AiAnswerShape.apply` → `AiAnswerTone.apply`（先补形状再上色：染色名额别花在马上要变成表格的行上）；只在助手气泡（`toned`）跑。
+- **渲染器认得无表头的表**：`ui/ai/AiRichText.kt` 的 `MdTable` 改成 `hasHeader` 判定 ＋ 列数取 `table.body.maxOf { it.size }`，无表头时第一列当标签列（`onSurfaceVariant`）。
+
+判据 `_tools/qa/_check_ai_answer_style.py`（第 12 节）＋ 反向验证 `_tools/qa/_reverse_verify_ai_answer_style.py`（技能没拼进 system prompt / 「单独一行、放在最后」被删 / 兜底自写一份冒号切分 / 只吸文本与无序条目那条被删 / 渲染器改回 `if (table.header.isEmpty()) return` / 值上限被放宽到 2400 / 先上色再补形状 —— 逐条注入都要能报红）。
+
 ### 4.26 照片上的水印：**当场拍的两行、事后补的三行**（2026-10-06 用户点名，台账 L-22）
 
 用户原话：「如果有些信息是**补上去的照片**的话，会有一些水印……那个水印就是会显示时间，然后这个照片是**被人补过的**，就是说是补过的照片就可以了。」
@@ -1721,7 +1760,7 @@ val netTotal = netOrderMoneyText(order)                       // 合计同理（
 ## 6. 主题
 
 `ui/theme/`：Color.kt（上表）＋ Theme.kt（Light/Dark，亮色为主）＋ Type.kt
-- 品牌种子蓝 SeedBlue=#1E6FFF（明快物流蓝，参考日式街头招牌：饱和/明亮/高对比）
+- 品牌种子绿 ThemeGreen=#00A870（低饱和深绿 —— 用户 2026-10-09 定稿「就选深绿色吧……因为太亮了不好，因为我们的核心要求是低饱和」）；旧名 `SeedBlue=#1E6FFF`（明快物流蓝）**只在暗色主题里还留着**，亮色一律走绿
 - 图片/图标白线样式统一用 `Material Icons (filled)` —— 依赖 `material-icons-extended`
 
 ### 6.1 外观模式（白天 / 夜间 / 随日落自动）

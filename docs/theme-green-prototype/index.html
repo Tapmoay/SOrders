@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>SOrders 绿色主题 + 订单卡商品行 · 网页样本（CHG-0088）</title>
+<style>
+  /* ─────────────────────────────────────────────────────────────
+     这份样本用到的**每一个颜色**都标了它在 App 里的身份色名字
+     （NavBlue / MgrGreen / ProductPurple …），方便对着 06_DESIGN_SYSTEM.md §2 核。
+     ⛔ 这里只是看的样张，不是代码；真正落地时色值只许改 ui/theme/Color.kt 一处。
+
+     手机壳照**小米（HyperOS）**的样子做：居中挖孔、状态栏（时间在左、
+     信号/WiFi/电量在右）、底部手势条、屏幕四角大圆角、边框有金属高光与投影
+     （不是扁平框）。视口按 380 × 796 排，内容与真机 411dp 等比缩到 0.925。
+     ───────────────────────────────────────────────────────────── */
+  :root{
+    /* —— 老口径（现在的线上） —— */
+    --nav-blue:#1E6FFF;          /* NavBlue：派单作业 / 主操作 / 信息 / 顶栏条 / 数量 */
+    --primary-container:#D9E8FF; /* PrimaryContainer：登录页那个圆底 */
+    --on-primary-container:#0A3168;
+    --bg-light:#F8F7F4;          /* BackgroundLight：暖白页面底 */
+    --surface-variant:#F1EEE9;
+    --card:#FFFFFF;
+    --mgr-green:#00B578;         /* MgrGreen：代理下单 / 已完成 / 成功 */
+    --product-purple:#8455E6;    /* ProductPurple：商品名 + 数量 */
+    --money-orange:#FF9500;      /* MoneyOrange：钱 */
+    --progress-yellow:#FFB300;   /* ProgressYellow：派单中 */
+    --shipper-teal:#00A2C7;
+    --message-red:#FF4D4F;
+    --outline-variant:#CFD4E0;
+    --text:#17181C;
+    --text-sub:#3B404A;
+    --text-dim:#8A8A8E;
+
+    /* —— 新口径（候选） —— */
+    --theme-green:#00A870;       /* 候选主色：替 NavBlue 的位置 */
+    --theme-green-deep:#0E7A50;  /* 深一档：顶栏条 / 渐变起点 / 深色块 */
+    --theme-green-tint:#E6F7EE;  /* 极浅绿：胶囊行底 / 选中底 */
+    --theme-green-tint2:#F2FBF6;
+    --s:0.925;                   /* 真机 411dp → 样本 380px 的缩放 */
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;background:#E7EAEE;color:var(--text);
+    font-family:"Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif;
+    font-size:13px;line-height:1.6;
+  }
+  .wrap{max-width:1200px;margin:0 auto;padding:22px 18px 90px;}
+  h1{font-size:20px;margin:0 0 6px;}
+  h2{font-size:15px;margin:34px 0 10px;padding-left:9px;border-left:4px solid var(--theme-green);}
+  h3{font-size:13.5px;margin:20px 0 8px;color:#333;}
+  .lead{color:#555;margin:0 0 4px;}
+  .note{color:#666;font-size:12px;margin:6px 0 0;}
+  .warn{color:#B23A00;}
+  code{background:#F2F3F5;border-radius:3px;padding:1px 4px;font-family:Consolas,monospace;font-size:12px;}
+
+  /* ══════════ 小米手机壳（HyperOS）══════════ */
+  .phones{display:flex;gap:30px;flex-wrap:wrap;align-items:flex-start;}
+  .unit{width:calc(380px + 22px);}
+  .device{
+    width:calc(380px + 22px);
+    border-radius:26.5%;
+    padding:11px;
+    background:
+      linear-gradient(152deg,#8E939A 0%,#D6DAE0 12%,#6E747C 27%,#A9AEB5 46%,#6A7077 64%,#C6CAD0 82%,#7A8087 100%);
+    box-shadow:
+      0 22px 44px -10px rgba(12,18,28,.42),
+      0 6px 14px rgba(12,18,28,.22),
+      0 1px 0 rgba(255,255,255,.55) inset;
+    position:relative;
+  }
+  .screen{
+    position:relative;width:380px;height:796px;border-radius:12.64%;
+    overflow:hidden;background:var(--bg-light);
+    box-shadow:
+      0 0 0 2px #16181B,
+      0 0 0 4px #2A2D33,
+      0 2px 12px rgba(0,0,0,.5) inset;
+  }
+  .screen.green{background:#FFFFFF;}
+  /* 居中挖孔 */
+  .punch{
+    position:absolute;left:50%;transform:translateX(-50%);top:9px;
+    width:13px;height:13px;border-radius:50%;
+    background:radial-gradient(circle at 38% 34%,#3A4150 0%,#101318 62%,#000 100%);
+    box-shadow:0 0 0 1.5px rgba(255,255,255,.10), 0 1px 3px rgba(0,0,0,.6);
+    z-index:30;
+  }
+  /* 状态栏 */
+  .status{
+    position:relative;height:34px;display:flex;align-items:center;justify-content:space-between;
+    padding:0 18px;font-size:12.5px;font-weight:600;z-index:20;
+  }
+  .status .r{display:flex;align-items:center;gap:6px;font-size:12px;}
+  .batt{display:flex;align-items:center;gap:2px;}
+  .batt i{display:block;width:20px;height:10px;border-radius:3px;border:1.4px solid currentColor;position:relative;}
+  .batt i::after{content:"";position:absolute;left:1.6px;top:1.6px;bottom:1.6px;width:12px;background:currentColor;border-radius:1.5px;}
+  .batt u{display:block;width:1.6px;height:4.5px;border-radius:0 1px 1px 0;background:currentColor;opacity:.75;}
+  .on-dark{color:#fff;}
+  .on-light{color:#1A1C1F;}
+
+  /* App 内容区（缩放到 380 视图） */
+  .app{position:relative;height:calc(796px - 34px - 22px);overflow:hidden;}
+  .app.scroll{overflow:hidden;}
+
+  /* 顶栏（HyperOS 风：胶囊圆角条、有高光与投影） */
+  .topbar{
+    height:44px;display:flex;align-items:center;justify-content:center;gap:6px;
+    font-size:13.5px;font-weight:600;position:relative;
+  }
+  .topbar.blue{background:linear-gradient(180deg,#3D82FF 0%,#1E6FFF 62%,#1A63E6 100%);color:#fff;
+               box-shadow:0 2px 8px rgba(30,111,255,.38);}
+  .topbar.gradl{
+    background:linear-gradient(180deg,#04C375 0%,#02BD6E 62%,#00B166 100%);
+    color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.18);
+  }
+  .topbar .back{position:absolute;left:14px;font-size:15px;opacity:.95;}
+  .topbar .more{position:absolute;right:14px;font-size:14px;opacity:.95;}
+
+  /* 档位条 */
+  .tabs{display:flex;padding:6px 12px 8px;}
+  .tab{flex:1;text-align:center;font-size:11.5px;padding:5px 0;border-radius:9px;color:#6B7280;}
+  .tab.sel{font-weight:700;}
+  .tab.sel.blue{color:var(--nav-blue);background:#E8F2FF;}
+  .tab.sel.green{color:var(--theme-green);background:var(--theme-green-tint);}
+
+  /* 订单卡（真机：圆角 12dp、padding 16dp、阴影 2dp） */
+  .card{
+    background:var(--card);border-radius:calc(12px * var(--s));
+    margin:calc(10px * var(--s)) calc(16px * var(--s));
+    padding:calc(16px * var(--s));
+    box-shadow:0 2px 8px rgba(16,24,40,.12), 0 1px 2px rgba(16,24,40,.06);
+  }
+  .card.tight{margin-top:0;}
+  .row{display:flex;align-items:center;gap:calc(8px * var(--s));}
+  .row+.row{margin-top:calc(8px * var(--s));}
+  .addr{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+        font-size:12.5px;font-weight:500;}
+  .chip{font-size:10.5px;padding:2.5px 8px;border-radius:999px;white-space:nowrap;
+        background:#FFF6E0;color:#B07A00;font-weight:600;}
+  .who{font-size:11px;color:var(--text-sub);}
+  .who b{font-weight:500;}
+  .divider{height:1px;background:var(--surface-variant);margin:calc(10px * var(--s)) 0;}
+
+  .tint-icon{border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;}
+  .ti-blue{background:rgba(30,111,255,.12);color:var(--nav-blue);}
+  .ti-green{background:rgba(0,168,112,.13);color:var(--theme-green);}
+  .ti-teal{background:rgba(0,162,199,.12);color:var(--shipper-teal);}
+  .ti-purple{background:rgba(132,85,230,.12);color:var(--product-purple);}
+
+  /* ══ 商品行：老样式 ══ */
+  .item-old{display:flex;align-items:center;gap:calc(8px * var(--s));}
+  .item-old .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+                  font-size:13.5px;color:var(--text);}
+  .item-old .qty{font-size:13.5px;font-weight:700;color:var(--product-purple);white-space:nowrap;}
+  .item-gap{height:calc(9px * var(--s));}
+
+  .sum{display:flex;align-items:baseline;margin-top:calc(10px * var(--s));}
+  .sum .left{flex:1;min-width:0;display:flex;align-items:baseline;gap:2px;white-space:nowrap;overflow:hidden;}
+  .sum .cnt{flex:0 0 auto;font-size:15.5px;font-weight:700;color:var(--product-purple);}
+  .sum .unit{font-size:10.5px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;}
+  .sum .money{flex:0 0 auto;margin-left:6px;font-size:13.5px;font-weight:700;color:var(--money-orange);}
+
+  /* ══ 商品行：新样式（甲案 · 浅绿胶囊行 + 深绿数量块） ══ */
+  .item-new{background:var(--theme-green-tint);border-radius:calc(12px * var(--s));
+            padding:calc(8px * var(--s)) calc(10px * var(--s));
+            display:flex;align-items:center;gap:calc(9px * var(--s));}
+  .item-new+.item-new{margin-top:calc(7px * var(--s));}
+  .item-new .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+                  font-size:13.5px;font-weight:600;}
+  .qty-block{background:var(--theme-green-deep);color:#fff;border-radius:calc(9px * var(--s));
+             padding:calc(4px * var(--s)) calc(11px * var(--s));
+             font-size:13px;font-weight:700;white-space:nowrap;
+             box-shadow:0 1px 3px rgba(14,122,80,.35);}
+  .qty-block .u{font-size:10.5px;font-weight:500;opacity:.92;margin-left:2px;}
+
+  /* ══ 商品行：乙案（白卡胶囊 + 深绿数量块） ══ */
+  .item-new-b{background:#fff;border:1px solid #E3E8EF;border-radius:calc(12px * var(--s));
+              padding:calc(8px * var(--s)) calc(10px * var(--s));
+              display:flex;align-items:center;gap:calc(9px * var(--s));
+              box-shadow:0 1px 3px rgba(16,24,40,.07);}
+  .item-new-b+.item-new-b{margin-top:calc(7px * var(--s));}
+  .item-new-b .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+                    font-size:13.5px;font-weight:600;}
+
+  /* ══ 商品行：丙案（浅绿行 + 深绿数量字） ══ */
+  .item-new-c{background:var(--theme-green-tint);border-radius:calc(12px * var(--s));
+              padding:calc(8px * var(--s)) calc(10px * var(--s));
+              display:flex;align-items:center;gap:calc(9px * var(--s));}
+  .item-new-c+.item-new-c{margin-top:calc(7px * var(--s));}
+  .item-new-c .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+                    font-size:13.5px;font-weight:600;}
+  .item-new-c .qty{font-size:13.5px;font-weight:700;color:var(--theme-green-deep);white-space:nowrap;}
+
+  /* 动作行 + 最底下那颗主行动 */
+  .actions{display:flex;align-items:center;margin-top:calc(6px * var(--s));}
+  .actions .sp{flex:1;}
+  .act{display:flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;padding:4px 6px;}
+  .act.red{color:var(--message-red);}
+  .act.green{color:var(--theme-green-deep);}
+  .act.blue{color:var(--nav-blue);}
+  .big-btn{margin-top:calc(12px * var(--s));height:calc(52px * var(--s));border-radius:calc(10px * var(--s));
+           display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:600;
+           background:linear-gradient(180deg,#0EBE80 0%,#00A870 100%);
+           box-shadow:0 3px 10px rgba(0,168,112,.34);}
+
+  /* ══════════════ 带内容的页面（工作台等）：底 = 冷浅灰，卡 = 纯白 ══════════════ */
+  .app.gray{background:#F7F7F7;}
+  .topbar.brand{position:relative;align-items:center;justify-content:flex-start;gap:9px;
+                padding:0 15px;background:linear-gradient(180deg,#04C375 0%,#02BD6E 58%,#00B166 100%);
+                box-shadow:inset 0 -1px 0 rgba(255,255,255,.16);}
+  .brand-badge{font-size:10px;font-weight:700;color:#02BD6E;background:#fff;border-radius:5px;padding:3px 6px;line-height:1;}
+  .brand-name{font-size:15px;font-weight:700;color:#fff;letter-spacing:.4px;}
+  .brand-cap{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:11px;color:#fff;
+             border:1.4px solid rgba(255,255,255,.85);border-radius:999px;padding:4px 11px;}
+
+  /* 卡（工作台那种：白底 + 极淡投影 + 大方角） */
+  .wcard{background:#fff;border-radius:14px;padding:calc(14px * var(--s)) calc(13px * var(--s));
+         margin:12px 11px 0;box-shadow:0 1px 4px rgba(16,24,40,.07);}
+  .wcard-h{display:flex;align-items:center;gap:5px;}
+  .wcard-h .t{font-size:14px;font-weight:700;}
+  .wcard-h .qm{font-size:10.5px;color:#B9BEC6;border:1.2px solid #DDE1E6;border-radius:50%;
+               width:13px;height:13px;display:flex;align-items:center;justify-content:center;line-height:1;}
+  .wcard-h .custom{margin-left:auto;font-size:11px;color:#8A9099;display:flex;align-items:center;gap:3px;}
+  .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:calc(9px * var(--s));margin-top:calc(11px * var(--s));}
+  .stat{background:#F7F8FA;border-radius:10px;padding:calc(10px * var(--s)) calc(11px * var(--s));}
+  .stat .k{font-size:11px;color:#8A9099;}
+  .stat .v{font-size:19px;font-weight:700;margin-top:3px;letter-spacing:-.3px;}
+  .stat .c{font-size:10px;color:#A9AEB6;margin-top:3px;}
+  .stat .c+.c{margin-top:1px;}
+  .stat-foot{display:flex;align-items:center;justify-content:space-between;margin-top:calc(12px * var(--s));}
+  .stat-foot .l{font-size:12.5px;font-weight:600;}
+  .pill-custom{display:flex;align-items:center;gap:4px;font-size:11px;color:#8A9099;background:#F2F3F5;
+               border-radius:999px;padding:5px 11px;}
+  .rep-grid{display:grid;grid-template-columns:1fr 1fr;gap:calc(11px * var(--s));margin-top:calc(12px * var(--s));}
+  .rep{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;min-width:0;}
+  .rep .ic{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+           font-size:13px;flex:0 0 26px;}
+  .rep span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+  /* 底部导航条（真机上一直有，样本里给工作台配一条） */
+  .bottomnav{position:absolute;left:0;right:0;bottom:0;height:56px;background:#fff;
+             border-top:1px solid #F0F1F3;display:flex;align-items:center;justify-content:space-around;
+             padding-bottom:5px;z-index:20;}
+  .bottomnav .nv{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:9.5px;color:#9AA0A6;}
+  .bottomnav .nv .i{font-size:17px;line-height:1;}
+  .bottomnav .nv.on{color:var(--theme-green);font-weight:700;}
+
+  /* 手势条 */
+  .gesture{position:absolute;left:50%;transform:translateX(-50%);bottom:7px;
+           width:118px;height:4px;border-radius:99px;background:rgba(0,0,0,.34);z-index:25;}
+  .gesture.dark{background:rgba(0,0,0,.42);}
+  /* Home 屏那排图标（只为让「手机感」出来） */
+  .dock{position:absolute;left:16px;right:16px;bottom:24px;display:flex;justify-content:space-between;}
+  .dock div{width:44px;height:44px;border-radius:13px;background:rgba(255,255,255,.86);
+            box-shadow:0 2px 6px rgba(16,24,40,.16);display:flex;align-items:center;justify-content:center;font-size:19px;}
+
+  .phone-cap{font-size:12px;color:#555;margin:10px 0 0;text-align:center;}
+  .phone-cap b{color:#111;}
+
+  /* 色卡 */
+  .swatches{display:flex;gap:14px;flex-wrap:wrap;}
+  .sw{width:126px;text-align:center;}
+  .sw .box{height:62px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+           color:#fff;font-weight:700;font-size:15px;box-shadow:0 3px 10px rgba(16,24,40,.18);}
+  .sw .cap{font-size:11px;color:#555;margin-top:6px;line-height:1.45;}
+  .sw .cap b{display:block;color:#111;font-size:11.5px;}
+
+  table{border-collapse:collapse;width:100%;font-size:12.5px;background:#fff;border-radius:8px;overflow:hidden;}
+  th,td{border:1px solid #E1E4E8;padding:6px 9px;text-align:left;vertical-align:top;}
+  th{background:#F6F7F9;font-weight:700;}
+  td.num{font-family:Consolas,monospace;white-space:nowrap;}
+
+  .layers{display:flex;border-radius:8px;overflow:hidden;border:1px solid #DCDFE4;}
+  .layers div{flex:1;text-align:center;font-size:11px;padding:9px 3px;color:#444;}
+
+  /* 图一那套胶囊行（对照用） */
+  .pill-row{background:#F0F1F3;border-radius:12px;padding:11px 12px;display:flex;align-items:center;gap:9px;margin-bottom:8px;}
+  .pill-row .lab{font-size:14px;font-weight:500;color:#222;}
+  .pill-row .val{flex:1;text-align:right;font-size:13.5px;color:#8A8F98;}
+  .pill-row .val.on{color:#4A4F57;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>SOrders · 绿色主题 ＋ 订单卡商品行 —— 网页样本</h1>
+  <p class="lead">事项 <code>CHG-0088</code>（草案）· 依据你 2026-10-09 的语音（ref <b>m01501</b>）＋ 两张参考图。<b>手机壳照小米（HyperOS）的样子做</b>：居中挖孔、状态栏、底部手势条、屏幕大圆角 ＋ 边框金属高光与投影。</p>
+  <p class="note">地址：<code>D:\AProjects\ASDH\orders\docs\theme-green-prototype\index.html</code>（双击就能用浏览器打开；下面每一张也是同一份文件里的图）</p>
+
+  <!-- ══════════════ 1 ══════════════ -->
+  <h2>1 · 你说的四件事，我理解的（先对口径）</h2>
+  <table>
+    <tr><th style="width:24px">#</th><th style="width:220px">你的原话</th><th>我要做的</th></tr>
+    <tr><td>①</td><td>「订单卡片的<b>商品的样式</b>，以图一的那个样式……包括订单详情进去也是这个样式」</td>
+        <td>订单卡里的<b>商品行</b>改成图一那种<b>圆角胶囊块</b>（左：圆底图标 ＋ 品名；右：数量）；多个商品＝多块。<b>订单详情页的商品明细也一起换。</b></td></tr>
+    <tr><td>②</td><td>「底部有个颜色比较深的……<b>让这个信息比较重要，能一眼看得出来</b>」</td>
+        <td>数量那一格做成<b>深绿圆角块 ＋ 白字</b>。<b>第 3 节给了三种摆法，请你挑一个。</b></td></tr>
+    <tr><td>③</td><td>「整体的颜色……<b>从蓝色变成绿色</b>，像微信那样子」＋「工作台上面那个蓝色的条改成<b>浅绿</b>」＋「自己发出来的信息（气泡）也要改成绿色」</td>
+        <td>全 App 的<b>身份蓝</b>换成一档绿（约 80 处）；顶栏那条 ＋ 界面图标底改绿；聊天里自己那侧气泡改绿。⚠️ 你给的掌中宝那张里顶栏是<b>亮绿</b>而不是浅绿 —— 见第 5 节新增的第 4 个候选。</td></tr>
+    <tr><td>④</td><td>「背景加一个<b>由深绿往下到白色</b>……大概到中间或 <b>1/3 的位置就全白了</b>」</td>
+        <td>页面顶上一段深绿→白渐变，<b>到 1/3 处正好全白</b>，下面三分之二纯白。</td></tr>
+  </table>
+
+  <!-- ══════════════ 2 ══════════════ -->
+  <h2>2 · 商品行：现在长这样 → 改成什么样</h2>
+
+  <div class="phones">
+
+    <!-- 现在 -->
+    <div class="unit">
+      <div class="device"><div class="screen">
+        <div class="punch"></div>
+        <div class="status on-dark">
+          <span>08:24</span>
+          <span class="r"><span>▮▮▮</span><span>📶</span><span>WiFi</span><span class="batt"><i></i><u></u></span><span>78</span></span>
+        </div>
+        <div class="app">
+          <div class="topbar blue"><span class="back">‹</span>订单管理<span class="more">⋮</span></div>
+          <div class="tabs">
+            <div class="tab sel blue">全部</div><div class="tab">派单中</div><div class="tab">已接单</div>
+            <div class="tab">已送达</div><div class="tab">已撤销</div>
+          </div>
+          <div class="card tight">
+            <div class="row">
+              <span class="tint-icon ti-blue" style="width:28px;height:28px;font-size:14px">📍</span>
+              <span class="addr">CHG-0077 HTTP 实测地址</span>
+              <span class="chip">🕘 派单中</span>
+            </div>
+            <div class="row">
+              <span class="tint-icon ti-teal" style="width:24px;height:24px;font-size:12px">👤</span>
+              <span class="who">收货人：<b>洪惠珍</b>（13700000077）</span>
+            </div>
+            <div class="row">
+              <span class="tint-icon ti-teal" style="width:24px;height:24px;font-size:12px">👤</span>
+              <span class="who">下单人：<b>顺发农副产品店</b>（13507920315）</span>
+            </div>
+            <div class="divider"></div>
+            <div class="item-old">
+              <span class="tint-icon ti-purple" style="width:28px;height:28px;font-size:14px">📦</span>
+              <span class="name">丝苗米</span>
+              <span class="qty">×1 件</span>
+            </div>
+            <div class="sum">
+              <span class="left"><span class="cnt">共 1</span><span class="unit">件 · 10-08 16:03</span></span>
+              <span class="money">¥11</span>
+            </div>
+            <div class="actions">
+              <span class="act red">↩ 撤销</span><span class="sp"></span><span class="act blue">＋ 派单</span>
+            </div>
+          </div>
+        </div>
+        <div class="gesture"></div>
+      </div></div>
+      <p class="phone-cap"><b>现在</b>：紫底图标 ＋ 紫字品名 ＋ 右边紫字数量</p>
+    </div>
+
+    <!-- 甲案 -->
+    <div class="unit">
+      <div class="device"><div class="screen green">
+        <div class="punch"></div>
+        <div class="status on-dark">
+          <span>08:24</span>
+          <span class="r"><span>▮▮▮</span><span>📶</span><span>WiFi</span><span class="batt"><i></i><u></u></span><span>78</span></span>
+        </div>
+        <div class="app">
+          <div class="topbar gradl"><span class="back">‹</span>订单管理<span class="more">⋮</span></div>
+          <div class="tabs">
+            <div class="tab sel green">全部</div><div class="tab">派单中</div><div class="tab">已接单</div>
+            <div class="tab">已送达</div><div class="tab">已撤销</div>
+          </div>
+          <div class="card tight">
+            <div class="row">
+              <span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📍</span>
+              <span class="addr">CHG-0077 HTTP 实测地址</span>
+              <span class="chip">🕘 派单中</span>
+            </div>
+            <div class="row">
+              <span class="tint-icon ti-green" style="width:24px;height:24px;font-size:12px">👤</span>
+              <span class="who">收货人：<b>洪惠珍</b>（13700000077）</span>
+            </div>
+            <div class="row">
+              <span class="tint-icon ti-green" style="width:24px;height:24px;font-size:12px">👤</span>
+              <span class="who">下单人：<b>顺发农副产品店</b>（13507920315）</span>
+            </div>
+            <div class="divider"></div>
+            <div class="item-new">
+              <span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📦</span>
+              <span class="name">丝苗米</span>
+              <span class="qty-block">×1<span class="u">件</span></span>
+            </div>
+            <div class="sum">
+              <span class="left"><span class="cnt">共 1</span><span class="unit">件 · 10-08 16:03</span></span>
+              <span class="money">¥11</span>
+            </div>
+            <div class="actions">
+              <span class="act red">↩ 撤销</span><span class="sp"></span><span class="act green">＋ 派单</span>
+            </div>
+          </div>
+        </div>
+        <div class="gesture dark"></div>
+      </div></div>
+      <p class="phone-cap"><b>甲案</b>：浅绿胶囊行 ＋ 数量＝<b>深绿块白字</b>（最贴图一的轻重关系）</p>
+    </div>
+
+    <!-- 甲案 多商品 -->
+    <div class="unit">
+      <div class="device"><div class="screen green">
+        <div class="punch"></div>
+        <div class="status on-dark">
+          <span>08:24</span>
+          <span class="r"><span>▮▮▮</span><span>📶</span><span>WiFi</span><span class="batt"><i></i><u></u></span><span>78</span></span>
+        </div>
+        <div class="app">
+          <div class="topbar gradl"><span class="back">‹</span>订单管理<span class="more">⋮</span></div>
+          <div class="tabs">
+            <div class="tab sel green">全部</div><div class="tab">派单中</div><div class="tab">已接单</div>
+            <div class="tab">已送达</div><div class="tab">已撤销</div>
+          </div>
+          <div class="card tight">
+            <div class="row">
+              <span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📍</span>
+              <span class="addr">四会仓 → 佛山南海</span>
+              <span class="chip">🕘 派单中</span>
+            </div>
+            <div class="row">
+              <span class="tint-icon ti-green" style="width:24px;height:24px;font-size:12px">👤</span>
+              <span class="who">收货人：<b>洪惠珍</b>（13700000077）</span>
+            </div>
+            <div class="row">
+              <span class="tint-icon ti-green" style="width:24px;height:24px;font-size:12px">👤</span>
+              <span class="who">下单人：<b>顺发农副产品店</b>（13507920315）</span>
+            </div>
+            <div class="divider"></div>
+            <div class="item-new">
+              <span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📦</span>
+              <span class="name">红富士苹果</span>
+              <span class="qty-block">×10<span class="u">筐</span></span>
+            </div>
+            <div class="item-new">
+              <span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📦</span>
+              <span class="name">四会砂糖橘</span>
+              <span class="qty-block">×6<span class="u">筐</span></span>
+            </div>
+            <div class="sum">
+              <span class="left"><span class="cnt">共 16</span><span class="unit">筐 · 10-08 16:03</span></span>
+              <span class="money">¥1,240</span>
+            </div>
+            <div class="actions">
+              <span class="act red">↩ 撤销</span><span class="sp"></span><span class="act green">＋ 派单</span>
+            </div>
+          </div>
+        </div>
+        <div class="gesture dark"></div>
+      </div></div>
+      <p class="phone-cap"><b>甲案 · 两个商品</b>：一块一行，不再用虚线分隔</p>
+    </div>
+  </div>
+
+  <!-- ══════════════ 3 ══════════════ -->
+  <h2>3 · 「颜色比较深的那一块」三种摆法 —— 请挑一个</h2>
+  <p class="note">同一份数据（两筐货、派单中），只有商品行那一块不同。左边是订单卡在手机里的样子。</p>
+  <div class="phones" style="margin-top:12px">
+    <div class="unit">
+      <div class="device"><div class="screen green">
+        <div class="punch"></div>
+        <div class="status on-dark"><span>08:24</span>
+          <span class="r"><span>▮▮▮</span><span>📶</span><span>WiFi</span><span class="batt"><i></i><u></u></span><span>78</span></span></div>
+        <div class="app">
+          <div class="topbar gradl">订单管理</div>
+          <div class="card tight">
+            <div class="item-new">
+              <span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📦</span>
+              <span class="name">红富士苹果</span><span class="qty-block">×10<span class="u">筐</span></span>
+            </div>
+            <div class="item-new">
+              <span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📦</span>
+              <span class="name">四会砂糖橘</span><span class="qty-block">×6<span class="u">筐</span></span>
+            </div>
+            <div class="sum"><span class="left"><span class="cnt">共 16</span><span class="unit">筐 · 10-08 16:03</span></span><span class="money">¥1,240</span></div>
+          </div>
+        </div>
+        <div class="gesture dark"></div>
+      </div></div>
+      <p class="phone-cap"><b>甲案 · 浅绿行 ＋ 深绿数量块</b><br>深浅层次最清楚（推荐）</p>
+    </div>
+
+    <div class="unit">
+      <div class="device"><div class="screen green">
+        <div class="punch"></div>
+        <div class="status on-dark"><span>08:24</span>
+          <span class="r"><span>▮▮▮</span><span>📶</span><span>WiFi</span><span class="batt"><i></i><u></u></span><span>78</span></span></div>
+        <div class="app">
+          <div class="topbar gradl">订单管理</div>
+          <div class="card tight" style="background:#F7F8FA">
+            <div class="item-new-b">
+              <span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📦</span>
+              <span class="name">红富士苹果</span><span class="qty-block">×10<span class="u">筐</span></span>
+            </div>
+            <div class="item-new-b">
+              <span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📦</span>
+              <span class="name">四会砂糖橘</span><span class="qty-block">×6<span class="u">筐</span></span>
+            </div>
+            <div class="sum"><span class="left"><span class="cnt">共 16</span><span class="unit">筐 · 10-08 16:03</span></span><span class="money">¥1,240</span></div>
+          </div>
+        </div>
+        <div class="gesture dark"></div>
+      </div></div>
+      <p class="phone-cap"><b>乙案 · 白卡描边胶囊 ＋ 深绿数量块</b><br>最接近你图一的底（图一就是浅灰白底）</p>
+    </div>
+
+    <div class="unit">
+      <div class="device"><div class="screen green">
+        <div class="punch"></div>
+        <div class="status on-dark"><span>08:24</span>
+          <span class="r"><span>▮▮▮</span><span>📶</span><span>WiFi</span><span class="batt"><i></i><u></u></span><span>78</span></span></div>
+        <div class="app">
+          <div class="topbar gradl">订单管理</div>
+          <div class="card tight">
+            <div class="item-new-c">
+              <span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📦</span>
+              <span class="name">红富士苹果</span><span class="qty">×10 筐</span>
+            </div>
+            <div class="item-new-c">
+              <span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📦</span>
+              <span class="name">四会砂糖橘</span><span class="qty">×6 筐</span>
+            </div>
+            <div class="sum"><span class="left"><span class="cnt">共 16</span><span class="unit">筐 · 10-08 16:03</span></span><span class="money">¥1,240</span></div>
+          </div>
+        </div>
+        <div class="gesture dark"></div>
+      </div></div>
+      <p class="phone-cap"><b>丙案 · 浅绿行 ＋ 深绿数量字</b><br>最保守（只换底色与字色，不加色块）</p>
+    </div>
+  </div>
+  <p class="note warn">⚠️ 技术前提：现在数量那一串是<b>紫色</b>（<code>ProductPurple</code>，规范 §4「商品名＝紫」）。绿主题之后紫与绿会在同一屏上抢眼 —— 上面三张我都把品名改成<b>深色字</b>、把绿留给「数量」这一个重点。<b>要保留商品的紫，说一声我另出一版。</b></p>
+
+  <!-- ══════════════ 4 ══════════════ -->
+  <h2>4 · 你给的图一（称呼/电话/备注/分类）—— 我照它取的是什么</h2>
+  <div class="phones">
+    <div style="width:340px">
+      <div class="pill-row"><span class="tint-icon ti-blue" style="width:26px;height:26px;font-size:13px">👤</span>
+        <span class="lab">称呼</span><span class="val">选填，如「张老板」</span></div>
+      <div class="pill-row"><span class="tint-icon ti-green" style="width:26px;height:26px;font-size:13px">📞</span>
+        <span class="lab">电话</span><span class="val">请输入手机号</span></div>
+      <div class="pill-row"><span class="tint-icon" style="width:26px;height:26px;font-size:13px;background:rgba(120,120,130,.14);color:#6B6B70">☰</span>
+        <span class="lab">备注</span><span class="val">选填</span></div>
+      <div class="pill-row" style="margin-bottom:0"><span class="tint-icon ti-teal" style="width:26px;height:26px;font-size:13px">🏷</span>
+        <span class="lab">分类</span><span class="val on">未分类 ›</span></div>
+    </div>
+    <div style="flex:1;min-width:320px">
+      <table>
+        <tr><th style="width:130px">图一里的做法</th><th>我搬到订单卡商品行</th></tr>
+        <tr><td>一行一块<b>圆角胶囊</b></td><td>一个商品一块圆角胶囊（多商品＝多块）</td></tr>
+        <tr><td>左边<b>圆底 tint 图标</b></td><td>商品图标也换成绿 tint 圆底（现在是紫方块）</td></tr>
+        <tr><td>名称正常字重</td><td>品名 600 字重（比正文重一档，扫一眼能认出）</td></tr>
+        <tr><td>右端是<b>值</b>（灰）</td><td>右端是<b>数量</b> —— 订单卡上真正要看的信息，所以给它最深那一档</td></tr>
+        <tr><td>整块底色比页面底浅</td><td>整块用极浅绿 <code>#E6F7EE</code>，与白卡分得开</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════ 5 ══════════════ -->
+  <h2>5 · 主色：蓝 → 绿，四个候选（我推荐 ✱ 第一个）</h2>
+  <p class="note">约束来自仓库规范 §2「模块语义色 15 色全部互异」，单测 <code>ModulesEntryTest</code> 会当场算两个色的 <b>RGB 欧氏距离 ≥ 60</b>。现有的绿已有四个（<code>MgrGreen #00B578</code>、<code>Success #00A56E</code>、<code>QuickPriceGreen #5B9E74</code>、<code>SuccessDark</code>），新主色必须离它们足够远。</p>
+  <div class="swatches" style="margin-top:12px">
+    <div class="sw"><div class="box" style="background:#00A870">✱ #00A870</div>
+      <div class="cap"><b>深绿（推荐）</b>与 MgrGreen 距离 <b>70</b>、Success <b>66</b>，都过 60 线；白字对比度 2.9:1</div></div>
+    <div class="sw"><div class="box" style="background:#02BD6E">#02BD6E</div>
+      <div class="cap"><b>掌中宝那个亮绿</b>（我从你第二张图里量的）：距离 MgrGreen <b>71</b>、Success <b>85</b>，也过线；白字只有 2.4:1</div></div>
+    <div class="sw"><div class="box" style="background:#07C160">#07C160</div>
+      <div class="cap"><b>微信绿</b>最像微信，但与 MgrGreen 只差 <b>64</b>、与成功色 60 —— 贴线过</div></div>
+    <div class="sw"><div class="box" style="background:#2E9E5B">#2E9E5B</div>
+      <div class="cap"><b>压暗一点</b>与几个绿都拉开（≥72），但偏「墨绿」</div></div>
+  </div>
+  <p class="note">我从你给的掌中宝第二张图上量的：<b>店招那条绿 = <code>#02BD6E</code></b>、白卡 <code>#FFFFFF</code>、卡内统计格 <code>#F7F8FA</code>、页面底 <code>#F7F7F7</code>（它不用暖白，是冷浅灰）。四个候选都能做，差别只在「离已有的绿够不够远」和「够不够像微信／像你给的那张」。</p>
+
+  <!-- ══════════════ 6 ══════════════ -->
+  <h2>6 · 换绿之后，哪些地方会跟着变（手机上的样子）</h2>
+  <p class="note">先看下面 6.2 的<b>工作台整页</b>（组件最多的那一页），再看 6.1 的三张关键页。</p>
+
+<!-- ══ 6.2 工作台（整页，组件最多的一张） ══ -->
+  <h3 style="margin-top:22px">6.2 工作台 —— 你提醒的这张：它不只是「工作台」三个字</h3>
+  <p class="note">你说得对：工作台那一页有<b>店招行</b>（单店 / 乐丰1 / 管理员）、<b>数据概览</b>（8 块统计 + 统计时间 + 自定义）、<b>常用报表</b>（彩色圆图标一格一格）、<b>底部 5 个导航</b>。
+     我按掌中宝那张照片的<b>排版骨架</b>把它搭出来了，只换色、不改结构 —— 请看下面这一整页。</p>
+  
+  <h3 style="margin-top:22px">6.1 三张关键页：订单列表·AI 聊天·司机任务</h3>
+  <div class="phones">
+    <div class="unit">
+      <div class="device"><div class="screen">
+        <div class="punch"></div>
+        <div class="status on-dark"><span>08:24</span>
+          <span class="r"><span>▮▮▮</span><span>📶</span><span>WiFi</span><span class="batt"><i></i><u></u></span><span>78</span></span></div>
+        <div class="app gray">
+          <div class="topbar brand">
+            <span class="brand-badge">单店</span>
+            <span class="brand-name">乐丰1</span>
+            <span class="brand-cap">管理员 <span style="font-size:8px">▾</span></span>
+          </div>
+          <div class="wcard">
+            <div class="wcard-h"><span class="t">数据概览</span><span class="qm">?</span></div>
+            <div class="stat-grid">
+              <div class="stat"><div class="k">今日营业额</div><div class="v">￥0</div>
+                <div class="c">较上周五 --</div><div class="c">较 10.08 --</div></div>
+              <div class="stat"><div class="k">今日订单量</div><div class="v">0</div>
+                <div class="c">较上周五 --</div><div class="c">较 10.08 --</div></div>
+              <div class="stat"><div class="k">今日充值</div><div class="v">￥0</div>
+                <div class="c">较上周五 --</div><div class="c">较 10.08 --</div></div>
+              <div class="stat"><div class="k">今日预计打款</div><div class="v">￥0</div>
+                <div class="c">较上周五 --</div><div class="c">较 10.08 --</div></div>
+              <div class="stat"><div class="k">昨日营业额</div><div class="v">￥0</div>
+                <div class="c">较上周四 --</div><div class="c">较 10.07 --</div></div>
+              <div class="stat"><div class="k">昨日订单量</div><div class="v">0</div>
+                <div class="c">较上周四 --</div><div class="c">较 10.07 --</div></div>
+              <div class="stat"><div class="k">昨日充值</div><div class="v">￥0</div>
+                <div class="c">较上周四 --</div><div class="c">较 10.07 --</div></div>
+              <div class="stat"><div class="k">昨日打款</div><div class="v">￥0</div>
+                <div class="c">较上周四 --</div><div class="c">较 10.07 --</div></div>
+            </div>
+            <div class="stat-foot"><span class="l">统计时间：00:00:00-23:59:59</span>
+              <span class="pill-custom">自定义 ✎</span></div>
+          </div>
+          <div class="wcard">
+            <div class="wcard-h"><span class="t">常用报表</span><span class="custom">自定义 ✎</span></div>
+            <div class="rep-grid">
+              <div class="rep"><span class="ic" style="background:#E6F7EE;color:#00A870">📈</span><span>营业概览</span></div>
+              <div class="rep"><span class="ic" style="background:#E8F2FF;color:#1E6FFF">📊</span><span>实时台桌统计</span></div>
+              <div class="rep"><span class="ic" style="background:#FFECEC;color:#F5222D">🧾</span><span>敏感订单统计</span></div>
+              <div class="rep"><span class="ic" style="background:#F1ECFF;color:#8455E6">🏪</span><span>门店排行榜</span></div>
+            </div>
+          </div>
+          <div class="bottomnav">
+            <div class="nv on"><span class="i">🏠</span>首页</div>
+            <div class="nv"><span class="i">📊</span>报表</div>
+            <div class="nv"><span class="i">👑</span>掌柜服务</div>
+            <div class="nv"><span class="i">▦</span>工作台</div>
+            <div class="nv"><span class="i">👤</span>更多</div>
+          </div>
+        </div>
+        <div class="gesture"></div>
+      </div></div>
+      <p class="phone-cap"><b>工作台整页 · 绿主题</b>：店招行＝亮绿 <code>#02BD6E</code>；页面底＝冷浅灰 <code>#F7F7F7</code>（不再是暖白）；白卡＋<code>#F7F8FA</code> 统计格；底部导航选中＝主色绿</p>
+    </div>
+
+    <div class="unit">
+      <div class="device"><div class="screen">
+        <div class="punch"></div>
+        <div class="status on-dark"><span>08:24</span>
+          <span class="r"><span>▮▮▮</span><span>📶</span><span>WiFi</span><span class="batt"><i></i><u></u></span><span>78</span></span></div>
+        <div class="app gray">
+          <div class="topbar blue">工作台</div>
+          <div class="wcard">
+            <div class="wcard-h"><span class="t">数据概览</span><span class="qm">?</span></div>
+            <div class="stat-grid">
+              <div class="stat"><div class="k">今日营业额</div><div class="v">￥0</div>
+                <div class="c">较上周五 --</div><div class="c">较 10.08 --</div></div>
+              <div class="stat"><div class="k">今日订单量</div><div class="v">0</div>
+                <div class="c">较上周五 --</div><div class="c">较 10.08 --</div></div>
+              <div class="stat"><div class="k">今日充值</div><div class="v">￥0</div>
+                <div class="c">较上周五 --</div><div class="c">较 10.08 --</div></div>
+              <div class="stat"><div class="k">今日预计打款</div><div class="v">￥0</div>
+                <div class="c">较上周五 --</div><div class="c">较 10.08 --</div></div>
+            </div>
+            <div class="stat-foot"><span class="l">统计时间：00:00:00-23:59:59</span>
+              <span class="pill-custom">自定义 ✎</span></div>
+          </div>
+          <div class="wcard">
+            <div class="wcard-h"><span class="t">常用报表</span><span class="custom">自定义 ✎</span></div>
+            <div class="rep-grid">
+              <div class="rep"><span class="ic" style="background:#E8F2FF;color:#1E6FFF">📈</span><span>营业概览</span></div>
+              <div class="rep"><span class="ic" style="background:#E8F2FF;color:#1E6FFF">📊</span><span>实时台桌统计</span></div>
+            </div>
+          </div>
+          <div class="bottomnav">
+            <div class="nv on" style="color:#1E6FFF"><span class="i">🏠</span>首页</div>
+            <div class="nv"><span class="i">📊</span>报表</div>
+            <div class="nv"><span class="i">▦</span>工作台</div>
+          </div>
+        </div>
+        <div class="gesture"></div>
+      </div></div>
+      <p class="phone-cap"><b>同一页 · 现在（蓝）</b>：对照用。骨架一模一样，差别只有色 —— 顶栏、图标底、选中态</p>
+    </div>
+  </div>
+
+  
+
+  <div class="phones">
+    <!-- 工作台 -->
+    <div class="unit">
+      <div class="device"><div class="screen green">
+        <div class="punch"></div>
+        <div class="status on-dark"><span>08:24</span>
+          <span class="r"><span>▮▮▮</span><span>📶</span><span>WiFi</span><span class="batt"><i></i><u></u></span><span>78</span></span></div>
+        <div class="app">
+          <div class="topbar gradl">工作台</div>
+          <div style="padding:0 15px">
+            <div style="display:flex;gap:10px">
+              <div style="flex:1;background:#fff;border-radius:12px;padding:11px 6px;text-align:center;box-shadow:0 2px 7px rgba(16,24,40,.10)">
+                <div class="tint-icon ti-green" style="width:34px;height:34px;font-size:17px;margin:0 auto 6px">📋</div>
+                <div style="font-size:11.5px;font-weight:600">派单作业</div></div>
+              <div style="flex:1;background:#fff;border-radius:12px;padding:11px 6px;text-align:center;box-shadow:0 2px 7px rgba(16,24,40,.10)">
+                <div class="tint-icon ti-purple" style="width:34px;height:34px;font-size:17px;margin:0 auto 6px">📦</div>
+                <div style="font-size:11.5px;font-weight:600">商品管理</div></div>
+              <div style="flex:1;background:#fff;border-radius:12px;padding:11px 6px;text-align:center;box-shadow:0 2px 7px rgba(16,24,40,.10)">
+                <div class="tint-icon" style="width:34px;height:34px;font-size:17px;margin:0 auto 6px;background:rgba(255,149,0,.12);color:#FF9500">💰</div>
+                <div style="font-size:11.5px;font-weight:600">账本管理</div></div>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:10px">
+              <div style="flex:1;background:#fff;border-radius:12px;padding:11px 6px;text-align:center;box-shadow:0 2px 7px rgba(16,24,40,.10)">
+                <div class="tint-icon" style="width:34px;height:34px;font-size:17px;margin:0 auto 6px;background:rgba(205,220,57,.22);color:#8A9414">👥</div>
+                <div style="font-size:11.5px;font-weight:600">司机管理</div></div>
+              <div style="flex:1;background:#fff;border-radius:12px;padding:11px 6px;text-align:center;box-shadow:0 2px 7px rgba(16,24,40,.10)">
+                <div class="tint-icon ti-teal" style="width:34px;height:34px;font-size:17px;margin:0 auto 6px">🏠</div>
+                <div style="font-size:11.5px;font-weight:600">货主管理</div></div>
+              <div style="flex:1;background:#fff;border-radius:12px;padding:11px 6px;text-align:center;box-shadow:0 2px 7px rgba(16,24,40,.10)">
+                <div class="tint-icon" style="width:34px;height:34px;font-size:17px;margin:0 auto 6px;background:rgba(255,77,79,.12);color:#FF4D4F">💬</div>
+                <div style="font-size:11.5px;font-weight:600">消息中心</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="gesture dark"></div>
+      </div></div>
+      <p class="phone-cap"><b>工作台</b>（旧的六格版）：顶部那条 ＋ 原来用蓝的格子（派单作业/司机管理）改绿；这一页的<b>完整组件版见上面 6.2</b></p>
+    </div>
+
+    <!-- AI 聊天 -->
+    <div class="unit">
+      <div class="device"><div class="screen green">
+        <div class="punch"></div>
+        <div class="status on-dark"><span>08:24</span>
+          <span class="r"><span>▮▮▮</span><span>📶</span><span>WiFi</span><span class="batt"><i></i><u></u></span><span>78</span></span></div>
+        <div class="app">
+          <div class="topbar gradl">AI 助手</div>
+          <div style="padding:calc(12px * var(--s)) calc(16px * var(--s))">
+            <div style="display:flex;gap:7px;margin-bottom:12px">
+              <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#4285F4,#9B72CB,#D96570);flex:0 0 28px"></div>
+              <div style="background:#F2F3F5;border-radius:13px 13px 13px 4px;padding:8px 11px;font-size:12px;max-width:74%">
+                这个月顺发农副产品店一共下了 6 单，合计 <b>¥1,240</b>。</div>
+            </div>
+            <div style="display:flex;gap:7px;justify-content:flex-end;margin-bottom:12px">
+              <div style="background:var(--theme-green);color:#fff;border-radius:13px 13px 4px 13px;padding:8px 11px;font-size:12px;max-width:74%">
+                帮我把这 6 单的明细列出来</div>
+              <div style="width:28px;height:28px;border-radius:50%;background:#DDE1E6;flex:0 0 28px"></div>
+            </div>
+            <div style="display:flex;gap:7px">
+              <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#4285F4,#9B72CB,#D96570);flex:0 0 28px"></div>
+              <div style="background:#F2F3F5;border-radius:13px 13px 13px 4px;padding:8px 11px;font-size:12px;max-width:74%">
+                已列出，共 6 行。</div>
+            </div>
+            <div style="margin-top:16px;background:#fff;border-radius:999px;padding:9px 13px;color:#9AA0A6;font-size:12px;box-shadow:0 2px 8px rgba(16,24,40,.12)">
+              ⊕　发消息…</div>
+          </div>
+        </div>
+        <div class="gesture dark"></div>
+      </div></div>
+      <p class="phone-cap"><b>AI 聊天</b>：<b>自己发出去的那侧气泡</b>由蓝改绿（AI 那侧保持灰，图标仍是 Google 三色渐变，不动）</p>
+    </div>
+
+    <!-- 司机任务 -->
+    <div class="unit">
+      <div class="device"><div class="screen green">
+        <div class="punch"></div>
+        <div class="status on-dark"><span>08:24</span>
+          <span class="r"><span>▮▮▮</span><span>📶</span><span>WiFi</span><span class="batt"><i></i><u></u></span><span>78</span></span></div>
+        <div class="app">
+          <div class="topbar gradl">我的任务</div>
+          <div class="tabs">
+            <div class="tab sel green">可接单</div><div class="tab">已接单</div><div class="tab">已完成</div>
+          </div>
+          <div class="card tight">
+            <div class="row">
+              <span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📍</span>
+              <span class="addr">四会仓 → 佛山南海</span>
+              <span class="chip">🕘 已派单</span>
+            </div>
+            <div class="row">
+              <span class="tint-icon ti-green" style="width:24px;height:24px;font-size:12px">👤</span>
+              <span class="who">收货人：<b>洪惠珍</b>（13700000077）</span>
+            </div>
+            <div class="divider"></div>
+            <div class="item-new">
+              <span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📦</span>
+              <span class="name">红富士苹果</span><span class="qty-block">×10<span class="u">筐</span></span>
+            </div>
+            <div class="sum"><span class="left"><span class="cnt">共 10</span><span class="unit">筐 · 10-08 16:03</span></span></div>
+            <div class="big-btn">✓ 确认接单</div>
+          </div>
+        </div>
+        <div class="gesture dark"></div>
+      </div></div>
+      <p class="phone-cap"><b>司机任务</b>：那颗「确认接单」现在是青绿 <code>#00B578</code>；换主色后跟不跟着变见第 8 节</p>
+    </div>
+  </div>
+
+  <!-- ══════════════ 7 ══════════════ -->
+  <h2 style="opacity:.55">7 · 背景：深绿 → 白，到 1/3 处全白 <span style="color:#C0392B">——❌ 已撤销</span></h2>
+  <p class="note" style="background:#FDECEA;border-left:3px solid #C0392B;padding:8px 10px">
+    <b>用户 2026-10-09 追加口径（ref m02715）</b>：「算了，算了，那个背景的渐变，就去掉吧……就像那个 ai 聊天框的上面，
+    它不是有个绿色嘛，那个也去掉啊，就是<b>白色的默认色</b>。」<br>
+    ⇒ <b>下面这两张作废</b>：页面背景不加渐变（连起色 token 一起删了），顶栏也不刷浅绿，<b>绿只当主色，不当底色</b>。
+    商品行（甲案）、主色 <code>#00A870</code>、商品名不留紫、「确认接单」跟绿 —— 这四项不变。
+  </p>
+  <div class="phones" style="opacity:.4;filter:grayscale(.5)">
+    <div class="unit">
+      <div class="device"><div class="screen green">
+        <div class="punch"></div>
+        <div class="status on-dark"><span>08:24</span>
+          <span class="r"><span>▮▮▮</span><span>📶</span><span>WiFi</span><span class="batt"><i></i><u></u></span><span>78</span></span></div>
+        <div class="app" style="background:
+            linear-gradient(180deg,#0B6644 0%,#12855A 6%,#38A97A 11%,#7FCCA8 15%,#F2FBF6 24%,#FFFFFF 33%,#FFFFFF 100%)">
+          <div style="height:44px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;text-shadow:0 1px 2px rgba(0,0,0,.22)">全部订单</div>
+          <div style="text-align:center;color:#fff;font-size:11px;text-shadow:0 1px 2px rgba(0,0,0,.22)">↑ 顶上这一段是绿的（0 → 33%）</div>
+          <div class="card" style="margin-top:14px">
+            <div class="row"><span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📍</span>
+              <span class="addr">四会仓 → 佛山南海</span><span class="chip">🕘 派单中</span></div>
+            <div class="divider"></div>
+            <div class="item-new"><span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📦</span>
+              <span class="name">红富士苹果</span><span class="qty-block">×10<span class="u">筐</span></span></div>
+            <div class="sum"><span class="left"><span class="cnt">共 10</span><span class="unit">筐 · 10-08 16:03</span></span><span class="money">¥1,240</span></div>
+          </div>
+        </div>
+        <div class="gesture dark"></div>
+      </div></div>
+      <p class="phone-cap"><b>到 1/3 全白</b>（你原话的主口径）</p>
+    </div>
+
+    <div class="unit">
+      <div class="device"><div class="screen green">
+        <div class="punch"></div>
+        <div class="status on-dark"><span>08:24</span>
+          <span class="r"><span>▮▮▮</span><span>📶</span><span>WiFi</span><span class="batt"><i></i><u></u></span><span>78</span></span></div>
+        <div class="app" style="background:
+            linear-gradient(180deg,#0B6644 0%,#1C9066 10%,#5CB98F 22%,#A9DCBF 34%,#EAF7F0 44%,#FFFFFF 52%,#FFFFFF 100%)">
+          <div style="height:44px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;text-shadow:0 1px 2px rgba(0,0,0,.22)">全部订单</div>
+          <div style="text-align:center;color:#fff;font-size:11px;text-shadow:0 1px 2px rgba(0,0,0,.22)">↑ 顶上这一段是绿的（0 → 52%）</div>
+          <div class="card" style="margin-top:14px">
+            <div class="row"><span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📍</span>
+              <span class="addr">四会仓 → 佛山南海</span><span class="chip">🕘 派单中</span></div>
+            <div class="divider"></div>
+            <div class="item-new"><span class="tint-icon ti-green" style="width:28px;height:28px;font-size:14px">📦</span>
+              <span class="name">红富士苹果</span><span class="qty-block">×10<span class="u">筐</span></span></div>
+            <div class="sum"><span class="left"><span class="cnt">共 10</span><span class="unit">筐 · 10-08 16:03</span></span><span class="money">¥1,240</span></div>
+          </div>
+        </div>
+        <div class="gesture dark"></div>
+      </div></div>
+      <p class="phone-cap"><b>到中间全白</b>（另一种口径，绿的存在感更强）</p>
+    </div>
+
+    <div style="flex:1;min-width:330px">
+      <table>
+        <tr><th style="width:140px">要定的事</th><th>我的建议</th></tr>
+        <tr><td>渐变到哪结束</td><td><b>1/3 处</b>（你原话的主口径；中间那个绿的重量会压过卡片，白卡会显得发灰）</td></tr>
+        <tr><td>起点多深</td><td><code>#0B6644</code>（深绿，压得住白字标题）</td></tr>
+        <tr><td>谁吃这个渐变</td><td>页面底 <code>BackgroundLight</code> 换成「顶部渐变」；<b>白卡、抽屉、弹窗一律不动</b></td></tr>
+        <tr><td>顶栏条</td><td>叠在渐变最上面那一段 → 视觉上就是「深绿条」，不必单独刷色</td></tr>
+      </table>
+      <p class="note">⚠️ 现在页面底是跟页面一起滚的（暖白 <code>#F8F7F4</code>）。要让渐变「钉在顶上、内容从它下面滑过去」，得把底改成 <code>drawWithContent</code> 那种不随滚动移动的画法 —— 这是本次唯一一处结构改动。</p>
+      <h3 style="margin-top:14px">7.1 现在那四层暖白怎么处理</h3>
+      <div class="layers">
+        <div style="background:#F8F7F4">页面底<br>#F8F7F4</div>
+        <div style="background:#F1EEE9">顶栏<br>#F1EEE9</div>
+        <div style="background:#E9E6DF">容器<br>#E9E6DF</div>
+        <div style="background:#E1DDD5">容器高<br>#E1DDD5</div>
+        <div style="background:#FFFFFF">白卡<br>#FFFFFF</div>
+      </div>
+      <p class="note">渐变只吃最左边那一格。右边四层<b>一个字都不动</b> —— 「分层不许塌」那条规范仍然成立。</p>
+    </div>
+  </div>
+
+  <!-- ══════════════ 8 ══════════════ -->
+  <h2>8 · 请你点头的 4 件事</h2>
+  <table>
+    <tr><th style="width:30px">#</th><th style="width:260px">要定的事</th><th>我的建议（你不点头我就按这个做）</th></tr>
+    <tr><td>1</td><td>商品行三种摆法挑一个</td><td><b>甲案</b>（浅绿胶囊行 ＋ 深绿数量块）</td></tr>
+    <tr><td>2</td><td>主色绿用哪一档（<b>现在四个候选</b>）</td><td><b><code>#00A870</code></b>（微信绿 #07C160 与已有的绿只差 64，太贴）；你给的掌中宝那条是 <code>#02BD6E</code>，也过 60 线，要不要直接跟它一致 —— 你说一声</td></tr>
+    <tr><td>3</td><td>商品名还留不留紫</td><td><b>不留</b>（改深色字）：绿＋紫同屏会互相抢</td></tr>
+    <tr><td>4</td><td>「确认接单」跟不跟着变绿</td><td><b>跟着变</b>（它现在与「已完成」共用一个青绿）</td></tr>
+  </table>
+
+  <!-- ══════════════ 9 ══════════════ -->
+  <h2>9 · 这一改会碰到多少东西（提前说清楚）</h2>
+  <table>
+    <tr><th style="width:230px">面</th><th style="width:90px">量</th><th>说明</th></tr>
+    <tr><td>色值唯一定义处</td><td class="num">1 个文件</td><td><code>ui/theme/Color.kt</code>：<code>NavBlue</code> / <code>Primary</code> / <code>InfoBlue</code> / <code>SeedBlue</code> / <code>PrimaryContainer</code></td></tr>
+    <tr><td>写死 <code>0xFF1E6FFF</code></td><td class="num">约 80 处</td><td>散在 25 个 .kt（<code>ReportCenter.kt</code> 最多，报表里的金额数字都是这个蓝）—— 不收 token 的话「改了主色但报表还是蓝的」</td></tr>
+    <tr><td>顶栏那条</td><td class="num">3 端工作台</td><td><code>ui/home/WorkbenchScreen.kt</code> 读 <code>onPrimaryContainer</code> ⇒ 跟着 <code>PrimaryContainer</code> 一起变，顺手就成绿底</td></tr>
+    <tr><td>AI 气泡</td><td class="num">1 处</td><td><code>ui/ai/AiChatScreen.kt</code> 自己那侧的气泡底色</td></tr>
+    <tr><td>订单卡商品行</td><td class="num">2 处</td><td><code>ui/common/OrderCard.kt</code>（四张列表共用）＋ <code>ui/order/OrderDetailScreen.kt</code>（你说详情页也要）；<code>ui/common/OrderPeek.kt</code>（账本里点开的小卡）要不要跟，等你一句话</td></tr>
+    <tr><td>会被判据挡住的</td><td class="num">4 条</td><td><code>_check_order_row_columns.py</code>（41 项）、<code>_check_order_list_ui.py</code>、<code>_check_driver_card_ack.py</code>（47 项）、单测 <code>ModulesEntryTest</code>（撞色 ≥60）</td></tr>
+    <tr><td>文字对比度</td><td class="num">2 处</td><td><code>#00A870</code> 上白字只有 2.9:1（不到 AA）⇒ 只当<b>大色块/大字号</b>底，小字用深绿 <code>#0E7A50</code>（4.9:1）</td></tr>
+  </table>
+  <p class="note">Blast Radius 我判 <b>L1（局部行为）</b>：色板 ＋ 两处商品行的展示层改动，不碰后端、不碰数据、不改接口。<br>做法照仓库规矩：先写 <code>docs/changes/CHG-0088.md</code> ＋ 声明页 → 改 → 补判据/反向验证 → 真机截图 → 提交。</p>
+
+  <p class="note" style="margin-top:26px;color:#8A8F98">
+    —— 文件：<code>docs/theme-green-prototype/index.html</code>。看完告诉我：<b>第 3 节挑哪个、第 5 节用哪档绿、第 8 节那 4 条认不认</b>，我就开工。
+  </p>
+</div>
+</body>
+</html>
