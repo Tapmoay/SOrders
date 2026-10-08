@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ai
 
+import com.tapmoay.sorders.core.ClientOrigin
 import com.tapmoay.sorders.data.repo.AppRepository
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -330,6 +331,16 @@ class AiReadService(
             is AiReadPlanner.Result.Ok -> r.plan
         }
 
+        // ---- 从这里往下就到网络了：**每一处网络调用都套 [ClientOrigin.asAi]** ----
+        //
+        // 2026-10-09（CHG-0089）用户口径：「读动作也要走 AI 流水账」。后端 [AiOperationMiddleware]
+        // 对**任何**带 `X-SOrders-Origin: ai` 的请求都记一行（不分 GET/POST），一直缺的只是这里没挂头 ——
+        // 于是管理端那本「AI 操作流水」只看得见 AI 改过什么，看不见 AI 查过什么（台账 L-57 的另一半）。
+        // 动作名用**目录里的规范名**（[ReadAction.action]，即上面那个 `action.action`）：模型的入参
+        // 经 [AiReadCatalog.find] 是精确匹配，本来就不可能是别名，这里再钉一次 —— 将来真加了别名机制，
+        // 别名原文也不该直接进流水（管理端那边只认得出动作 id）。
+        // ⛔ 本机能力（`path` 空，上面那条分支）**不发请求**，不许套：套上只会让后端多记一行没发生过的 HTTP。
+        //
         // ---- 名字 → 编号：编号只在这一次 HTTP 里用一下，**不进结果、不进模型上下文** ----
         plan.nameNeed?.let { need ->
             // ⚠️ 解析失败**不许直接报错**（2026-09-19 审计）：这个接口同时声明了编号参数与 `q`
@@ -339,7 +350,7 @@ class AiReadService(
             //    的 `/users` → 403 → 工具把 403 翻成"权限不够" → 用户被告知自己看不了自己的单。
             //    现在：解析不出来（或无权解析）就**退化成关键词**（如果这个接口支持 q），
             //    并在 `assumed_filters` 里如实说明"按关键词匹配"；接口不支持关键词才报错。
-            val id = runCatching { resolveId(need) }.getOrNull()
+            val id = runCatching { ClientOrigin.asAi(action.action) { resolveId(need) } }.getOrNull()
             val kw = plan.action.params
                 .firstOrNull { it.name == AiReadPlanner.A_Q || it.name == "keyword" }
                 ?.name
@@ -357,7 +368,7 @@ class AiReadService(
         }
 
         val path = plan.action.path.removePrefix("/api/v1/")
-        val root = repo.rawGet(path, plan.query)
+        val root = ClientOrigin.asAi(action.action) { repo.rawGet(path, plan.query) }
 
         return buildJsonObject {
             put("action", plan.action.action)

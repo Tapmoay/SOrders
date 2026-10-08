@@ -27,8 +27,9 @@ ai/AiWriteService.commit 才去调真实接口），所以**没有任何一个"A
 ## 为什么全仓扫
 
 这本账横跨四层：后端中间件（core/ai_operation.py）、挂载顺序（main.py）、端点
-（api/v1/ai_operations.py），以及 Android 的发出端（core/ClientOrigin.kt + AiWriteService）
-与读端（DTO / API / Repo / VM / 页面）。只查其中一层时，另一层改坏了没人会发现。
+（api/v1/ai_operations.py），以及 Android 的发出端（core/ClientOrigin.kt + AiWriteService 的
+写动作、AiReadService 的**读动作**、AiTools 的**工具分发**）与读端（DTO / API / Repo / VM / 页面）。只查其中一层时，
+另一层改坏了没人会发现。
 
 ## R4-BOUNDARY-JUSTIFICATION: 为什么代码边界解决不了这件事
 
@@ -42,7 +43,8 @@ ai/AiWriteService.commit 才去调真实接口），所以**没有任何一个"A
 3. 只在 AI 请求上记（is_ai_request 自己读头归一）
 4. 挂载顺序（必须在 RequestId 里面）
 5. 端点（权限沿用 OPERATION_LOG_READ / 三把筛子 / limit+1 / finish_page / user_name）
-6. Android 发出端（只有确认执行那一步带头；预览不带头）
+6. Android 发出端（写：只有确认执行那一步带头、预览不带头；读：每一次网络调用都带头，
+   工具分发点也带头 —— CHG-0089 那句「读动作也要走 AI 流水账」；动作名一律用目录里的规范名）
 7. Android 读端（服务端过滤 / skip 游标 / id 去重 / 认不出不编名字）
 8. 单测与入口存在
 9. 防静默空转
@@ -75,6 +77,8 @@ AND = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
 APICLIENT = AND / "core/ApiClient.kt"
 CLIENTORIGIN = AND / "core/ClientOrigin.kt"
 WRITESVC = AND / "ai/AiWriteService.kt"
+READSVC = AND / "ai/AiReadService.kt"
+TOOLSSVC = AND / "ai/AiTools.kt"
 DTOS = AND / "data/remote/dto/Dtos.kt"
 APIS = AND / "data/remote/api/Apis.kt"
 REPO = AND / "data/repo/AppRepository.kt"
@@ -88,7 +92,7 @@ ROWS_TEST = ROOT / "android/app/src/test/java/com/tapmoay/sorders/ui/ai/AiOperat
 
 REQUIRED_FILES = [
     CORE, ORIGIN, MAIN, API, MODEL, SCHEMA, MIGRATION, BTEST,
-    APICLIENT, CLIENTORIGIN, WRITESVC, DTOS, APIS, REPO,
+    APICLIENT, CLIENTORIGIN, WRITESVC, READSVC, TOOLSSVC, DTOS, APIS, REPO,
     ROUTES, NAVGRAPH, ROWS, VM, SCREEN, SETTINGS, ROWS_TEST,
 ]
 
@@ -251,7 +255,7 @@ def main() -> int:
     c.present("后端自身有测试（含中间件顺序那条）",
               read(BTEST), r"request_id")
 
-    print("\n== 6. Android 发出端 ==")
+    print("\n== 6. Android 发出端（写 + 读）==")
     apiclient = code_only(read(APICLIENT))
     c.present("只有 ClientOrigin 说是 AI 时才加头", apiclient,
               r"val origin = ClientOrigin\.current\(\) \?: return delegate\.newCall\(request\)")
@@ -264,6 +268,49 @@ def main() -> int:
          n_asai == 1, str(n_asai))
     c.present("那一处就是确认执行（commit）那一步", write_svc,
               r'ClientOrigin\.asAi\(p\.actionId\) \{ handler\.commit\(p\.payload, "ai-" \+ token\) \}')
+
+    # ---- 读动作也落流水（CHG-0089）----
+    #
+    # 用户 2026-10-09 的口径：「读动作也要走 AI 流水账」。后端中间件本来就对**任何**带
+    # X-SOrders-Origin: ai 的请求都记一行（不分 GET/POST），缺的一直只是 Android 读路径没挂头 ——
+    # 症状是管理端那本账只看得见 AI 改过什么，看不见他查过什么，而**看不出来**。
+    # ⛔ 判据钉的是"每一处网络调用"：读路径上有两处会发请求（解析编号那一跳自己会打
+    # /users、/customers、/products、/orders），少钉一处，将来新加一条读分支就能悄悄绕过。
+    read_svc = code_only(read(READSVC))
+    n_reads = len(re.findall(r"ClientOrigin\.asAi\(", read_svc))
+    c.ok(f"读路径的每一次网络调用都套了 asAi（实际 {n_reads} 处：解析编号 + 发请求）",
+         n_reads == 2, str(n_reads))
+    c.present("解析编号那一跳带头（它自己会打 /users、/customers、/products、/orders）", read_svc,
+              r"ClientOrigin\.asAi\(action\.action\) \{ resolveId\(need\) \}")
+    c.present("发请求那一跳带头", read_svc,
+              r"ClientOrigin\.asAi\(action\.action\) \{ repo\.rawGet\(path, plan\.query\) \}")
+    c.present("动作名用目录里的规范名（模型给的是别名的话，别名进流水管理端看不懂）", read_svc,
+              r"ClientOrigin\.asAi\(action\.action\)")
+    c.present("本机能力那条分支照旧直接跑（它一个请求都不发，套上只会多记一行没发生的 HTTP）", read_svc,
+              r"if \(action\.path\.isBlank\(\)\) return AiLocalReads\.run\(action, locationProvider\(\)\)")
+
+    # ---- 工具驱动的读也落流水（CHG-0089 续；2026-10-09 真机抓到的缺口）----
+    #
+    # 真机症状：问「有哪些商品库存到红线了？」助手答得出来（罐装凉茶 6/20 那三条），
+    # ai_operation_logs 却**一行没多** —— 因为「库存报警」是 AiTools 那 8 个老工具之一，
+    # 它的网络出口（AiTools.kt 的 repo.inventoryBelowAlert()）不在 AiReadService 里，
+    # 上面那两处 ClientOrigin.asAi 覆盖不到它。
+    # 修法：套在**唯一的分发点** execute() 上 —— 查询类工具、两个导出、预览（prepare 阶段的读）
+    # 全都从这一处走；READ_DATA 那条分支里 AiReadService 还会再套一层，把目录规范名盖上去。
+    # ⛔ 故意不带头的两处（不是漏的，理由见变更单）：AiAttachmentService（解析用户上传的表格）、
+    # AiContainer（仓库通身份读与 AI 调用量遥测）—— 都不是「AI 替用户查数据」。
+    tool_svc = code_only(read(TOOLSSVC))
+    n_tools = len(re.findall(r"ClientOrigin\.asAi\(", tool_svc))
+    c.ok(f"工具分发点只套一层 asAi（实际 {n_tools} 处）", n_tools == 1, str(n_tools))
+    c.present("套在 when 分发的外面（每一支工具都带头，不用逐支记得加）", tool_svc,
+              r"ClientOrigin\.asAi\(name\) \{\n\s*when \(name\) \{")
+    c.present("动作名先用工具 id（如 inventory_alerts）", tool_svc, r"ClientOrigin\.asAi\(name\)")
+    c.present("包一层之后取消照样穿透（不加自己的 catch）", tool_svc,
+              r"ClientOrigin\.asAi\(name\)[\s\S]{0,900}?catch \(e: CancellationException\) \{\n\s*throw e")
+    asai_files = sorted(p.name for p in (AND / "ai").glob("*.kt")
+                        if "ClientOrigin.asAi(" in code_only(read(p)))
+    c.ok(f"ai/ 里带头的一共三个文件（工具分发 / 写提交 / 读服务）：{'、'.join(asai_files)}",
+         asai_files == ["AiReadService.kt", "AiTools.kt", "AiWriteService.kt"], str(asai_files))
 
     print("\n== 7. Android 读端 ==")
     dtos = read(DTOS)

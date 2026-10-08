@@ -1,7 +1,7 @@
 """AI 操作流水（CHG-0082）判据的反向验证：逐条注入「看起来没问题」的坏改法，确认判据真的会红。
 
 ## 为什么必须有这一份
-`_check_ai_operation_log.py` 有 96 项，全部是静态形状判据（读源码、比对字符串）。静态判据最危险
+`_check_ai_operation_log.py` 有 106 项，全部是静态形状判据（读源码、比对字符串）。静态判据最危险
 的失效方式不是「写错」，而是**空转**：正则写宽了、扫描窗口挪了、文件改名了 —— 判据照样打印 [OK]，
 而它其实什么都没查。唯一能证伪「空转」的办法就是**故意做出它要抓的那种错，看它会不会红**。
 
@@ -216,6 +216,40 @@ AI_OPERATION_TABLES = ("ai_operation_logs",)""",
         '            ClientOrigin.asAi(p.actionId) { handler.commit(p.payload, "ai-" + token) }',
         """            ClientOrigin.asAi(p.actionId) { handler.commit(p.payload, "ai-" + token) }\n            ClientOrigin.asAi(p.actionId) { }""",
         "ClientOrigin.asAi( 只有 1 处",
+    ),
+    # ㉒ 读动作发请求那一跳不带头：AI 查过什么又看不见了（CHG-0089 要的正是这一半）
+    (
+        "读动作发请求那一跳不带头",
+        "android/app/src/main/java/com/tapmoay/sorders/ai/AiReadService.kt",
+        "        val root = ClientOrigin.asAi(action.action) { repo.rawGet(path, plan.query) }",
+        "        val root = repo.rawGet(path, plan.query)",
+        "读路径的每一次网络调用都套了 asAi",
+    ),
+    # ㉓ 解析编号那一跳不带头（它自己会打 /users、/customers、/products、/orders）：
+    #    留着一条谁也没注意到的暗路 —— 只挡住明面上的那一处，等于没挡
+    (
+        "解析编号那一跳不带头",
+        "android/app/src/main/java/com/tapmoay/sorders/ai/AiReadService.kt",
+        "            val id = runCatching { ClientOrigin.asAi(action.action) { resolveId(need) } }.getOrNull()",
+        "            val id = runCatching { resolveId(need) }.getOrNull()",
+        "读路径的每一次网络调用都套了 asAi",
+    ),
+    # ㉔ 工具分发点不带头：又回到 2026-10-09 真机抓到的那个缺口 —— 助手答得出「库存报警」，
+    #    ai_operation_logs 却一行没多（「库存报警」这类老工具的网络出口不在 AiReadService 里）
+    (
+        "工具分发点不带头",
+        "android/app/src/main/java/com/tapmoay/sorders/ai/AiTools.kt",
+        "            ClientOrigin.asAi(name) {\n                when (name) {",
+        "            run {\n                when (name) {",
+        "工具分发点只套一层 asAi",
+    ),
+    # ㉕ 只给一支工具带头（其余悄悄绕过）：处数判据仍然是 1，靠"套在 when 外面"这条结构判据挡
+    (
+        "只给一支工具带头",
+        "android/app/src/main/java/com/tapmoay/sorders/ai/AiTools.kt",
+        "            ClientOrigin.asAi(name) {\n                when (name) {\n                    SEARCH_SHIPPER -> searchShipper(args)",
+        "            run {\n                when (name) {\n                    SEARCH_SHIPPER -> ClientOrigin.asAi(name) { searchShipper(args) }",
+        "套在 when 分发的外面",
     ),
 ]
 

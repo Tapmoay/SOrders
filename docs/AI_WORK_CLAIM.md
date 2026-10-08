@@ -63,6 +63,22 @@
 - 真机：✅ 已跑（`emulator-5554` 派单员 `13800000001`）：撤票卡新文案（`shots/57_invoice_delete_card_l57_fixed.png`）→ 结果消息上的「↩ 撤回」（`58`）→ 两步撤回后票回台账（`59`，库面 `invoices.id=8 status=REGISTERED deleted_at=None`）→ 对回收站里的票说改金额时指路台账回收站（`60`）。⚠️ 经验：那颗「撤回」胶囊会过期（约 5 分钟），撤票与撤回要连着做完。
 - 核心改动：**无** —— 为什么：`_tools/qa/_core_files.txt` 里属于 AI 的只有 `ai/AiWriteService.kt` 一行，本单改的是 `ai/AiWriteInvoices.kt`（不在核心区），那一行没碰。
 
+### [2026-10-09 01:1x → 02:1x CST 已完成] 会话：**CHG-0089 读动作也落 AI 流水：AI 替他查过什么，管理端终于看得见（台账 L-57 的另一半）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径（ref `m34423`，目标 `goal-c44b7db2-bf4b-4df3-8c5f-0b25747b3e55` 原文，语音转写）：「读动作要走 AI 流水账，这个要修一下」`（台账出处 `_tmp/USER_BUG_LEDGER_20261006.md:2966`；表格「读」那一行 `:2963` 写着「**不落流水**」）。
+
+`病灶`：CHG-0082 交付的「每次 AI 动作落一行」在真机上只兑现一半 —— `X-SOrders-Origin: ai` 的唯一 setter 是写提交那一刻（`ai/AiWriteService.kt:1285`），而 `core/ApiClient.kt` 只在 `ClientOrigin.current()` 非空时才加头 ⇒ **纯读动作一行都不落**（当时 102 行流水里 82 行 GET 全是写动作 prep 里顺带那几次读）。
+
+`改法`：① `ai/AiReadService.kt`（`:353` 解析编号、`:371` 发请求）各套一层 `ClientOrigin.asAi(action.action)`，动作名用**读目录里的规范名**；② `ai/AiTools.kt` 的 `execute` 把 `when` 分发整段包进 `ClientOrigin.asAi(name)`（一处覆盖全部 8 个工具，含 `preview_write` 的 prepare 读；`READ_DATA` 支内层 `AiReadService` 会把动作名覆盖成规范名）；③ 判据 `_tools/qa/_check_ai_operation_log.py` **101 → 106 项**（工具分发小节 5 条 ＋ 发出端文件集合 = `{AiReadService, AiTools, AiWriteService}`）；④ 反验 **23 → 25 条注入**（㉔ 工具分发点不带头 / ㉕ 只给一支工具带头）。⚠️ 本单的缺口是**真机抓出来的**：先只改了读目录那两条路，验读动作时 `invoices.list_invoices` 两条 GET 落账（流水 103/105），紧接着问「有哪些商品库存到红线了？」却一行不落 ⇒ 才发现工具分发那条路根本没经过 `AiReadService`。
+
+`明确不碰`：后端（`AiOperationMiddleware` 本来就记任何带头的请求，不分 GET/POST）、写路径的规矩（**只有确认执行那一步带头、预览不带头**）、本机能力分支（一个请求都不发）、`X-SOrders-Ai-Action` 的语义（只给流水看，⛔ 不参与授权）、读目录与能力面；⛔ 附件解析（`AiAttachmentService`）与 AI 调用量遥测（`AiContainer`）**故意不带** —— 那不是「AI 替用户查数据」。
+
+`判据 / 反验`：`python _tools/qa/_check_ai_operation_log.py`（106/106）/ `python _tools/qa/_reverse_verify_ai_operation_log.py`（25 条注入，26/26 成立）/ 单测 1361。
+
+- 状态：✅ **已关闭**（2026-10-09 01:1x 开工 · 关闭；变更单 `docs/changes/CHG-0089.md`；台账 **L-57** 的另一半；Blast Radius **L2 —— Contract / Data**）。
+- 真机：✅ 已跑（`emulator-5554`）：读目录两条 GET 落账（`invoices.list_invoices` 103 / 105）＋ 工具驱动的读落 `inventory_alerts` 行（截图 `shots/63_ai_log_read_rows.png`）；同一次走查里写动作仍是「确认之后才记」（104 / 107）。
+- 核心改动：**无** —— 为什么：改的是 `ai/AiReadService.kt` 与 `ai/AiTools.kt` 两个**非核心**文件（`_tools/qa/_core_files.txt` 里属于 AI 的只有 `ai/AiWriteService.kt`）。
+
 ### [2026-10-08 07:5x → 08:xx CST 已完成] 会话：**CHG-0087 钱相关四条开给 AI：手动定价 / 让价 / 取消让价 / 设挂账额度（台账 L-56）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径（ref `m28098`，目标 `goal-7564f8c1-48e7-4083-9d73-4fd51a21b64c` 原文，台账 `_tmp/USER_BUG_LEDGER_20261006.md:2891`）：「① `AI 覆盖补齐` —— 把「本轮不开放」的 15~16 个写端点（`发票台账 6、钱相关 7、订单结构 3`）开给对应角色，并开`下游定价两条读动作`，保持「不漏、不越」的三方对账全绿 …… `司机端维持不加 AI。`」本单是目标① 四单里的`第四单`（本批收口单）。

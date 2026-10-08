@@ -1,6 +1,7 @@
 package com.tapmoay.sorders.ai
 
 import com.tapmoay.sorders.core.ApiClient
+import com.tapmoay.sorders.core.ClientOrigin
 import com.tapmoay.sorders.data.repo.AppRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerializationException
@@ -332,17 +333,23 @@ class AiTools(
         val args = parseArgs(argumentsJson) ?: return err("工具参数不是合法 JSON，请重新生成参数。")
 
         return try {
-            when (name) {
-                SEARCH_SHIPPER -> searchShipper(args)
-                INVENTORY_ALERTS -> inventoryAlerts(args)
-                DRIVER_PERFORMANCE -> driverPerformance(args)
-                SHIPPER_PERFORMANCE -> shipperPerformance(args)
-                EXPORT_SHEET -> exportSheet(args)
-                EXPORT_LEDGER -> exportLedger(args)
-                READ_DATA -> reader.read(str(args, "action").orEmpty(), args)
-                REMEMBER -> remember(args)
-                PREVIEW_WRITE -> previewWrite(args)
-                else -> err("工具「$name」暂未实现。")
+            // 2026-10-09（CHG-0089）：工具驱动的每一次网络读都要在 AI 流水账里留痕 —— 这里是**所有** AI
+            // 工具调用的唯一入口（查询类工具、两个导出、预览），而后端只认 X-SOrders-Origin: ai 这一个头
+            // （不分 GET/POST）。动作名先写工具 id（如 inventory_alerts）：READ_DATA 那条分支里
+            // AiReadService 自己还会再套一层，把读目录里的规范名盖上去（内层覆盖外层，流水跟着规范名走）。
+            ClientOrigin.asAi(name) {
+                when (name) {
+                    SEARCH_SHIPPER -> searchShipper(args)
+                    INVENTORY_ALERTS -> inventoryAlerts(args)
+                    DRIVER_PERFORMANCE -> driverPerformance(args)
+                    SHIPPER_PERFORMANCE -> shipperPerformance(args)
+                    EXPORT_SHEET -> exportSheet(args)
+                    EXPORT_LEDGER -> exportLedger(args)
+                    READ_DATA -> reader.read(str(args, "action").orEmpty(), args)
+                    REMEMBER -> remember(args)
+                    PREVIEW_WRITE -> previewWrite(args)
+                    else -> err("工具「$name」暂未实现。")
+                }
             }
         } catch (e: CancellationException) {
             throw e // 取消必须穿透，否则聊天页取消不了
@@ -877,8 +884,10 @@ class AiTools(
          * 必须由**用户在界面上点确认**才会落库（见 [AiWriteService] / [AiWritePreviewStore]）。
          * 模型的调用路径里**没有**"执行"这一步——不是靠约定，是那条路不存在。
          *
-         * 默认**关闭**（见 [AiKeyStore.OPT_IN_TOOLS]）：老用户升级后不会突然多出一个能改数据的工具，
-         * 想用的人自己去设置页打开。这是这套功能唯一一次"故意增加摩擦"的地方，且只增加一次。
+         * 默认**开启**（2026-10-09 用户：「非派单的写工具默认开起来……所有功能的 AI
+         * 所有功能默认是开的」；它原来是**唯一**一个 opt-in 的工具，那条口径已作废）。
+         * 敢默认开的理由就在上一段：这条路**根本没有"执行"这一步** —— 改了开关，也只是让
+         * 模型能"申请"得出来，落库照样要他本人在确认卡上点一下。
          */
         const val PREVIEW_WRITE = "preview_write"
 
