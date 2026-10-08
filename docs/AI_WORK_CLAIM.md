@@ -31,6 +31,22 @@
 
 ## 进行中
 
+### [2026-10-09 03:5x → 04:53 CST 已完成] 会话：**CHG-0096 AI 助手的业务多步工作流（第一批）：说一句「这个月对一下账」/「把菜籽油降 5%」就自己按步骤跑完，先给结论再问要不要发卡**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径（goal `goal-9c29e859-ec5e-444e-9e78-6e330bf0aa07` 原文，语音转写）：「业务工作流 —— 内置多步流程（对账、批量调价这类），AI 认出来后自己按步骤跑完整件事，用户少说几句。」`；本会话在 `ask_user_question` 上拍了两条：① **两条一起做**（对账 ＋ 批量调价同一单交）；② 跑到要改数据那一步 —— 「**先给结论，再问一句要不要发卡**」（先把明细和金额摆出来让他看，他点头才生成确认卡）。
+
+`病灶`：想让 AI 对个账，改前用户得说一串（「查这个月已送达的订单」「再查这个月的账本流水」「看看哪些没进账本」），模型每轮自己拼窗口、自己算差集 —— 换一轮提问，窗口和口径可能就变了（窗口一错就是「这个月少记三万块」这种**看着最像真的**假账）。批量调价同前：用户说「菜籽油降 5%」时，**名字里带「菜籽油」的到底有几个商品、有几条专属价会被覆盖**，发卡之前无从得知。
+
+`改法`：① 新建 `ai/AiWorkflow.kt`（**登记表**：`internal data class AiWorkflowStep(title, action)` ＋ `internal data class AiWorkflow(id, cn, whenToUse, paramsCn, steps, nextAction, ask, roles)` ＋ `internal object AiWorkflows`：常量 `LEDGER_RECONCILE = "ledger.reconcile"` / `PRICE_BATCH = "price.batch"`；`val RECONCILE`（cn「对账」，两步 ＝ `orders.list_orders` ＋ `ledger.list_entries`，`nextAction = AiWrites.LEDGER_SYNC_DELIVERED`）；`val PRICE_ADJUST`（cn「批量调价」，两步 ＝ `products.list_products` ＋ `price_rules.list_price_rules`，`nextAction = AiWrites.PRICE_RULES_BATCH`）；`ALL` / `IDS` / `byId` / `forRole`（**fail-closed**）/ `TOOL_DESCRIPTION`（从登记表拼）/ `RULES`（第 13 条））。② 新建 `ai/AiWorkflowRunner.kt`（**执行器**，纯只读、不 import `com.tapmoay.sorders.data`）：`run(id, args)` `:34` 按 id 分派；`window(args, t)` `:335` 默认**本月 1 号 → 今天**、倒窗口返回 null；`reconcile` `:49`（订单那次读 `status=DELIVERED` ＋ **送达日窗口走 extra 的 `delivered_from` / `delivered_to`**，账本那次读走本表 `from` / `to`；账上有的单号只认 `来源 = order`；差集 `missing` / `unowned` / `ledgerOnly`；**`incomplete` 时不给 `missing_amount`**）；`priceBatch` `:189`（`adjust` 与 `price` 恰好给一个，两个都给或都不给都报错；名字匹配统计；**一条价都不算**）；`nextJson` `:317`（`action` / `action_cn` / `params` / `ask` / `how`）。③ `ai/AiTools.kt` 注册 `run_workflow` 八处（常量 `:897` / `ALL` `:948` / `Group.QUERY` `:968` / 设置页标题 `:1131` / `SCHEMA` `:1245` / `DESCRIPTIONS` `:1411` / `execute` `:349` / `runWorkflow` `:388-397`）。④ `ai/AiAgentLoop.kt:501` 拼 `append(AiWorkflows.RULES)`（顺序 Style(10) → Skills(12) → 11 → Workflows(13)）。⑤ 两个单测 26 档。⑥ `_tools/ai/_sysprompt_size.py` 列上 `AiWorkflow.kt` ＋ `_tools/ai/_check_ai_guardrails.py:43` 白名单加 `run_workflow`。⑦ 判据 `_tools/qa/_check_ai_workflow.py`（12 节）＋ 反验 `_tools/qa/_reverse_verify_ai_workflow.py`（**35** 条注入）。
+
+`明确不碰`：**写能力唯一那条路**（`preview_write` —— 工作流只查，跑完给 `conclusion` ＋ `next`，发卡仍要模型问过用户；判据第 7 节钉着 `nextJson` 四段）；读目录 36 条读能力与它们的口径（工作流只是按固定顺序调用，四条 action 必须真实存在）；提示词第 1~12 条的编号与字面量（含 `AiAgentLoop.kt` 那条既有重复编号 `11.`）；`AiWritePricing.kt` 的 `BatchPriceHandler`（涨降算法唯一一份实现 —— 工作流再算一遍就是两份）；确认卡的样子与参数校验；后端 / 端点 / 权限 / 数据库 / 历史数据（一行不改，「哪张单该记账」那条规则仍然只在 `backend/app/services/ledger_sync.py:14`）。
+
+`判据 / 反验`：`python _tools/qa/_check_ai_workflow.py`（十二节 **126/126 全绿**）/ `python _tools/qa/_reverse_verify_ai_workflow.py`（**35** 条注入全部报红 ＋ 12 个被碰过的文件逐字节还原），单测 **1424 tests · 0 failures · 0 errors · 2 skipped**（本单 ＋2 类 26 条）。
+
+- 状态：✅ **已关闭**（2026-10-09；变更单 `docs/changes/CHG-0096.md`；Blast Radius **L1 —— AI 能力面**；**不挂台账号** —— goal 驱动的功能单，与 CHG-0092 同例；提交 `⟪HASH⟫`）。
+- 真机：**对账** —— 「这个月对一下账，看看有没有漏记的」⇒ 结论（14 单 / ¥1,722.30，逐单对得上）＋ 两张口径表 ＋ 一句追问，全程只落两次读（`orders.list_orders` 14 条 / `ledger.list_entries` 27 条；AI 操作流水顶两条正是这两次）；**批量调价** —— 「把菜籽油降 5%」⇒ 名册里没这个商品就不编也不发卡，「把花生油降 5%」⇒ 先摆结论（默认价 ¥24.1 → ¥22.895，专属价另算）再给确认卡，工作流一步没写。截图：`shots/69_ai_工作流_对账_结论.png` / `69b_ai_工作流_对账_执行过程.png` / `70_ai_操作流水_对账那两次读.png` / `70b_ai_工作流_批量调价_没这个商品.png` / `71_ai_工作流_批量调价_结论与卡.png` / `71b_ai_工作流_批量调价_执行过程.png`。
+- 核心改动：**无** —— 为什么：改的 `ai/AiWorkflow.kt`（新）、`ai/AiWorkflowRunner.kt`（新）、`ai/AiTools.kt`、`ai/AiAgentLoop.kt` 都不在 `_tools/qa/_core_files.txt` 里。
+
 ### [2026-10-09 03:1x → 03:4x CST 已完成] 会话：**CHG-0094 AI 助手的「执行过程」默认折成一行：点开才逐条看（像思考过程那样）（台账 L-60）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径（ref `m35906`，附「AI 助手」聊天页截图、红框圈出「🔧 正在查…/✓ … → 返回 N 条」那一串，语音转写逐字）：「还有这个部分它是自动的收缩的，也就是说默认情况下，是收收缩的就像思考过程一样，不过，我们也可以点开进行查看不然，它步骤太多的话，使得整个界面太过冗余了」`

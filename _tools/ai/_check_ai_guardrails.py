@@ -3,7 +3,7 @@
 ### 为什么需要这个脚本
 AI 助手有几条性质**靠注释是守不住的**——它们不是"写的时候对"，而是"以后每次改都得还对"：
 - 出参里不能出现内部编号（用户看不懂，模型拿到就会写进回答）；
-- 工具集必须是**纯只读**的 5 个（多注册一个写工具，等于把改数据的口子开到聊天框里）；
+- 工具集必须是**纯只读**的（多注册一个写工具，等于把改数据的口子开到聊天框里）；
 - 最终答复必须过净化器（少接一处，编号就会漏出去）；
 - 聊天历史必须有上限（否则手机存储被聊天记录撑爆）。
 
@@ -40,9 +40,15 @@ UI = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui"
 #     `ai/AiExportService.kt` 里，**只由用户在聊天里点「下载」触发**——
 #     与 preview_write 同一种形状（工具只能申请，落库那一步在界面上的那颗按钮手里）。
 # 下面 §2-b 有两条断言钉着这件事（工具层不许出现建任务的调用）。
+# v3.35（CHG-0096）加了 `run_workflow`：它**仍然是只读**，理由与 export_ledger 同一种形状 ——
+#   · 它自己只调读目录里的接口（内部就走 AiReadService，与 read_data 同一条路、同样留痕）；
+#   · 要改数据时它**只是把「该发哪张卡」交回去**（结果里的 next），
+#     发卡仍然只走 preview_write 那一条路，模型还得先问过用户；
+#   · 也就是说它**没有新增任何写入路径**，只是把「多步读」的步骤从提示词挪进了代码。
 ALLOWED_TOOLS = {
     "search_shipper", "inventory_alerts", "driver_performance",
     "shipper_performance", "export_sheet", "export_ledger", "read_data",
+    "run_workflow",
 }
 
 # 唯一允许存在的「非只读」工具：它**只写本机记忆**，不碰后端一个字节。
@@ -515,7 +521,7 @@ def main() -> int:
         consts = dict(re.findall(r'const val ([A-Z_]+) = "([a-z_]+)"', tools))
         resolved = {consts.get(n, n) for n in names}
         c.ok(
-            "工具集 = 7 个只读 + 至多 1 个「只写本机」 + 至多 1 个「受控写数据」，没有别的",
+            "工具集 = 8 个只读 + 至多 1 个「只写本机」 + 至多 1 个「受控写数据」，没有别的",
             resolved == ALLOWED_TOOLS | LOCAL_ONLY_TOOLS | GATED_WRITE_TOOLS,
             f"实际={sorted(resolved)}",
         )

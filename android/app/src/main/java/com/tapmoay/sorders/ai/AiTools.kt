@@ -346,6 +346,7 @@ class AiTools(
                     EXPORT_SHEET -> exportSheet(args)
                     EXPORT_LEDGER -> exportLedger(args)
                     READ_DATA -> reader.read(str(args, "action").orEmpty(), args)
+                    RUN_WORKFLOW -> runWorkflow(args)
                     REMEMBER -> remember(args)
                     PREVIEW_WRITE -> previewWrite(args)
                     else -> err("工具「$name」暂未实现。")
@@ -375,6 +376,24 @@ class AiTools(
         val count = (o["count"] as? JsonPrimitive)?.contentOrNull
         if (count != null) return "返回 " + count + " 条"
         return "完成"
+    }
+
+    /**
+     * 工具 10：**跑一条工作流**（CHG-0096）。
+     *
+     * 只读：读动作直接走 [reader] —— 与 `read_data` 同一条路，AI 流水里照样留痕。
+     * 要改数据时它**只把「该发哪张卡」交回来**（结果里的 `next`），
+     * 由模型问过用户之后走 `preview_write` —— 这个方法不会写一个字节。
+     */
+    private suspend fun runWorkflow(args: JsonObject): String {
+        val id = str(args, "workflow").orEmpty()
+        val wf = AiWorkflows.byId(id)
+            ?: return err("认不出工作流「" + id + "」。现在能跑的是：" + AiWorkflows.IDS.joinToString("、") + "。")
+        val role = actor()?.role
+        if (role == null || role !in wf.roles) {
+            return err("「" + wf.cn + "」不在你现在的可用范围内。")
+        }
+        return AiWorkflowRunner(read = { action, a -> reader.read(action, a) }).run(id, args)
     }
 
     // ------------------------------------------------------- 工具 1：找货主
@@ -861,6 +880,23 @@ class AiTools(
         const val READ_DATA = "read_data"
 
         /**
+         * 「跑工作流」：用户说一句业务目标（对账、批量调价这类**多步**的活），AI 一次调用把整条流程跑完。
+         *
+         * ### 它不是第二个 `read_data`
+         * 读的**路径完全相同**（内部就走 [AiReadService]，与 `read_data` 同一条路、同样在 AI 流水里留痕）。
+         * 区别只在「谁记着步骤」：多步的活（比如对账要「两张表按**同一个窗口**各查一次，再按订单号对差集」）
+         * 如果交给模型自己临场拼，它会漏步、也可能两边用不同的窗口 —— 而窗口一错，结论就是
+         * 「这个月少记了三万块」这种**看着最像真的**假账。步骤落在代码里，判据才钉得住。
+         *
+         * ### 它一步都不写
+         * 跑完只回「结论」＋「该发哪张卡、参数是什么、要问用户哪一句」（结果里的 `next`）。
+         * 发卡仍然只走 [PREVIEW_WRITE] 那一条路 —— 「写只有一条路径」这条红线不动。
+         *
+         * 登记表在 [AiWorkflows]，执行器在 [AiWorkflowRunner]。
+         */
+        const val RUN_WORKFLOW = "run_workflow"
+
+        /**
          * 「记住」：把用户明确要求记住的一条事实，存进**本机**长期记忆。
          *
          * ### 为什么它是唯一一个"写"工具，以及为什么这不违背"首阶段纯只读"
@@ -909,6 +945,7 @@ class AiTools(
             DRIVER_PERFORMANCE,
             SHIPPER_PERFORMANCE,
             READ_DATA,
+            RUN_WORKFLOW,
             EXPORT_SHEET,
             EXPORT_LEDGER,
             REMEMBER,
@@ -928,6 +965,7 @@ class AiTools(
             DRIVER_PERFORMANCE to Group.QUERY,
             SHIPPER_PERFORMANCE to Group.QUERY,
             READ_DATA to Group.QUERY,
+            RUN_WORKFLOW to Group.QUERY,
             EXPORT_SHEET to Group.QUERY,
             EXPORT_LEDGER to Group.QUERY,
             REMEMBER to Group.OPERATE,
@@ -1090,6 +1128,7 @@ class AiTools(
             DRIVER_PERFORMANCE to "司机跑货统计",
             SHIPPER_PERFORMANCE to "货主下单排行",
             READ_DATA to "读所有列表",
+            RUN_WORKFLOW to "跑工作流",
             EXPORT_SHEET to "导出报表",
             EXPORT_LEDGER to "导出账本",
             REMEMBER to "记住一件事",
@@ -1103,6 +1142,7 @@ class AiTools(
             DRIVER_PERFORMANCE to "某时间段司机完成单量、准时率、待结运费",
             SHIPPER_PERFORMANCE to "某时间段货主下单量与金额排行",
             READ_DATA to "系统里所有只读列表（账号、商品、报表、账本、日志…），按模块可在下面逐项开关",
+            RUN_WORKFLOW to "一句话跑完对账、批量调价这类多步的事（它只查：要改数据会先把结论给你、再问你要不要发卡）",
             EXPORT_SHEET to "生成营业/商品/司机/客户/资金/审计 Excel，文件直接出现在聊天里",
             EXPORT_LEDGER to "按货主与起止日期导出一本账（Excel），文件直接出现在聊天里",
             REMEMBER to "你说「记住…」时，把这句话存到本机，以后提问自动带上（可在下面查看和删除）",
@@ -1202,6 +1242,44 @@ class AiTools(
                     }
                     putJsonArray("required") { add(JsonPrimitive("query")) }
                 },
+                RUN_WORKFLOW to buildJsonObject {
+                    put("type", "object")
+                    putJsonObject("properties") {
+                        putJsonObject("workflow") {
+                            put("type", "string")
+                            put("description", "跑哪一条工作流（登记在案的就这几条）：" +
+                                AiWorkflows.ALL.joinToString("；") { it.id + " = " + it.cn + "（" + it.whenToUse + "）" } + "。")
+                            putJsonArray("enum") { AiWorkflows.IDS.forEach { add(JsonPrimitive(it)) } }
+                        }
+                        putJsonObject("from") {
+                            put("type", "string")
+                            put("description", "开始日期 YYYY-MM-DD。⛔ 用户没说就别猜 —— 不传＝本月 1 号；" +
+                                "传了就要在回话里写明你用的是哪一段")
+                        }
+                        putJsonObject("to") {
+                            put("type", "string")
+                            put("description", "结束日期 YYYY-MM-DD。不传＝今天")
+                        }
+                        putJsonObject("shipper") {
+                            put("type", "string")
+                            put("description", "只看这一位货主/批发商，填**名字**（不要编号）。留空＝全部")
+                        }
+                        putJsonObject("product") {
+                            put("type", "string")
+                            put("description", "（批量调价）商品名，多个用「、」隔开。留空＝全部商品")
+                        }
+                        putJsonObject("adjust") {
+                            put("type", "number")
+                            put("description", "（批量调价）在当前价基础上涨降的百分比，降 15 就填 -15。与 price 二选一")
+                        }
+                        putJsonObject("price") {
+                            put("type", "number")
+                            put("description", "（批量调价）统一单价。与 adjust 二选一")
+                        }
+                    }
+                    putJsonArray("required") { add(JsonPrimitive("workflow")) }
+                },
+
                 INVENTORY_ALERTS to buildJsonObject {
                     put("type", "object")
                     putJsonObject("properties") {
@@ -1330,6 +1408,7 @@ class AiTools(
         }
 
         private val DESCRIPTIONS = mapOf(
+            RUN_WORKFLOW to AiWorkflows.TOOL_DESCRIPTION,
             SEARCH_SHIPPER to
                 "按姓名或手机号查找货主，返回姓名、手机号、是否批发商（高级货主）、账号是否启用。\n" +
                 "什么时候用：用户提到某个货主（人名/手机号）而你需要确认这位货主是谁、电话是多少。\n" +

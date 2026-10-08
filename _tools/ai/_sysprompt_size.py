@@ -17,6 +17,9 @@ TARGETS = [
     (AI / "AiRolePrompt.kt", None),
     (AI / "AiAnswerStyle.kt", None),
     (AI / "AiAnswerSkills.kt", None),
+    # 业务多步工作流（CHG-0096）：RULES 是第 13 条规则、TOOL_DESCRIPTION 是 run_workflow 的工具说明，
+    # 两块都每轮重发（登记表里的 whenToUse/steps 也在这个文件里，一并算进这一行的口径）。
+    (AI / "AiWorkflow.kt", None),
 ]
 
 LITERAL = re.compile(r'"((?:[^"\\]|\\.)*)"')
