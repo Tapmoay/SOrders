@@ -47,22 +47,6 @@
 - 真机：⟪SHOTS⟫
 - 核心改动：**无** —— 为什么：改的六个文件（`ai/AiAnswerSkills.kt`、`ai/AiAnswerShape.kt`、`ai/AiCardTable.kt`、`ai/AiAgentLoop.kt`、`ui/ai/AiRichText.kt`、`_tools/ai/_sysprompt_size.py`，另加两个单测）都不在 `_tools/qa/_core_files.txt` 里。
 
-### [2026-10-09 01:0x → 02:4x CST 已完成] 会话：**CHG-0091 订单卡的商品行改成「一块一个商品」，整个 App 的主色蓝改绿**（DSH `session-b751c386-2b09-4b5a-bf6d-6dd9afc479c0`）
-
-`用户口径（ref `m01501`，语音转写）：「订单卡片的商品的图商品样式啊，以图一的那个样式加那个底部有个黑色的四正方长方形倒角……让这个信息比较重要嘛，能一眼看得出来」「如果是多个商品的话，他就是多个样式」「包括订单详情进去也是这个样式」「我们的整体的颜色要改一下……不是蓝色吗？我们要改成绿色包括ai的聊天的那个对话框……改成微信那样子的」「包括我们的那个界面的图标……要改成绿色像微信的样子。也就是说我们整个的基调，要从蓝色变成绿色」「我们的那个工作台……不是有个蓝色的条吗？我们可以改一下……也改成浅绿色吧」「然后我们的整体的背景啊，也可以加一个由深绿往下到白色」`。定稿 `ref `m01927`：「就选**甲方案**……颜色的话就选**深绿色**吧……因为太亮了不好，因为我们的核心要求是**低饱和**」「商品名称**不留紫色**」。当天追加一次口径 `ref `m02715`：「算了，算了，那个背景的渐变，就去掉吧……就像那个 ai 聊天框的上面，它不是有个绿色嘛，那个也去掉啊，就是**白色的默认色**」。
-
-**改了什么**
-- `android/app/src/main/java/com/tapmoay/sorders/ui/theme/Color.kt`：`ThemeGreen = 0xFF00A870L` 是唯一真身；`NavBlue = ThemeGreen`、`InfoBlue = ThemeGreen`（**别名**，全仓 16 处调用点一个字未改）；`Primary` 四件套换绿（`#00A870` / `#D6F2E4` / `#0B4A32`）；商品行 token `ThemeGreenDeep = 0xFF0E7A50L` / `ProductRowTint = 0xFFE6F7EEL` / `OnProductRowTint = 0xFF10331FL`；页面底四层改**中性近白**（`#FBFBFA` / `#F3F2EF` / `#EFEEEB` / `#E9E7E3`）。
-- `android/app/src/main/java/com/tapmoay/sorders/ui/common/OrderCard.kt`：商品摘要改成**一块一个商品的圆角浅绿胶囊**（绿 tint 图标 + 墨绿 SemiBold 品名 + 深绿数量块白字），不再画紫色、不再画虚线（`DashedLine()` **已删** —— 没人调用的私有声明过不了 `_check_dead_code.py`，它那两条结论搬进了「行4」注释）。
-- 另 **18 个 `.kt`**：把 **39 处**硬编码 `Color(0xFF1E6FFF)` 收成 `Color(ThemeGreen)`（`ui/common`、`ui/dispatcher`、`ui/order`、`ui/profile`、`ui/shipper`；`ShipperLedgerScreen.kt:1091` 那处是条件表达式里的裸字面量，单独改）。
-- `android/app/src/main/java/com/tapmoay/sorders/ui/home/RoleHomeScreen.kt` ＋ `ui/common/Components.kt`：**当天改过一次又撤回** —— 渐变（`TopGreenFade`）与顶栏浅绿（`primaryContainer`）都退回原样，`RoleHomeScreen` 连 `Brush` / `PageGradientGreen` 的 import 一并删掉。
-- 文档：`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md` 七处（背景分层 / 模块语义色表 / 语义状态色 / 订单状态「全部」/ 商品名例外 / 新增 **§4.2e**（含第 7 条「当天撤掉的两件，别再加回来」）/ 品牌种子）；样本 `docs/theme-green-prototype/index.html` 第 7 节标「❌ 已撤销」。
-- 判据：`_tools/qa/_check_green_theme.py`（**40 项**，新建）＋ `_tools/qa/_reverse_verify_green_theme.py`（**21 条注入**，新建）＋ `_tools/qa/_check_warm_surface_palette.py` 与它的反验（口径**暖白 → 近白**，`WARM` → `NEAR_WHITE`，`R > B` 放宽成 `R >= B`：改的是偏哪一边，不是把这条规矩废掉）。
-
-**⛔ 明确不碰**：数量的拼法与单位（`"×" + qtyWithUnitConverted(op.quantity, op.unit, conversions)`）、`order.orderProducts.take(3)`、司机端不画金额、**后端一行不改**、权限 / API / Data Contract、历史订单与金额、`SheetSurface` 与暗色主题那一套、其余 14 个模块语义色（商品名在别处仍是紫 `#8455E6`）、**数量蓝 `#1E6FFF` 与加减按钮淡蓝 `#E8F2FF`**（这两个是**功能色**，与主色同屏要分得开，故意没刷绿）、订单卡第三个槽 `bottomAction` 与「确认接单」那颗按钮（CHG-0081 / CHG-0083 钉着）。工作区里另一条并行会话的 `ai/*`、`ui/ai/*`、`backend/app/api/v1/ai_operations.py` 等文件**一行没动**，提交时按路径显式 `git add`。
-
-**状态**：✅ 代码与文档已落盘、编译 `BUILD SUCCESSFUL in 1m 2s`、单测 **1361 / 0 failed / 2 skipped**（94 个类）、判据 `_check_green_theme.py` **40/40**、反验 `_reverse_verify_green_theme.py` **21/21**、全量静检 **223 项 / 1 项没过**（唯一那条 `_check_backend_fresh.py` 是并行会话没重启自己的后端，**本单后端一行未改**）、可达性 **212/212**。**真机取证已做**（5558 司机端）：`uiautomator dump` 抓到 `红富士苹果 / ×10 筐 / 四会砂糖橘 / ×6 筐`，截图 `shots/64_订单卡商品胶囊_修复后.png`；设备上 `base.apk` 与本地构建 sha256 逐字节相同。⚠️ **第一次走查就抓出本单自己的一处回归**：商品块那一层在去掉外层 `Row` 之后 `Modifier.weight(1f)` 变成**纵向**权重 ⇒ 整块商品区 **0 高**、一个像素都不画（编译 / 单测 / 全部只看源码文本的判据**都是绿的**）。已修，并补了判据第 3 节一正一反两条 ＋ 反验第 21 条注入。
-
 ### [2026-10-09 01:1x → 02:1x CST 已完成] 会话：**CHG-0088 撤票卡不再教用户说「恢复这张票」：改文案写明点聊天里那个「撤回」（台账 L-57）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径（ref `m34423`，目标 `goal-c44b7db2-bf4b-4df3-8c5f-0b25747b3e55` 原文，语音转写）：「对你改掉了除了第一点就是呃其实说白了恢复发票和撤回撤回动作都是一个意思啊直接改文案吧写明写明点就是撤回啊」`。本单是那一句里的**第一件**（另两件＝CHG-0089 读动作落流水 / CHG-0090 写工具默认开）。
@@ -6621,6 +6605,22 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 ---
 
 ## 已完成
+
+### [2026-10-09 01:0x → 02:4x CST 已完成] 会话：**CHG-0091 订单卡的商品行改成「一块一个商品」，整个 App 的主色蓝改绿**（DSH `session-b751c386-2b09-4b5a-bf6d-6dd9afc479c0`）
+
+`用户口径（ref `m01501`，语音转写）：「订单卡片的商品的图商品样式啊，以图一的那个样式加那个底部有个黑色的四正方长方形倒角……让这个信息比较重要嘛，能一眼看得出来」「如果是多个商品的话，他就是多个样式」「包括订单详情进去也是这个样式」「我们的整体的颜色要改一下……不是蓝色吗？我们要改成绿色包括ai的聊天的那个对话框……改成微信那样子的」「包括我们的那个界面的图标……要改成绿色像微信的样子。也就是说我们整个的基调，要从蓝色变成绿色」「我们的那个工作台……不是有个蓝色的条吗？我们可以改一下……也改成浅绿色吧」「然后我们的整体的背景啊，也可以加一个由深绿往下到白色」`。定稿 `ref `m01927`：「就选**甲方案**……颜色的话就选**深绿色**吧……因为太亮了不好，因为我们的核心要求是**低饱和**」「商品名称**不留紫色**」。当天追加一次口径 `ref `m02715`：「算了，算了，那个背景的渐变，就去掉吧……就像那个 ai 聊天框的上面，它不是有个绿色嘛，那个也去掉啊，就是**白色的默认色**」。
+
+**改了什么**
+- `android/app/src/main/java/com/tapmoay/sorders/ui/theme/Color.kt`：`ThemeGreen = 0xFF00A870L` 是唯一真身；`NavBlue = ThemeGreen`、`InfoBlue = ThemeGreen`（**别名**，全仓 16 处调用点一个字未改）；`Primary` 四件套换绿（`#00A870` / `#D6F2E4` / `#0B4A32`）；商品行 token `ThemeGreenDeep = 0xFF0E7A50L` / `ProductRowTint = 0xFFE6F7EEL` / `OnProductRowTint = 0xFF10331FL`；页面底四层改**中性近白**（`#FBFBFA` / `#F3F2EF` / `#EFEEEB` / `#E9E7E3`）。
+- `android/app/src/main/java/com/tapmoay/sorders/ui/common/OrderCard.kt`：商品摘要改成**一块一个商品的圆角浅绿胶囊**（绿 tint 图标 + 墨绿 SemiBold 品名 + 深绿数量块白字），不再画紫色、不再画虚线（`DashedLine()` **已删** —— 没人调用的私有声明过不了 `_check_dead_code.py`，它那两条结论搬进了「行4」注释）。
+- 另 **18 个 `.kt`**：把 **39 处**硬编码 `Color(0xFF1E6FFF)` 收成 `Color(ThemeGreen)`（`ui/common`、`ui/dispatcher`、`ui/order`、`ui/profile`、`ui/shipper`；`ShipperLedgerScreen.kt:1091` 那处是条件表达式里的裸字面量，单独改）。
+- `android/app/src/main/java/com/tapmoay/sorders/ui/home/RoleHomeScreen.kt` ＋ `ui/common/Components.kt`：**当天改过一次又撤回** —— 渐变（`TopGreenFade`）与顶栏浅绿（`primaryContainer`）都退回原样，`RoleHomeScreen` 连 `Brush` / `PageGradientGreen` 的 import 一并删掉。
+- 文档：`docs/PROJECT_MAP/06_DESIGN_SYSTEM.md` 七处（背景分层 / 模块语义色表 / 语义状态色 / 订单状态「全部」/ 商品名例外 / 新增 **§4.2e**（含第 7 条「当天撤掉的两件，别再加回来」）/ 品牌种子）；样本 `docs/theme-green-prototype/index.html` 第 7 节标「❌ 已撤销」。
+- 判据：`_tools/qa/_check_green_theme.py`（**40 项**，新建）＋ `_tools/qa/_reverse_verify_green_theme.py`（**21 条注入**，新建）＋ `_tools/qa/_check_warm_surface_palette.py` 与它的反验（口径**暖白 → 近白**，`WARM` → `NEAR_WHITE`，`R > B` 放宽成 `R >= B`：改的是偏哪一边，不是把这条规矩废掉）。
+
+**⛔ 明确不碰**：数量的拼法与单位（`"×" + qtyWithUnitConverted(op.quantity, op.unit, conversions)`）、`order.orderProducts.take(3)`、司机端不画金额、**后端一行不改**、权限 / API / Data Contract、历史订单与金额、`SheetSurface` 与暗色主题那一套、其余 14 个模块语义色（商品名在别处仍是紫 `#8455E6`）、**数量蓝 `#1E6FFF` 与加减按钮淡蓝 `#E8F2FF`**（这两个是**功能色**，与主色同屏要分得开，故意没刷绿）、订单卡第三个槽 `bottomAction` 与「确认接单」那颗按钮（CHG-0081 / CHG-0083 钉着）。工作区里另一条并行会话的 `ai/*`、`ui/ai/*`、`backend/app/api/v1/ai_operations.py` 等文件**一行没动**，提交时按路径显式 `git add`。
+
+**状态**：✅ 代码与文档已落盘、编译 `BUILD SUCCESSFUL in 1m 2s`、单测 **1361 / 0 failed / 2 skipped**（94 个类）、判据 `_check_green_theme.py` **40/40**、反验 `_reverse_verify_green_theme.py` **21/21**、全量静检 **223 项 / 1 项没过**（唯一那条 `_check_backend_fresh.py` 是并行会话没重启自己的后端，**本单后端一行未改**）、可达性 **212/212**。**真机取证已做**（5558 司机端）：`uiautomator dump` 抓到 `红富士苹果 / ×10 筐 / 四会砂糖橘 / ×6 筐`，截图 `shots/64_订单卡商品胶囊_修复后.png`；设备上 `base.apk` 与本地构建 sha256 逐字节相同。⚠️ **第一次走查就抓出本单自己的一处回归**：商品块那一层在去掉外层 `Row` 之后 `Modifier.weight(1f)` 变成**纵向**权重 ⇒ 整块商品区 **0 高**、一个像素都不画（编译 / 单测 / 全部只看源码文本的判据**都是绿的**）。已修，并补了判据第 3 节一正一反两条 ＋ 反验第 21 条注入。
 
 ### [2026-10-08 02:0x → 02:3x CST 已完成] 会话：**CHG-0083 卡片上那颗「确认接单」真的出现了 —— 拿掉初版多挂的那道 `!order.isNewForDriver`（真机打脸后修的 bug）**（DSH `session-b751c386-2b09-4b5a-bf6d-6dd9afc479c0`）
 
