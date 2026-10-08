@@ -6606,6 +6606,16 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 ## 已完成
 
+### [2026-10-09 03:4x → 03:5x CST 已完成] 会话：**GOV-0006 开发库测试口令只有一个真相：`reset_dev_passwords.py` 走环境变量**（DSH `session-b751c386-2b09-4b5a-bf6d-6dd9afc479c0`）
+
+`病灶`：同一份开发库里「三个测试号的口令是什么」有两个会写库的答案 —— `backend/scripts/seed_dev_users.py` 与 `backend/tests/conftest.py` 和 README / CI 都写 `pass12345`，而 `backend/scripts/reset_dev_passwords.py` 2026-10-08 被就地改成硬编码 `123321`（那天用户把本机开发库的四个号改成 123321，要我保持一致）。谁后跑谁的算：下次"登录不上、跑一下重置脚本"就会把库改回另一个口令。
+
+`改法`：`PLAIN = os.environ.get("SORDERS_DEV_PASSWORD", "pass12345")`（缺省值回到仓库口径），文档串写明唯一真相是环境变量、两条用法（缺省 / 本机 123321），并写明⛔ 不要把本机在用的口令写死回源码。
+
+`⛔ 明确不碰`：`seed_dev_users.py` 与 `conftest.py` 的 `pass12345`（改了单测没法跑）；README 账号表；`.github/workflows/gate.yml` 的 `SORDERS_PROBE_PASSWORD`；`_tools/qa/_probe_customer_balances.py` / `_probe_purchase_orders.py` / `_probe_tax_invoices.py` 里写死的 `pass12345`（别的会话在用的本机探针）；本机开发库任何一行数据；产品代码 / 接口 / 权限 / 判据。
+
+`证据`：两条自检（缺省 → `pass12345`；`SORDERS_DEV_PASSWORD=123321` → `123321`，都不写库）；`python _tools/qa/_check_secrets.py` 干净；`python _tools/qa/_check_dev_spec.py` **5 项全过**。
+
 ### [2026-10-09 03:1x → 03:3x CST 已完成] 会话：**CHG-0093 AI 助手那一页的单色强调从 Google 蓝换成主题绿（顶栏三颗图标 / 输入行 ⊕ / 发送键）**（DSH `session-b751c386-2b09-4b5a-bf6d-6dd9afc479c0`）
 
 `用户口径（ref `m03583`）：「这个也改成就是我框起来的，也改成类似的绿色就是统一主题哦，颜色，可以做一些稍微的区别，然后就是给所有的模拟器都改完之后，给所有模有的模拟器都装上」（附“AI 助手”聊天页截图，红框圈了顶栏右侧三颗图标、输入行左边的 ⊕、右下发送键）`
