@@ -31,6 +31,22 @@
 
 ## 进行中
 
+### [2026-10-09 03:1x → 03:4x CST 已完成] 会话：**CHG-0094 AI 助手的「执行过程」默认折成一行：点开才逐条看（像思考过程那样）（台账 L-60）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径（ref `m35906`，附「AI 助手」聊天页截图、红框圈出「🔧 正在查…/✓ … → 返回 N 条」那一串，语音转写逐字）：「还有这个部分它是自动的收缩的，也就是说默认情况下，是收收缩的就像思考过程一样，不过，我们也可以点开进行查看不然，它步骤太多的话，使得整个界面太过冗余了」`
+
+`病灶`：`ui/ai/AiChatScreen.kt:1690-1715` 的 `ToolTraceStrip(lines: List<String>)` 是**恒展开**的（`Column` 里 `lines.forEach { Row { 色条 + Spacer(8.dp) + Text(line) } }`，整块不可点、也没有「几步」这个概念）。真机上一次提问模型常查十几轮、每轮两行 ⇒ 那串过程比回答正文还长，把回答挤到屏幕下面（用户截图里 11 行）。
+
+`改法`：① 新建 `ui/ai/AiTraceHeader.kt`：`internal fun traceHeaderLabel(lineCount: Int, running: Boolean, expanded: Boolean): String` —— 优先级 **展开 > 进行中 > 条数**：展开 → `收起执行过程`；折叠且还在跑 → `执行过程 · 进行中`（**不带条数**：跑的时候条数一直在变，写上去只会闪）；折叠且跑完 → `查看执行过程 · N 条`；0 条 → `查看执行过程`（⛔ 不留空壳标题）。② `AiChatScreen.kt` `:1719-1765` 新版 `ToolTraceStrip(lines: List<String>, running: Boolean, stateKey: Any?)`：默认折叠（`var expanded by rememberSaveable(stateKey) { mutableStateOf(false) }` —— 用 saveable 是因为 `LazyColumn` 会把滚出屏幕的项销毁，普通 `remember` 会让「展开了又自己收回去」）、**整块可点**（`.clickable { expanded = !expanded }`）、标题行＝3dp 色条 ＋ `traceHeaderLabel(lines.size, running, expanded)` ＋ **右端** 16dp chevron（`Icons.Default.ExpandLess / ExpandMore`），逐条步骤只在 `if (expanded) { … }` 里画。③ 顺手修掉一处语义错位：`:558` 的 `MessageRow` 改收 `sending = vm.sending && i == vm.messages.lastIndex`（原来收全局 `vm.sending` ⇒ 每条历史消息都会写成「进行中」）；④ 调用点 `:1325` 传 `running = sending, stateKey = index`；⑤ 单测 `AiTraceHeaderTest`（四档）。
+
+`明确不碰`：「思考过程」那一块 `ReasoningSection`（`AiChatScreen.kt:1778-1813`：默认折叠、普通 `remember`、`text = if (expanded) "收起思考过程" else "查看思考过程",`、还在被调用 —— 本单**一个字没动**，判据第 5 节正面钉着）；每一行步骤的文案与顺序、3dp 色条、`TraceTextSize = 14.sp`（展开后与改前**逐行一致**）；`vm.sending` 在别处的用途；`MessageRow` 其它内容；后端 / 端点 / 权限 / 数据库 / 历史消息（折叠状态不进 `UiMessage`、不写库）。
+
+`判据 / 反验`：`python _tools/qa/_check_ai_trace_collapse.py`（七节 **37/37 全绿**）/ `python _tools/qa/_reverse_verify_ai_trace_collapse.py`（**18** 条注入 ✅ 全部报红 ＋ 7 个被碰过的文件逐字节还原），单测 ✅ **1383 / 0 failed / 0 errors / 2 skipped**（97 个类，基线 1379 ＋ 本单 4 条）。
+
+- 状态：✅ **已关闭**（2026-10-09；变更单 `docs/changes/CHG-0094.md`；台账 **L-60**；Blast Radius **L1 —— AI 助手聊天页的痕迹带**；提交 `⟪HASH⟫`）。
+- 真机：`shots/68_ai_执行过程_默认折叠.png`（1080×2400 / 279351 字节）＝**默认折叠**：助手气泡上方只有一行「查看执行过程 · 12 条」＋右端 chevron，`uiautomator dump` 里**一条步骤节点都没有**；`shots/68b_ai_执行过程_点开展开.png`（1080×2400 / 335230 字节）＝**点一下标题**：「收起执行过程」＋ 6 条「🔧 正在查…」＋ 6 条「✓ … → 返回 N 条」全在 dump 里（与改前逐行一致）；改前的样子（恒展开、占掉大半屏）：用户提供的截图 `shots/67_ai_执行过程_改前恒展开.png`（450×1000 / 162027 字节）。`emulator-5554`（派单员）、真模型 `deepseek-flash · 中`；取证走 **ADBKeyboard 输入法广播**（`emulator-5554` 没开剪贴板共享，`_tools/ai/_emulator_say.ps1` 的粘贴进不了输入框）。
+- 核心改动：**无** —— 为什么：改的 `ui/ai/AiChatScreen.kt` 与新建的 `ui/ai/AiTraceHeader.kt` 都不在 `_tools/qa/_core_files.txt` 里。
+
 ### [2026-10-09 02:0x → 03:0x CST 已完成] 会话：**CHG-0092 AI 回答的呈现：内置「按内容形状」的呈现技能 ＋ 渲染层兜底（无表头小表也画得出来了）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径（ref `m35395` / `m35399`，目标 `goal-9c29e859-ec5e-444e-9e78-6e330bf0aa07` 原文，语音转写）：「AI 的回答最好都要用表格的样式」「上面有文字下面有信息混在一起就很难分辨出来，他具体想表达的核心内容是什么」「不要就是他啊就是搞一个我们来搞一个搞一个我们来搞一个，这样子太麻烦了」「其实基本上只要涉及到信息的基本上他都要想啊想办法比如说像表格呀或者是其他的样式把信息给表达出来」「所以说我们可以内置对应的 skills 和工作流」`

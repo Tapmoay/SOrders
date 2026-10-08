@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -552,7 +553,9 @@ fun AiChatScreen(
                     MessageRow(
                         m = vm.messages[i],
                         index = i,
-                        sending = vm.sending,
+                        // 「进行中」只属于**最后一条**：直接用全局 vm.sending 的话，
+                        // 每次提问都会让屏幕上每一条历史消息都挂上「进行中」。
+                        sending = vm.sending && i == vm.messages.lastIndex,
                         onCopy = { idx -> copyText("这条消息", vm.plainTextAt(idx)) },
                         onBranch = { idx ->
                             vm.branchFromMessage(idx)
@@ -1315,9 +1318,11 @@ private fun MessageRow(
                 .combinedClickable(onClick = {}, onLongClick = { menu = true }),
             horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
         ) {
-            // 工具痕迹：系统在查数据，不是聊天内容 → 通栏浅灰底 + 细色条，不做成气泡
+            // 工具痕迹：系统在查数据，不是聊天内容 → 通栏浅灰底 + 细色条，不做成气泡。
+            // **默认折成一行**（L-60 / CHG-0094）：一轮多步问答能攒十几条，全摊开时它比答案还长，
+            // 答案被挤到屏幕外；点一下才逐条展开。标题上一直写着"几步"——折叠不等于藏起来。
             if (m.toolTrace.isNotEmpty()) {
-                ToolTraceStrip(m.toolTrace)
+                ToolTraceStrip(lines = m.toolTrace, running = sending, stateKey = index)
                 if (m.text.isNotBlank() || sending) Spacer(Modifier.height(6.dp))
             }
 
@@ -1687,28 +1692,73 @@ private fun EditingBanner(onCancel: () -> Unit) {
     }
 }
 
-/** 工具痕迹条：一行一条小字，浅灰底 + 左侧细色条，一眼看出"这是系统在查数据" */@Composable
-private fun ToolTraceStrip(lines: List<String>) {
+/**
+ * 工具痕迹条：浅灰底 + 左侧细色条，一眼看出"这是系统在查数据"。
+ *
+ * **默认折叠成一行**，点一下才逐条展开（台账 L-60 / CHG-0094）。为什么：
+ * 一轮多步问答能攒十几条「正在查…／✓ 返回 N 条」，全摊开时它比答案本身还长，
+ * 答案被挤到屏幕外 —— 它是**过程**不是结论，与思考过程同一条道理（见 [ReasoningSection]）。
+ * 但排障时（"它为什么查这个数"）必须能逐条看，所以标题行一直写着**查了几步**。
+ *
+ * 用户口径（2026-10-09，ref `m35906`）：「还有这个部分它是自动的收缩的，也就是说默认情况下，
+ * 是收收缩的就像思考过程一样，不过，我们也可以点开进行查看不然，它步骤太多的话，
+ * 使得整个界面太过冗余了」——"自动收缩"就是默认折叠，"可以点开进行查看"就是整块可点。
+ *
+ * 两处与思考过程**故意不同**：
+ * 1. chevron 放**标题行右端**（思考过程放最左）。左端已经有一条 3dp 色条，chevron 插在
+ *    色条和文字之间，会让标题比下面的步骤行多缩进 22dp；放右端则两者左对齐，
+ *    步骤行也不丢宽度（步骤行里有会折行的长句，如"正在改数据（需你确认）（{…}"）。
+ * 2. 用 `rememberSaveable`。LazyColumn 会把滚出屏幕的气泡销毁重建，普通 `remember`
+ *    会让"展开了又自己收回去"。键是消息下标。
+ *
+ * @param running 这条消息**此刻正在生成**（调用点传的是"最后一条 + 全局忙"的合取）：
+ *   标题写「进行中」，用户才知道屏幕上跳动的是哪一块。⛔ 别把全局 `sending` 直接传进来。
+ * @param stateKey 展开状态的键（消息下标）。没有它，滚一趟回来展开态就没了。
+ */
+@Composable
+private fun ToolTraceStrip(lines: List<String>, running: Boolean, stateKey: Any?) {
+    var expanded by rememberSaveable(stateKey) { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceContainer)
+            .clickable { expanded = !expanded }
             .padding(horizontal = 10.dp, vertical = 6.dp),
     ) {
-        lines.forEach { line ->
-            Row(
-                modifier = Modifier.padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.size(width = 3.dp, height = 16.dp).background(AiAccent, RoundedCornerShape(2.dp)))
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = line,
-                    fontSize = TraceTextSize,
-                    lineHeight = 20.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(width = 3.dp, height = 16.dp).background(AiAccent, RoundedCornerShape(2.dp)))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = traceHeaderLabel(lines.size, running, expanded),
+                modifier = Modifier.weight(1f),
+                fontSize = TraceTextSize,
+                lineHeight = 20.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // 装饰性图标：右边那句标题已经把意思说全了，别让读屏软件念第二遍
+            Icon(
+                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+        if (expanded) {
+            lines.forEach { line ->
+                Row(
+                    modifier = Modifier.padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(width = 3.dp, height = 16.dp).background(AiAccent, RoundedCornerShape(2.dp)))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = line,
+                        fontSize = TraceTextSize,
+                        lineHeight = 20.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

@@ -1525,6 +1525,19 @@ val netTotal = netOrderMoneyText(order)                       // 合计同理（
 
 判据 `_tools/qa/_check_ai_answer_style.py`（第 12 节）＋ 反向验证 `_tools/qa/_reverse_verify_ai_answer_style.py`（技能没拼进 system prompt / 「单独一行、放在最后」被删 / 兜底自写一份冒号切分 / 只吸文本与无序条目那条被删 / 渲染器改回 `if (table.header.isEmpty()) return` / 值上限被放宽到 2400 / 先上色再补形状 —— 逐条注入都要能报红）。
 
+### 4.25c AI 助手聊天页的「执行过程」痕迹带：**默认折成一行**，点开才逐条（2026-10-09 用户点名，CHG-0094 · 台账 L-60）
+
+用户原话（`m35906`，附聊天页截图、红框圈出「🔧 正在查… / ✓ … → 返回 N 条」那一串步骤行）：「还有这个部分它是自动的收缩的，也就是说默认情况下，是收收缩的就像思考过程一样，不过，我们也可以点开进行查看不然，它步骤太多的话，使得整个界面太过冗余了」。
+
+**病根**：那串工具痕迹（`ToolTraceStrip`）是**恒展开**的 —— `lines.forEach` 直接铺满，整块不可点。一次「查货主资料」能查 9 步（读目录 20 条 ×3、查货主 2 次、读用户 1 次），正文被推到屏幕外。
+
+**落法**：
+- **默认折叠，整块可点**：`ui/ai/AiChatScreen.kt` 的 `ToolTraceStrip(lines, running, stateKey)` 用 `rememberSaveable(stateKey)`（⛔ 不是普通 `remember`：LazyColumn 会把滚出屏幕的项销毁，「展开了又自己收回去」）默认 `false`，点标题 / 空白 / 色条都算；步骤只在 `if (expanded)` 里画（折叠就是真的不画，不是盖住）。
+- **标题是一条纯函数**：`ui/ai/AiTraceHeader.kt` 的 `internal fun traceHeaderLabel(lineCount: Int, running: Boolean, expanded: Boolean)` —— 优先级 **展开 > 进行中 > 条数**：展开→「收起执行过程」；折叠且进行中→「执行过程 · 进行中」（**不带条数**：每来一步都会 +1，跳字是噪声）；折叠且跑完→「查看执行过程 · N 条」；一条都没有→「查看执行过程」。
+- **「进行中」只属于最后一条**：调用点传 `running = sending`，而 `@` `MessageRow` 收到的 `sending` 是 `vm.sending && i == vm.messages.lastIndex` —— 直接用全局忙闲标志会让**每一条历史消息**都变「进行中」。
+- **与思考过程故意不同**（`ReasoningSection` 一个字没动）：chevron 放**标题行右端**（左端已被 3dp 色条占着，插在色条与文字之间会让标题比步骤行多缩进 22dp；放右端则标题与步骤行左对齐、长步骤不丢宽度）。
+
+判据 `_tools/qa/_check_ai_trace_collapse.py`（7 节 37 项）＋ 反向验证 `_tools/qa/_reverse_verify_ai_trace_collapse.py`（18 条注入：默认改回展开 / saveable 退回 remember / 步骤不再放在 `if (expanded)` 里 / 整块不再可点 / chevron 挪到最左 / 条数档被删 / 三档顺序调反 / 条数写死 / 调用点改回全局 `vm.sending` / 单测那一档被删 / 思考过程被顺手改成默认展开或改文案 / 判据清单指向不存在的文件 / 反验脚本自己不见了 / CHG 文档少一节 / 登记簿与工作声明被改名 —— 逐条注入都要能报红）。
 ### 4.26 照片上的水印：**当场拍的两行、事后补的三行**（2026-10-06 用户点名，台账 L-22）
 
 用户原话：「如果有些信息是**补上去的照片**的话，会有一些水印……那个水印就是会显示时间，然后这个照片是**被人补过的**，就是说是补过的照片就可以了。」
