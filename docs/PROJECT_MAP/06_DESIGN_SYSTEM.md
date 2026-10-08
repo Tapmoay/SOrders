@@ -1538,6 +1538,25 @@ val netTotal = netOrderMoneyText(order)                       // 合计同理（
 - **与思考过程故意不同**（`ReasoningSection` 一个字没动）：chevron 放**标题行右端**（左端已被 3dp 色条占着，插在色条与文字之间会让标题比步骤行多缩进 22dp；放右端则标题与步骤行左对齐、长步骤不丢宽度）。
 
 判据 `_tools/qa/_check_ai_trace_collapse.py`（7 节 37 项）＋ 反向验证 `_tools/qa/_reverse_verify_ai_trace_collapse.py`（18 条注入：默认改回展开 / saveable 退回 remember / 步骤不再放在 `if (expanded)` 里 / 整块不再可点 / chevron 挪到最左 / 条数档被删 / 三档顺序调反 / 条数写死 / 调用点改回全局 `vm.sending` / 单测那一档被删 / 思考过程被顺手改成默认展开或改文案 / 判据清单指向不存在的文件 / 反验脚本自己不见了 / CHG 文档少一节 / 登记簿与工作声明被改名 —— 逐条注入都要能报红）。
+### 4.25d AI 助手聊天页的「导出文件卡」：**左＝带框文件图标、中＝文件信息、右＝下载 ＋ 分享两颗按钮**（2026-10-09 用户画好了，CHG-0095 · 台账 L-61）
+
+用户原话（`m00002`，附聊天页截图 `m00001`／`sha256:fd50bb92…`——红框圈出回答下方那一排，语音转写逐字）：「更改一下 ai 的那个导出表格的样式啊，也不说表格吧。光是有些文件如果将它导出来，他给一些文件的话是以这样子的形式出现的上面是信息，然后最下面就是有个单独的卡片，那个卡片就是我已经画好了，就是文件，然后那个有个左边是有个那个框那是个文件图标，然后呢中间，那些横杠了那些就是对应的信息啊，这个文件的信息，然后呢，最后，这一右边的那个小框那就是一个下载的图标按钮，我们点击那它就会直接下载下来，或者说啊，还有一个按钮叫做就是分享也就是它有 2 个按钮。第一个是呃下载第 2，个是分享。啊这个 2 个按钮不要 \*\*\*\*的太近啊」。
+
+**病根**（v3.34 / CHG-0078 那版 `ExportFileRow`）：① 左侧是一个 **18dp 裸图标**，没有用户说的那个「框」；② 右侧是 `when` **四选一**的一颗按钮 —— 点过 [下载] 之后那颗**变**成 [分享]，同一时刻屏幕上只有一颗；③ 卡片上没有任何一行字说明这是哪张表、统计的是哪一段。
+
+**落法**（`ui/ai/AiChatScreen.kt` 的 `ExportFileRow`）：
+- **左**：44dp 圆角方框（`ExportIconBoxSize`）＝ `clip(RoundedCornerShape(10.dp))` ＋ `background(Color(MoneyOrange).copy(alpha = 0.12f))` ＋ `border(1.dp, Color(MoneyOrange).copy(alpha = 0.35f), …)`，框里 22dp 的 `Icons.Default.Description`，用导出语义色 `MoneyOrange`（与账本 / 收款 / 导出落点同源，⛔ 不另引一个颜色）。框**不可点** —— 它只是「这是个文件」的符号。
+- **中**：文件名（17sp Medium，**maxLines = 2**：长文件名不要被切成一个看不出是什么的样子）→ 「表名 · 起止区间」11sp（认不出就整行不画）→ 状态行（`错误 > 已存好 > 正在忙` 的先后即判据；存好了在末尾跟一个 13dp 绿勾）。
+- **右**：**两颗 44dp 的图标按钮**（`ExportActionButtonSize`）—— `Icons.Default.FileDownload`（语义色 `MoneyOrange`）与 `Icons.Default.Share`（主操作色 `ThemeGreen`），中间隔 `ExportActionGap = 12.dp`。
+- ⛔ **两颗永远都在，点不动就灰掉**（`disabledContentColor = outlineVariant`），不靠 `if (enabled)` 隐藏 —— 「这里到底有几颗按钮」不许随状态变。旧版那种「忙就画转圈、不忙才画按钮」的四选一已删，判据第 5 节**反向**钉着它不许回来。
+- **为什么是 12dp**：用户原话就是「这 2 个按钮不要靠的太近」；规范下限是相邻可点元素 ≥ 8px（`docs/UI_DESIGN_AGENT_BRIEF.md`），两颗各 44dp 也满足「可点区域 ≥ 44×44px」。
+
+**哪一颗点得动只有一处实现**：`ai/AiExportCard.kt` 的 `internal fun exportCardActions(busy, saved, shareable): ExportCardActions`（`downloadEnabled = !busy && !saved`；**`shareEnabled = !busy && saved && shareable`**；`downloaded = saved`）。第三条那个 `!busy` 是本单想清楚的一处**真机坑**：`AiChatViewModel.downloadExport` 重下时只翻 `busy`、**不清** `file`，所以「文件在手机上、正在被新一版覆盖」这一档真会出现 —— 这时分享键亮着，用户分享到的可能是**上一版**那份表，而界面上没有任何异常。界面侧只读这一个结论，⛔ 不许在 `AiChatScreen` 里再判一次（判据钉着 `val actions = exportCardActions(` 全仓恰好 1 处）。
+
+**这一节就是 §4.25d**（`_tools/qa/_check_ai_export_card.py` 第 8 节按这个名字找它）。
+
+判据 `_tools/qa/_check_ai_export_card.py`（8 节）＋ 反向验证 `_tools/qa/_reverse_verify_ai_export_card.py`（29 条注入：框的底色被删 / 两颗变一颗 / 间距常量归零 / 两处 `Spacer` 被删 / 尺寸缩到 24dp / 分享漏掉 `busy` / 灰色键又亮起来 / 退回「点过就没了」的旧写法 / 用户原话被从 KDoc 里删掉 —— 逐条注入都要能报红）＋ 单测 `AiExportCardTest`（15 档）。
+
 ### 4.26 照片上的水印：**当场拍的两行、事后补的三行**（2026-10-06 用户点名，台账 L-22）
 
 用户原话：「如果有些信息是**补上去的照片**的话，会有一些水印……那个水印就是会显示时间，然后这个照片是**被人补过的**，就是说是补过的照片就可以了。」

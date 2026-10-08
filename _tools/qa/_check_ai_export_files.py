@@ -60,6 +60,9 @@ SERVICE = AI / "AiExportService.kt"
 CONTAINER = AI / "AiContainer.kt"
 CHAT = AND / "ui/ai/AiChatScreen.kt"
 CHATVM = AND / "ui/ai/AiChatViewModel.kt"
+# 导出卡那三件事（哪一颗点得动 / 进度那句话 / 下载那颗的字）的唯一实现处。
+# 2026-10-09 CHG-0095 从「卡片里 when 四选一」抽出来的纯函数，单测在 AiExportCardTest.kt。
+CARD = AI / "AiExportCard.kt"
 EXPORTUTIL = AND / "util/ExportUtil.kt"
 REPORTCENTER = AND / "ui/dispatcher/ReportCenter.kt"
 APIS = AND / "data/remote/api/Apis.kt"
@@ -461,10 +464,32 @@ def main() -> int:
     c.ok("文件行只有一个实现（两个入口不许各画一份）", n == 1, f"找到 {n} 处")
     row = fn_body(chat, A_FILE_ROW)
     c.ok(f"文件行函数体抽出来了（≥{BODY_FLOOR} 字符）", len(row) >= BODY_FLOOR, f"实际 {len(row)}")
-    c.ok("生成中：转圈（不是再给一颗能点的按钮）", "state.busy ->" in row)
-    c.ok("存下之后按钮变成「分享」", 'Text("分享"' in row and "shareExportFile(context, saved)" in row)
-    c.ok("存下但这台手机分享不了时什么都不显示（不骗他有分享）", "saved != null -> Unit" in row)
-    c.ok("没存下时是「下载」；失败过就写「再试一次」", 'if (state.error.isBlank()) "下载" else "再试一次"' in row)
+    # 下面四条 2026-10-09 跟着 CHG-0095 改了口径：卡片从「一颗会变身/会消失的按钮」
+    # 改成「左边带框文件图标 ＋ 中间文件信息 ＋ 右边**下载／分享两颗**图标按钮」。
+    # 用户原话（ref m00002）：「……最后，这一右边的那个小框那就是一个下载的图标按钮，
+    # 我们点击那它就会直接下载下来……还有一个按钮叫做就是分享……这个 2 个按钮不要 ****的太近啊」。
+    # ⛔ 改的是"这颗按钮长什么样"，**没有放松**：老的四条（转圈 / 变「分享」/ 什么都不显示 /
+    # 「下载」和「再试一次」）在新形状下都变成了"看一眼就知道点不动"的**灰按钮**。
+    c.ok(
+        "生成中：两颗图标按钮都还在、都灰着（不是换成一颗转圈、也不是藏起来）",
+        ("Icons.Default.FileDownload," in row)
+        and ("Icons.Default.Share," in row)
+        and "state.busy ->" not in row
+        and "CircularProgressIndicator" not in row,
+    )
+    c.ok(
+        "存下之后是「分享」那颗图标按钮（不是文字按钮、也不消失）",
+        "Icons.Default.Share," in row and "shareExportFile(context, saved)" in row,
+    )
+    c.ok(
+        "这台手机分享不了时分享那颗**灰着**（不骗他有分享，也不把它抽掉）",
+        "actions.shareEnabled" in row and "shareable = saved?.shareable == true" in row,
+    )
+    c.ok(
+        "「下载」与「再试一次」是同一颗按钮上的两个字（由纯函数说了算）",
+        "exportDownloadLabel(state.error.isNotBlank())" in row
+        and "if (hasError) \"再试一次\" else \"下载\"" in read(CARD),
+    )
     c.ok("失败原因照原话说出来", '"⚠ " + state.error' in row)
     c.ok("存到哪了要说出来（用户得找得到）", '"已保存到：" + saved.path' in row)
     c.ok("一个接收方都没有时给一句实话", "没找到能接收文件的 App，文件已经存到「下载 / SOrders报表」。" in row)

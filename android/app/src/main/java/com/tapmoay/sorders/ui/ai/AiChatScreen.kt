@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
@@ -49,6 +50,7 @@ import androidx.compose.material.icons.filled.NorthEast
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.*
@@ -88,11 +90,16 @@ import com.tapmoay.sorders.ai.AiVision
 import com.tapmoay.sorders.ai.AiWriteRisk
 import com.tapmoay.sorders.ai.StoredExportRecipe
 import com.tapmoay.sorders.ai.ThinkingLevel
+import com.tapmoay.sorders.ai.exportCardActions
+import com.tapmoay.sorders.ai.exportCardSubtitle
+import com.tapmoay.sorders.ai.exportDownloadLabel
+import com.tapmoay.sorders.ai.exportProgressNote
 import com.tapmoay.sorders.ui.common.AppTopBar
 import com.tapmoay.sorders.ui.common.DangerConfirmDialog
 import com.tapmoay.sorders.ui.common.OneShotSnackbar
 import com.tapmoay.sorders.ui.common.SegmentedPicker
 import com.tapmoay.sorders.ui.common.appViewModel
+import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.ThemeGreen
 import com.tapmoay.sorders.ui.theme.ThemeGreenDeep
 import com.tapmoay.sorders.ui.theme.aiBrandBrush
@@ -122,6 +129,36 @@ private val MetaTextSize = 11.sp
  * 它不是"次要信息"，是"工具条上的状态"：只要看得清、点得到就够了。
  */
 private val ModelBarTextSize = 12.sp
+
+/**
+ * 导出文件卡左边那个**带框的文件图标**多大：44dp 见方。
+ *
+ * 这是用户 2026-10-09 点名的形态（ref `m00002`）：「左边是有个那个框那是个文件图标」。
+ * 取 44dp 不是随手定的 —— 设计规范里"可点区域 ≥ 44×44"就是这个数（`docs/UI_DESIGN_AGENT_BRIEF.md`），
+ * 于是这个框和右边两颗按钮（[ExportActionButtonSize]）一样大，卡片左右两头对得上。
+ * 框本身**不可点**（它只是"这是个文件"的符号），可点的是文件名右边那两颗。
+ */
+private val ExportIconBoxSize = 44.dp
+
+/**
+ * 导出文件卡右边两颗图标按钮各占多大：44dp 见方（下载 / 分享）。
+ *
+ * 44dp 同时满足设计规范那条"可点区域 ≥ 44×44px"；两颗之间还要再隔开
+ * [ExportActionGap]（用户原话：「这 2 个按钮不要 ****的太近啊」）。
+ * ⛔ 别把它俩塞进一个 Row 里紧挨着 —— 挨着就必然有一颗被点错，
+ * 而"点错了"在这里的后果是**文件被分享到别处**，不是一件小事。
+ */
+private val ExportActionButtonSize = 44.dp
+
+/**
+ * 两颗图标按钮之间的间距：12dp。
+ *
+ * 设计规范要求相邻可点元素 ≥ 8px；这里取 12dp 是因为用户专门交代过
+ * 「这 2 个按钮不要靠的太近」—— 规范是下限，用户那句话是口径。
+ * 与卡片左图标框到中间文字的那段间距（10dp）刻意错开，不追求两个数相等：
+ * 左边是"看得见的分组"，右边是"不许点错的分界"。
+ */
+private val ExportActionGap = 12.dp
 
 /**
  * AI 的单色强调色 = **主题绿**（#00A870，与全 App 的主操作色同源）。
@@ -1536,21 +1573,39 @@ private fun MessageRow(
 }
 
 /**
- * 助手回答下面那行「文件」（v3.34，CHG-0078，台账 L-43）。
+ * 助手回答下面那行「文件」（v3.34，CHG-0078，台账 L-43；**样式重做** v3.60，CHG-0095，台账 L-61）。
  *
  * ### 它为什么长在**回答下面**
  * 用户原话（m01794）：「他首先第一点，他要自己做表格先给我看，然后…他会输出一个下载按钮，
  * 直接点击下载按钮，直接给下载了」。所以按钮必须贴在那句话底下 ——
  * 他看到"表给你了"的那一刻，手边就有那颗按钮，不用再去别处找。
  *
- * ### 三态各有各的样子（都在这一行里）
- * - 还没点：[下载]；
- * - 点过了：转圈 + 「正在生成…（已等 8 秒）」，按钮收起（连点不会开出两个账本任务）；
- * - 成了：文件名 + 「已保存到 …」+ [分享]；失败：一句实话 + [再试一次]。
+ * ### 形状（用户 2026-10-09 画好的样子，ref `m00002`）
+ * 三块，从左到右：
+ * - **左**：一个方框，框里是文件图标（[ExportIconBoxSize]，导出语义色 MoneyOrange）；
+ * - **中**：文件信息 —— 文件名（最多 2 行）→ 哪张表/哪一段（[exportCardSubtitle]）→
+ *   存到哪儿 或 正在干什么（[exportProgressNote]，错了就写一句实话）；
+ * - **右**：**两颗**图标按钮 —— 下载（[Icons.Default.FileDownload]）与分享（[Icons.Default.Share]），
+ *   各 [ExportActionButtonSize]，中间隔 [ExportActionGap]。
+ *
+ * 用户原话是「左边是有个那个框那是个文件图标然后呢中间，那些横杠了那些就是对应的信息啊，
+ * 这个文件的信息，然后呢，最后，这一右边的那个小框那就是一个下载的图标按钮…还有一个按钮
+ * 叫做就是分享也就是它有 2 个按钮」，并且专门交代「这个 2 个按钮不要 ****的太近啊」。
+ *
+ * ⛔ 两颗按钮**一直都在**，靠"灰掉"表达"现在点不动"，**不靠隐藏**。
+ * 旧版是四选一只画一颗（点过 [下载] 之后它就没了，换成 [分享]），后果是用户看完那一眼
+ * 就再也说不清"这里到底有一颗还是两颗"；而用户画的那张图里，两颗是并排摆着的。
+ *
+ * ### 三态各有各的样子（都在这三块里）
+ * - 还没点：两颗都在，[下载] 亮着、[分享] 灰着；
+ * - 点过了：两颗都灰，中间那行写「正在生成…（已等 8 秒）」（连点不会开出两个账本任务）；
+ * - 成了：文件名 + 「已保存到 …」+ 一个绿勾，[下载] 退成灰的、[分享] 亮起来；
+ * - 失败：一句实话 + [下载] 上写着「再试一次」。
  *
  * ### 分享只对 Android 10+ 开（口径 m01865）
  * Q 以下落盘拿不到 `content://`（[ExportedFile.uri] 为 null），系统层面就发不出去；
- * 这时**如实说明并把文件位置指清楚**，而不是画一颗点了没反应的按钮。
+ * 这时**如实说明并把文件位置指清楚**，并且那颗 [分享] 保持灰的 ——
+ * 一颗亮着却没反应的按钮，比一颗灰着的按钮更让人以为 App 坏了。
  */
 @Composable
 private fun ExportFileRow(
@@ -1566,61 +1621,137 @@ private fun ExportFileRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            // Q+ 才有 content:// Uri：能分享就摆按钮，不能就在下面如实说一句。
+            // Q+ 才有 content:// Uri：能分享就点亮那颗按钮，不能就让它灰着、在下面如实说一句。
             val saved = state.file
+            // 「哪一颗点得动」只有一处实现（ai/AiExportCard.kt）：这里照着画，别在这儿再判一次 ——
+            // 判据在这儿抄第二份，就是"点不动的按钮看起来点得动"的来源。
+            val actions = exportCardActions(
+                busy = state.busy,
+                saved = saved != null,
+                shareable = saved?.shareable == true,
+            )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.Description,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    recipe.fileName.ifBlank { "导出文件" },
-                    fontSize = MessageTextSize,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                when {
-                    state.busy -> CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
+                // 左：带框的文件图标（用户 2026-10-09 画的就是这个：一个方框里一个文件图标）。
+                // 导出落点用 MoneyOrange（账本/收款/导出同一个语义色），不另引一个颜色。
+                Box(
+                    modifier = Modifier
+                        .size(ExportIconBoxSize)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(MoneyOrange).copy(alpha = 0.12f))
+                        .border(1.dp, Color(MoneyOrange).copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.Description,
+                        contentDescription = null,
+                        modifier = Modifier.size(22.dp),
+                        tint = Color(MoneyOrange),
                     )
-                    saved != null && saved.shareable -> TextButton(
-                        onClick = {
-                            if (!shareExportFile(context, saved)) {
-                                onToast("没找到能接收文件的 App，文件已经存到「下载 / SOrders报表」。")
+                }
+                Spacer(Modifier.width(10.dp))
+                // 中：文件信息（名字 → 哪张表哪一段 → 存到哪儿/正在干什么 ＋ 已下载）
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        recipe.fileName.ifBlank { "导出文件" },
+                        fontSize = MessageTextSize,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    val subtitle = exportCardSubtitle(recipe)
+                    if (subtitle.isNotBlank()) {
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            subtitle,
+                            fontSize = MetaTextSize,
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            // 显式定宽：这行是「哪张表 · 哪一段」，长了就在这里收掉，
+                            // 不许去挤右边那两颗按钮（`_check_adaptive_layout.py` 的存量基线
+                            // 只许往下减；这里给它 `fillMaxWidth` 是"它自己不会抢宽度"的写法）。
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    // 三档的先后顺序是判据：错误 > 已存好 > 正在忙。
+                    // 「说一句实话」永远压过"看起来一切正常" —— 失败之后卡片上不许只写路径。
+                    val note = when {
+                        state.error.isNotBlank() -> "⚠ " + state.error
+                        saved != null -> "已保存到：" + saved.path
+                        else -> exportProgressNote(
+                            busy = state.busy,
+                            saved = false,
+                            progress = state.progress,
+                        )
+                    }
+                    if (note.isNotBlank()) {
+                        Spacer(Modifier.height(3.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                note,
+                                // 文件路径很长：让它自己占几行把路径给全，不要挤成一行省略号
+                                // （用户要照着这个路径去「下载 / SOrders报表」里找文件）。
+                                modifier = Modifier.weight(1f, fill = false),
+                                fontSize = MetaTextSize,
+                                color = if (state.error.isNotBlank()) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.outline
+                                },
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (actions.downloaded && !state.busy) {
+                                Spacer(Modifier.width(6.dp))
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(13.dp),
+                                    tint = Color(ThemeGreen),
+                                )
                             }
-                        },
-                    ) { Text("分享", fontSize = MessageTextSize) }
-                    saved != null -> Unit
-                    else -> TextButton(onClick = onDownload) {
-                        Text(if (state.error.isBlank()) "下载" else "再试一次", fontSize = MessageTextSize)
+                        }
                     }
                 }
-            }
-            val note = when {
-                state.busy -> state.progress.ifBlank { "正在生成…" }
-                state.error.isNotBlank() -> "⚠ " + state.error
-                saved != null -> "已保存到：" + saved.path
-                else -> ""
-            }
-            if (note.isNotBlank()) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    note,
-                    fontSize = MetaTextSize,
-                    color = if (state.error.isNotBlank()) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.outline
+                // 右：下载 + 分享，两颗图标按钮。用户点名的形态就是「两颗」，
+                // 而且说了「这 2 个按钮不要靠的太近」⇒ 中间隔 ExportActionGap（12dp，≥ 规范下限 8dp；
+                // 两颗各 44dp 的可点区域也满足 ≥ 44×44px 那条）。
+                Spacer(Modifier.width(ExportActionGap))
+                IconButton(
+                    onClick = onDownload,
+                    enabled = actions.downloadEnabled,
+                    modifier = Modifier.size(ExportActionButtonSize),
+                    colors = IconButtonDefaults.iconButtonColors(
+                        contentColor = Color(MoneyOrange),
+                        disabledContentColor = MaterialTheme.colorScheme.outlineVariant,
+                    ),
+                ) {
+                    Icon(
+                        Icons.Default.FileDownload,
+                        contentDescription = exportDownloadLabel(state.error.isNotBlank()),
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                Spacer(Modifier.width(ExportActionGap))
+                IconButton(
+                    onClick = {
+                        if (saved != null && !shareExportFile(context, saved)) {
+                            onToast("没找到能接收文件的 App，文件已经存到「下载 / SOrders报表」。")
+                        }
                     },
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                    enabled = actions.shareEnabled,
+                    modifier = Modifier.size(ExportActionButtonSize),
+                    colors = IconButtonDefaults.iconButtonColors(
+                        contentColor = Color(ThemeGreen),
+                        disabledContentColor = MaterialTheme.colorScheme.outlineVariant,
+                    ),
+                ) {
+                    Icon(
+                        Icons.Default.Share,
+                        contentDescription = "分享文件",
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
             }
             // 这台手机分享不了（Android 10 以下）：把"为什么"和"文件在哪儿"一次说清，
             // 而不是让用户对着一个不存在的按钮找半天。
