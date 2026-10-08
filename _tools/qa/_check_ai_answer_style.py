@@ -23,6 +23,17 @@
 - 「无异常」被当成「异常」⇒ 用户看到红色去核账，其实什么都没发生（**误导**，比丑严重）；
 - 上限（条数 / 种类）被拿掉 ⇒ 满屏彩色等于没有重点，正好是用户说的"乱搞"。
 
+## 2026-10-09 扩的这一段（CHG-0092）
+> 「AI 的回答最好都要用表格的样式…上面有文字下面有信息混在一起就很难分辨出来，
+>   他具体想表达的核心内容是什么」「不要就是他啊就是搞一个我们来搞一个，这样子太麻烦了」
+>   —— 要**按内容形状让模型自己判断**（m35395）
+> 「所以说我们可以内置对应的 skills 和工作流」（m35399）
+
+于是这一条从"模型自己想不想排"扩成两层：**提示词里内置一张「形状 → 排版」技能表**（AiAnswerSkills）
+＋ **渲染层兜底**（AiAnswerShape 把连续的「标签：值」散行补成两列小表）。
+判据守的是这两层的**接缝**：技能表要拼进 system prompt、兜底要**复用确认卡那一份判定**（不许第二份冒号切分）、
+只吸普通文本与无序条目、值必须短、**顺序是「先补形状再上色」**、渲染器要认无表头的表（以前那种表会整块消失）。
+
 R4-BOUNDARY-JUSTIFICATION: 这一条**边界解决不了**。"哪一行算重要信息"是展示层判断：
 后端出参里没有"重要"这个字段，模型也没被允许写颜色标记，数据库更不知道用户在看什么。
 它守的是三件跨文件的口径 —— **判定表只有一份**（ai/AiAnswerTone.kt）、
@@ -62,7 +73,13 @@ CHAT = AND / "ui/ai/AiChatScreen.kt"
 COLOR = AND / "ui/theme/Color.kt"
 DOC = ROOT / "docs/PROJECT_MAP/06_DESIGN_SYSTEM.md"
 
+SKILLS = AND / "ai/AiAnswerSkills.kt"
+SHAPE = AND / "ai/AiAnswerShape.kt"
+CARDTABLE = AND / "ai/AiCardTable.kt"
+
 TONE_TEST = TESTDIR / "ai/AiAnswerToneTest.kt"
+SKILLS_TEST = TESTDIR / "ai/AiAnswerSkillsTest.kt"
+SHAPE_TEST = TESTDIR / "ai/AiAnswerShapeTest.kt"
 LABEL_TEST = TESTDIR / "ai/AiFieldLabelsTest.kt"
 STYLE_TEST = TESTDIR / "ai/AiAnswerStyleTest.kt"
 ROW_TEST = TESTDIR / "ai/AiRowShaperTest.kt"
@@ -316,9 +333,10 @@ def main() -> int:
         "toned: Boolean = true," in rich,
     )
     c.ok(
-        "上色只在解析之后做一次，且跟着 toned 开关走",
+        "上色只在解析之后做一次，且跟着 toned 开关走（CHG-0092 起中间多一步「补形状」）",
         "val blocks = remember(text, toned) {" in rich
-        and "if (toned) AiAnswerTone.apply(parsed) else parsed" in rich,
+        and "val shaped = if (toned) AiAnswerShape.apply(parsed) else parsed" in rich
+        and "if (toned) AiAnswerTone.apply(shaped) else shaped" in rich,
     )
     c.ok(
         "行块把开关传下去（annotated(toned)）",
@@ -446,6 +464,127 @@ def main() -> int:
         "AI_WORK_CLAIM.md 里没有这一条",
     )
 
+    # ---- 12. 呈现技能 + 代码兜底（2026-10-09，CHG-0092）----
+    skills = code(SKILLS)
+    shape = code(SHAPE)
+    cardtable = code(CARDTABLE)
+
+    c.ok(
+        "呈现技能文件在，五类形状齐全（一组字段 / 多条记录 / 结论先行 / 步骤 / 问题）",
+        all(
+            w in skills
+            for w in (
+                "一个对象的一组字段",
+                "多条同类记录",
+                "一条结论 + 几条依据",
+                "让用户照做的步骤",
+                "要用户回答的问题",
+            )
+        ),
+    )
+    c.ok(
+        "技能是「按内容形状自己决定」，并写明不是按业务场景套模板（用户原话：不要一个一个地加规则）",
+        "按「内容形状」自己决定怎么排" in skills and "不是按业务场景套模板" in skills,
+    )
+    c.ok(
+        "技能拼进了 system prompt，且接在 AiAnswerStyle 之后（写 8.1~11 的那一段后面）",
+        "append(AiAnswerSkills.RULES)" in loop
+        and first(loop, "append(AiAnswerStyle.RULES)") < first(loop, "append(AiAnswerSkills.RULES)"),
+        after(loop, "append(AiAnswerSkills.RULES)", 60).strip(),
+    )
+    c.ok(
+        "技能表与第 9 条不打架（超过 3 项是**下限不是门槛**，≥2 行同类信息就该排开）",
+        "是**下限不是门槛**" in skills and "≥2 行同类信息" in skills,
+    )
+    c.ok(
+        "散行写法被点名禁止（用户那张截图的病根：上面有文字下面有信息混在一起）",
+        "上面有文字下面有信息混在一起" in skills and "不要写成「• 标签：值」的散行" in skills,
+    )
+    c.ok(
+        "要用户回答的问题：单独一行、放在最后（截图里它是和信息连在一句里的）",
+        "**单独一行、放在最后**" in skills and "不要塞进字段行里" in skills,
+    )
+    c.ok(
+        "兜底文件在，且**复用**确认卡那一份判定（不许第二份冒号切分）",
+        "AiCardTable.asPair(text)" in shape
+        and "indexOfFirst { it == '：' || it == ':' }" not in shape
+        and "indexOf(" not in shape,
+        after(shape, "AiCardTable.asPair(", 60).strip(),
+    )
+    c.ok(
+        "所以确认卡那份判定必须开着门（asPair 是 internal，不是 private）",
+        "internal fun asPair(line: String): Row.Pair? {" in cardtable,
+    )
+    c.ok(
+        "兜底只吸普通文本与无序条目（标题 / 编号步骤 / 模型自己写好的表一律不动）",
+        "AiMarkdown.Block.Kind.TEXT" in shape
+        and "AiMarkdown.Block.Kind.BULLET" in shape
+        and "Kind.NUMBERED" not in shape
+        and "Kind.HEADING" not in shape,
+    )
+    c.ok(
+        "兜底有下限也有上限（≥2 行才成表；值 ≤24 显示宽度、不带句读）",
+        # 卡词边界：反向验证注入过 MAX_VALUE_WIDTH = 240（子串匹配照样绿，上限形同虚设）
+        bool(re.search(r"const val MIN_ROWS: Int = 2\b", shape))
+        and bool(re.search(r"const val MAX_VALUE_WIDTH: Int = 24\b", shape))
+        and "CLAUSE_MARKS" in shape,
+        after(shape, "const val MAX_VALUE_WIDTH", 40).strip(),
+    )
+    c.ok(
+        "兜底只对助手气泡生效（跟着 toned 开关走，用户自己写的话不替他排版）",
+        "val shaped = if (toned) AiAnswerShape.apply(parsed) else parsed" in rich,
+    )
+    c.ok(
+        "顺序：先补形状、再上色（反过来的话，染色名额会花在即将变成表格的行上）",
+        first(rich, "AiAnswerShape.apply(parsed)") < first(rich, "AiAnswerTone.apply(shaped)"),
+    )
+    c.ok(
+        "渲染器认得无表头的表（以前是直接 return —— 兜底补出来的表会整块消失）",
+        "val hasHeader = table.header.any { it.isNotBlank() }" in rich
+        and "if (table.header.isEmpty()) return" not in rich,
+    )
+    c.ok(
+        "无表头也要算得出列数（table.header.size 会得 0 列，整张表就废了）",
+        "val cols = if (hasHeader) table.header.size else table.body.maxOf { it.size }" in rich,
+    )
+    c.ok(
+        "无表头小表的第一列当标签列，数值列判定喂一份合成表头",
+        "labelColumn = !hasHeader," in rich
+        and 'table.copy(header = List(cols) { "" })' in rich,
+    )
+    c.ok(
+        "两个新单测在，且都读**真的那一份**（技能读 AiAnswerSkills.RULES，兜底走 AiMarkdown.parse）",
+        "AiAnswerSkills.RULES" in read(SKILLS_TEST)
+        and "AiAnswerShape.apply(AiMarkdown.parse(text))" in read(SHAPE_TEST),
+    )
+    c.ok(
+        "这条也配了反向验证（技能没拼 / 上限被放宽 / 渲染器改回 return 都得报红）",
+        all(
+            w in read(ROOT / REVERSE)
+            for w in ("AiAnswerSkills.RULES", "MAX_VALUE_WIDTH", "table.header.isEmpty()")
+        ),
+    )
+    c.ok(
+        "设计规范里记着这条呈现兜底（否则下一个人还会手搓一套表格）",
+        "AiAnswerShape" in doc,
+        "06_DESIGN_SYSTEM.md 里没记这条",
+    )
+    chg92 = read(ROOT / "docs/changes/CHG-0092.md")
+    c.ok(
+        "CHG-0092 文档在，九节齐全",
+        bool(chg92) and all(s in chg92 for s in CHG_SECTIONS),
+        "文档缺节（_check_dev_spec.py 也会红）",
+    )
+    c.ok(
+        "登记簿里有 CHG-0092 这一行",
+        bool(re.search(r"^\|\s*[\x60]?CHG-0092[\x60]?\s*\|", read(REGISTRY), re.M)),
+        "没登记",
+    )
+    c.ok(
+        "工作声明里有 CHG-0092 这一条",
+        "CHG-0092" in read(CLAIM),
+    )
+
     if "--list" in sys.argv:
         print()
         print("  == 它到底在查什么 ==")
@@ -459,6 +598,7 @@ def main() -> int:
         print("     · 提示词 9.1 / 9.2 与结尾第 2 条同上；既有规则一条没丢")
         print("     · 新单测 / 整形测试的中文键 / 设计规范 / 反向验证脚本都在")
         print("     · 接线：CHG-0060.md 九节齐全 / 登记簿里一整行 / 工作声明里有这一条")
+        print("     · 呈现技能（CHG-0092）：形状表拼进提示词、兜底复用确认卡判定、只吸文本与条目、值 ≤24、先补形状再上色、渲染器认得无表头")
 
     return c.report("AI 回答「重要信息用特殊样式」")
 

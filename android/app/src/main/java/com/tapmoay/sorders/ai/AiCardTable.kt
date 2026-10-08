@@ -68,8 +68,14 @@ internal object AiCardTable {
         return out
     }
 
-    /** 这一行能不能当「标签：值」；不能就返回 null（调用方按整行处理）。 */
-    private fun asPair(line: String): Row.Pair? {
+    /**
+     * 这一行能不能当「标签：值」；不能就返回 null（调用方按整行处理）。
+     *
+     * ⚠️ 判定**只有这一份**：确认卡信息区（[rows]）用它，AI 回答的呈现兜底
+     * （[AiAnswerShape]，2026-10-09 CHG-0092）也用它 —— ⛔ 别在那边再写一份冒号切分，
+     * 两份迟早走散：同一句话在确认卡里是表格、在回答里却是散行。
+     */
+    internal fun asPair(line: String): Row.Pair? {
         // 第一个冒号（全角优先：中文文案里几乎全是全角）
         val idx = line.indexOfFirst { it == '：' || it == ':' }
         if (idx <= 0 || idx >= line.length - 1) return null

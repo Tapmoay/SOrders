@@ -11,11 +11,12 @@ ROOT = Path(__file__).resolve().parents[2]
 AI = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ai"
 UI = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/ai"
 
-# systemPrompt 的正文在 AiAgentLoop 里，另两块文案分别抽到了这两个文件
+# systemPrompt 的正文在 AiAgentLoop 里，另三块文案分别抽到了这几个文件
 TARGETS = [
     (AI / "AiAgentLoop.kt", "systemPrompt"),
     (AI / "AiRolePrompt.kt", None),
     (AI / "AiAnswerStyle.kt", None),
+    (AI / "AiAnswerSkills.kt", None),
 ]
 
 LITERAL = re.compile(r'"((?:[^"\\]|\\.)*)"')

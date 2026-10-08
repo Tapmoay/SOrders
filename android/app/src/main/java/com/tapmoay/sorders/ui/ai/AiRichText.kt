@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tapmoay.sorders.ai.AiAnswerShape
 import com.tapmoay.sorders.ai.AiAnswerTone
 import com.tapmoay.sorders.ai.AiMarkdown
 import com.tapmoay.sorders.ai.AnswerTone
@@ -80,7 +81,11 @@ fun AiRichText(
 ) {
     val blocks = remember(text, toned) {
         val parsed = AiMarkdown.parse(text)
-        if (toned) AiAnswerTone.apply(parsed) else parsed
+        // 顺序有讲究：**先补形状、再上色**（2026-10-09 CHG-0092）。
+        // [AiAnswerTone] 的既定裁定是「表格不参与上色」，若反过来，刚染上色的散行会带着
+        // 染色名额被 [AiAnswerShape] 收进表格、颜色随后丢掉 —— 名额白花，后面的行反而没颜色。
+        val shaped = if (toned) AiAnswerShape.apply(parsed) else parsed
+        if (toned) AiAnswerTone.apply(shaped) else shaped
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         blocks.forEach { b ->
@@ -190,7 +195,10 @@ private val CellPadV = 7.dp
  */
 @Composable
 private fun MdTable(table: AiMarkdown.Block.Table, fontSize: TextUnit) {
-    if (table.header.isEmpty()) return
+    // 无表头的表也要画：[AiAnswerShape] 把「标签：值」散行兜成的两列小表就是这种（header 为空）。
+    // 以前这里是 if (table.header.isEmpty()) return —— 那种表会**整块消失**，等于兜底补出来的表看不见。
+    val hasHeader = table.header.any { it.isNotBlank() }
+    if (!hasHeader && table.body.isEmpty()) return
 
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
@@ -200,18 +208,22 @@ private fun MdTable(table: AiMarkdown.Block.Table, fontSize: TextUnit) {
     }
     val headerStyle = remember(cellStyle) { cellStyle.copy(fontWeight = FontWeight.SemiBold) }
 
-    val cols = table.header.size
+    val cols = if (hasHeader) table.header.size else table.body.maxOf { it.size }
     val natural: List<Dp> = remember(table, cellStyle, density) {
         (0 until cols).map { ci ->
             val cells = buildList {
-                add(table.header.getOrNull(ci).orEmpty())
+                if (hasHeader) add(table.header.getOrNull(ci).orEmpty())
                 table.body.forEach { add(it.getOrNull(ci).orEmpty()) }
             }
             val maxPx = cells.maxOfOrNull { measurer.measure(AnnotatedString(it), cellStyle).size.width } ?: 0
             with(density) { (maxPx.toDp() + CellPadH * 2).coerceIn(MinColWidth, MaxColWidth) }
         }
     }
-    val numeric = remember(table) { AiMarkdown.numericColumns(table) }
+    // 无表头时喂一份等宽的合成表头：AiMarkdown.numericColumns 只看列数（header.size），
+    // 空表头会让它一列都判不出来 —— 金额 / 数量那种列本该右对齐，会全变成左对齐。
+    val numeric = remember(table, cols, hasHeader) {
+        AiMarkdown.numericColumns(if (hasHeader) table else table.copy(header = List(cols) { "" }))
+    }
 
     val line = MaterialTheme.colorScheme.outlineVariant
     val headBg = MaterialTheme.colorScheme.surfaceContainerHigh
@@ -234,16 +246,18 @@ private fun MdTable(table: AiMarkdown.Block.Table, fontSize: TextUnit) {
                     .background(surface)
                     .border(1.dp, line, RoundedCornerShape(10.dp)),
             ) {
-                // ---- 表头 ----
-                MdRow(
-                    cells = table.header,
-                    widths = widths,
-                    style = headerStyle,
-                    numeric = numeric,
-                    background = headBg,
-                    line = line,
-                    scrollModifier = Modifier.horizontalScroll(scroll),
-                )
+                // ---- 表头 ----（无表头的小表整块不画表头，第一列当标签列）
+                if (hasHeader) {
+                    MdRow(
+                        cells = table.header,
+                        widths = widths,
+                        style = headerStyle,
+                        numeric = numeric,
+                        background = headBg,
+                        line = line,
+                        scrollModifier = Modifier.horizontalScroll(scroll),
+                    )
+                }
                 // ---- 数据行 ----
                 table.body.forEachIndexed { i, row ->
                     val isTotal = AiMarkdown.isTotalRow(row)
@@ -251,6 +265,8 @@ private fun MdTable(table: AiMarkdown.Block.Table, fontSize: TextUnit) {
                     MdRow(
                         cells = row,
                         widths = widths,
+                        // 无表头的小表：第一列是标签（「收货人」「电话」），压暗一档让值显出来
+                        labelColumn = !hasHeader,
                         style = if (isTotal) headerStyle else cellStyle,
                         numeric = numeric,
                         background = when {
@@ -280,6 +296,7 @@ private fun MdTable(table: AiMarkdown.Block.Table, fontSize: TextUnit) {
 private fun MdRow(
     cells: List<String>,
     widths: List<Dp>,
+    labelColumn: Boolean = false,
     style: TextStyle,
     numeric: List<Boolean>,
     background: Color,
@@ -298,7 +315,9 @@ private fun MdRow(
             Text(
                 text = cell,
                 style = style,
-                color = MaterialTheme.colorScheme.onSurface,
+                // 无表头小表的第一列＝标签列：压暗一档（值才是要读的东西）
+                color = if (labelColumn && i == 0) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.colorScheme.onSurface,
                 textAlign = if (numeric.getOrElse(i) { false }) TextAlign.End else TextAlign.Start,
                 modifier = Modifier
                     .width(widths.getOrElse(i) { MinColWidth })

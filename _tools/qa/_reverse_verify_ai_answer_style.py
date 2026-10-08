@@ -15,7 +15,7 @@
 
 ⚠️ 快照/还原按**字节**做，跑完逐字节核对（本项目栽过「注入把 bug 留在源码里」）。
 
-R4-BOUNDARY-JUSTIFICATION: 本脚本只读写工作区里的 13 个文件（注入后按字节还原），
+R4-BOUNDARY-JUSTIFICATION: 本脚本只读写工作区里的 15 个文件（注入后按字节还原），
 不编译、不跑 UI、不连后端 —— 它证明的是「这条红线自己不会说谎」，不是功能本身。
 
 用法：python _tools/qa/_reverse_verify_ai_answer_style.py
@@ -40,6 +40,8 @@ STYLE = AND + "ai/AiAnswerStyle.kt"
 LOOP = AND + "ai/AiAgentLoop.kt"
 RICH = AND + "ui/ai/AiRichText.kt"
 CHAT = AND + "ui/ai/AiChatScreen.kt"
+SKILLS = AND + "ai/AiAnswerSkills.kt"
+SHAPE = AND + "ai/AiAnswerShape.kt"
 TONE_TEST = "android/app/src/test/java/com/tapmoay/sorders/ai/AiAnswerToneTest.kt"
 DOC = "docs/PROJECT_MAP/06_DESIGN_SYSTEM.md"
 CHG_DOC = "docs/changes/CHG-0060.md"
@@ -183,6 +185,69 @@ CASES: list[tuple[str, str, object, str]] = [
         CHG_CLAIM,
         lambda s: s.replace("CHG-0060 AI 回答里的", "CHG-0061 AI 回答里的", 1),
         "工作声明",
+    ),
+    (
+        "⑲ 呈现技能没拼进提示词（写了没人用 —— 模型还是照旧写成散行）",
+        LOOP,
+        lambda s: s.replace("            append(AiAnswerSkills.RULES)\n", "", 1),
+        "技能拼进了 system prompt",
+    ),
+    (
+        "⑳ 形状表里「问题单独一行放最后」那条被删（截图里问题就是和信息连在一句里的）",
+        SKILLS,
+        lambda s: s.replace("**单独一行、放在最后**；⛔ 不要塞进字段行里", "**放最后**", 1),
+        "单独一行、放在最后",
+    ),
+    (
+        "㉑ 兜底自己写一份冒号切分（两份判定迟早走散：同一句话在确认卡里是表、在回答里是散行）",
+        SHAPE,
+        lambda s: s.replace(
+            "        val pair = AiCardTable.asPair(text) ?: return null",
+            "        val i = text.indexOfFirst { it == '：' || it == ':' }\n"
+            "        val pair = if (i > 0) AiCardTable.Row.Pair(text.substring(0, i), text.substring(i + 1)) else null\n"
+            "        if (pair == null) return null",
+            1,
+        ),
+        "复用",
+    ),
+    (
+        "㉒ 兜底不再限定块类型（标题、编号步骤、模型自己写的表全被吸进表）",
+        SHAPE,
+        lambda s: s.replace(
+            "        if (line.kind != AiMarkdown.Block.Kind.TEXT && line.kind != AiMarkdown.Block.Kind.BULLET) return null\n",
+            "",
+            1,
+        ),
+        "只吸普通文本",
+    ),
+    (
+        "㉓ 渲染器改回「无表头直接 return」（兜底补出来的表整块消失）",
+        RICH,
+        lambda s: s.replace(
+            "    val hasHeader = table.header.any { it.isNotBlank() }\n"
+            "    if (!hasHeader && table.body.isEmpty()) return",
+            "        if (table.header.isEmpty()) return",
+            1,
+        ),
+        "无表头的表",
+    ),
+    (
+        "㉔ 值上限被放宽成 2400（整句话也能进单元格，表格被撑成一团）",
+        SHAPE,
+        lambda s: s.replace("    const val MAX_VALUE_WIDTH: Int = 24", "    const val MAX_VALUE_WIDTH: Int = 2400", 1),
+        "MAX_VALUE_WIDTH",
+    ),
+    (
+        "㉕ 顺序调成「先上色、再补形状」（染色名额花在即将变成表格的行上）",
+        RICH,
+        lambda s: s.replace(
+            "        val shaped = if (toned) AiAnswerShape.apply(parsed) else parsed\n"
+            "        if (toned) AiAnswerTone.apply(shaped) else shaped",
+            "        val tinted = if (toned) AiAnswerTone.apply(parsed) else parsed\n"
+            "        val shaped = if (toned) AiAnswerShape.apply(tinted) else tinted",
+            1,
+        ),
+        "顺序：先补形状",
     ),
 ]
 

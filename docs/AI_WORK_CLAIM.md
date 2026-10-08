@@ -31,7 +31,7 @@
 
 ## 进行中
 
-### [2026-10-09 02:0x → ⟪ENDTIME⟫ CST 已完成] 会话：**CHG-0092 AI 回答的呈现：内置「按内容形状」的呈现技能 ＋ 渲染层兜底（无表头小表也画得出来了）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+### [2026-10-09 02:0x → 03:0x CST 已完成] 会话：**CHG-0092 AI 回答的呈现：内置「按内容形状」的呈现技能 ＋ 渲染层兜底（无表头小表也画得出来了）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径（ref `m35395` / `m35399`，目标 `goal-9c29e859-ec5e-444e-9e78-6e330bf0aa07` 原文，语音转写）：「AI 的回答最好都要用表格的样式」「上面有文字下面有信息混在一起就很难分辨出来，他具体想表达的核心内容是什么」「不要就是他啊就是搞一个我们来搞一个搞一个我们来搞一个，这样子太麻烦了」「其实基本上只要涉及到信息的基本上他都要想啊想办法比如说像表格呀或者是其他的样式把信息给表达出来」「所以说我们可以内置对应的 skills 和工作流」`
 
@@ -41,10 +41,10 @@
 
 `明确不碰`：模型自己写好的 Markdown 表（`apply(parsed) == parsed`）、上色那一套（`AiAnswerTone` 四档 / 12 处 / 2 种 /「无异常」先判 / 表格不上色）、确认卡信息区（`AiCardTable` 行为一个字节没动）、用户自己发的消息（`toned = !isUser`）、后端与数据库（`backend/` 一个字节不动）、既有提示词 1~11 条 —— ⛔ 含 `AiAgentLoop.kt` 那条**既有重复编号** `11. 系统里的只读列表…`（`_tools/qa/_check_order_contact_required.py:157` 钉着它、`_tools/qa/_reverse_verify_order_contact_required.py:325` 拿它做注入，⛔ 不顺手改号）。`
 
-`判据 / 反验`：`python _tools/qa/_check_ai_answer_style.py`（新增第 12 节 ⟪JUDGE⟫）/ `python _tools/qa/_reverse_verify_ai_answer_style.py`（25 条注入 ⟪REV⟫），单测 ⟪UNIT⟫；`python _tools/qa/_check_dev_spec.py` 对账 README ↔ 目录文件。
+`判据 / 反验`：`python _tools/qa/_check_ai_answer_style.py`（新增第 12 节 **72 项全过 / 0 失败**）/ `python _tools/qa/_reverse_verify_ai_answer_style.py`（25 条注入**逐条报红**、被碰过的 15 个文件**与运行前逐字节一致**），单测 **1379 tests / 0 failures / 0 errors / 2 skipped**；`python _tools/qa/_check_dev_spec.py` 对账 README ↔ 目录文件。
 
 - 状态：✅ **已关闭**（2026-10-09；变更单 `docs/changes/CHG-0092.md`；Blast Radius **L1 —— AI 回答的排版**；提交 `⟪HASH⟫`）。
-- 真机：⟪SHOTS⟫
+- 真机：`shots/65_ai_answer_表格_改后.png`（新构建，问「城东水果批发这个货主的资料…」→ 正文 4 行「标签：值」被排成**无表头两列表**）＋ `shots/66_ai_answer_单句不改写.png`（同一台机器问新增地址 → 回答是**一整句** `·` 串起来的话，兜底不误伤、一个字节不改）；`emulator-5554`（派单员）、真模型 `deepseek-flash · 中`；取证走 **ADBKeyboard 输入法广播**（`emulator-5554` 没开剪贴板共享，`_tools/ai/_emulator_say.ps1` 的粘贴进不了输入框）
 - 核心改动：**无** —— 为什么：改的六个文件（`ai/AiAnswerSkills.kt`、`ai/AiAnswerShape.kt`、`ai/AiCardTable.kt`、`ai/AiAgentLoop.kt`、`ui/ai/AiRichText.kt`、`_tools/ai/_sysprompt_size.py`，另加两个单测）都不在 `_tools/qa/_core_files.txt` 里。
 
 ### [2026-10-09 01:1x → 02:1x CST 已完成] 会话：**CHG-0088 撤票卡不再教用户说「恢复这张票」：改文案写明点聊天里那个「撤回」（台账 L-57）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
