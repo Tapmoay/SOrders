@@ -31,6 +31,20 @@
 
 ## 进行中
 
+### [2026-10-09 03:1x → 进行中] 会话：**CHG-0093 AI 助手那一页的单色强调从 Google 蓝换成主题绿（顶栏三颗图标 / 输入行 ⊕ / 发送键）**（DSH `session-b751c386-2b09-4b5a-bf6d-6dd9afc479c0`）
+
+`用户口径（ref `m03583`）：「这个也改成就是我框起来的，也改成类似的绿色就是统一主题哦，颜色，可以做一些稍微的区别，然后就是给所有的模拟器都改完之后，给所有模有的模拟器都装上」（附“AI 助手”聊天页截图，红框圈了顶栏右侧三颗图标、输入行左边的 ⊕、右下发送键）`
+
+`病灶`：全 App 主色已经是低饱和深绿（CHG-0091，#00A870），**只有 AI 聊天页还是一片 Google 蓝** —— 该页所有“表示这是 AI”的单色元素都读同一个常量 `AiAccent`，而 `ui/ai/AiChatScreen.kt:132` 写的是 `private val AiAccent = Color(AiBlue)`（`AiBlue = #4285F4`）；同一片表面的 `ui/ai/AiSettingsScreen.kt:78 / :400` 也是 `Color(AiBlue)`。
+
+`改法`：① `AiChatScreen.kt` 的 `AiAccent` → `Color(ThemeGreen)`（**一处定义**：顶栏三颗图标 / ⊕ / 会话选中态 / 抽屉 / 侧栏 / 块引 / 代码块描边 全跟着变），KDoc 里那句“= Google AI 蓝”改写成主题绿；② 发送键“可发送”那一档 `SolidColor(AiAccent)` → `SolidColor(Color(ThemeGreenDeep))`（#0E7A50，比三颗图标深一档 = 用户说的“稍微的区别”）；③ `AiSettingsScreen.kt` 两处 `Color(AiBlue)` → `Color(ThemeGreen)`（齿轮点进去就是这一页，不能一半绿一半蓝）；④ `_tools/ai/_check_ai_guardrails.py` 那四条“单色强调 = Google 蓝”的铉子同步改口径；⑤ 新建本单判据与反验；⑥ 编译 + 三台模拟器（5554 / 5556 / 5558）装机 + 截图。
+
+`⛔ 明确不碰`：`ui/ai/AiRichText.kt`（**并行会话 CHG-0092 正在改**）；AI 三段品牌渐变（`ui/theme/AiBrand.kt` 的 `AiBrandColors` / `aiBrandBrush()` 与它的两个消费者：`ui/home/RoleHomeScreen.kt` 工作台圆钮、`AiChatScreen.kt` 空状态星标徽章）；`ui/theme/Color.kt` 里的 `AiBlue` / `AiPurple` / `AiPink` 三个 token 本身；这一页的文案 / 图标种类 / 尺寸 / 可点区域 / onClick / enabled / 发送键三态语义；后端一行不改。
+
+`判据 / 反验`：新建 `_tools/qa/_check_ai_accent_green.py` 与 `_tools/qa/_reverse_verify_ai_accent_green.py`；同时要求 `_tools/ai/_check_ai_guardrails.py`、`_tools/qa/_check_dead_code.py`（AiBlue 的 import 必须随用途一起删）、`_tools/qa/_check_reverse_verify_anchors.py`、`_tools/qa/_check_dev_spec.py` 全绿。
+
+`状态`：✅ 改完并装机后回填（编译 / 单测 / 判据 / 反验 / 三台模拟器截图）；真机取证是本单的硬要求（CHG-0091 的教训：编译 + 单测 + 全部静态判据全绿，商品块却一个像素都没画出来）。
+
 ### [2026-10-09 02:0x → ⟪ENDTIME⟫ CST 已完成] 会话：**CHG-0092 AI 回答的呈现：内置「按内容形状」的呈现技能 ＋ 渲染层兜底（无表头小表也画得出来了）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径（ref `m35395` / `m35399`，目标 `goal-9c29e859-ec5e-444e-9e78-6e330bf0aa07` 原文，语音转写）：「AI 的回答最好都要用表格的样式」「上面有文字下面有信息混在一起就很难分辨出来，他具体想表达的核心内容是什么」「不要就是他啊就是搞一个我们来搞一个搞一个我们来搞一个，这样子太麻烦了」「其实基本上只要涉及到信息的基本上他都要想啊想办法比如说像表格呀或者是其他的样式把信息给表达出来」「所以说我们可以内置对应的 skills 和工作流」`

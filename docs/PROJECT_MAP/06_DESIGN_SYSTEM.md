@@ -45,6 +45,17 @@
 > （`_tools/qa/_check_vehicle_ui.py` 会把这一列当标识符拿去 Color.kt 里核对定义），
 > 所以别名这件事写在这里、不写进表格。
 
+> ⚠️ 2026-10-09 / CHG-0093（AI 助手那一页）：那一页的**单色强调**（`ui/ai/AiChatScreen.kt` 的
+> `private val AiAccent` —— 顶栏「历史 / 新对话 / 设置」三颗图标、输入行 **⊕**、会话选中态、抽屉、侧栏、
+> 块引、代码块描边）从 Google AI 蓝 `#4285F4` 换成主题绿 `Color(ThemeGreen)`；发送键「可发送」那一档
+> 再**深一档** `Color(ThemeGreenDeep) #0E7A50`（用户 ref `m03583`：「也改成类似的绿色就是统一主题哦，
+> 颜色，**可以做一些稍微的区别**」）；`ui/ai/AiSettingsScreen.kt` 的两处 `accent` 同源（齿轮点进去就是
+> 这一页，同一片表面不能一半绿一半蓝）。
+> ⛔ **AI 三段品牌渐变不算「强调色」**：`ui/theme/AiBrand.kt` 的 `AiBlue → AiPurple → AiPink` 与
+> `aiBrandBrush()` 是「AI 品牌徽章」（工作台 AI 圆钮、聊天空状态星标徽章），被单测
+> `android/app/src/test/java/com/tapmoay/sorders/ui/nav/ModulesEntryTest.kt:56/:58` 钉着 ——
+> 要让它一起变绿是**新的一单**，不是补做 CHG-0093。
+
 ### 线路语义色（起点 / 终点）
 
 一条线路的「起点 / 终点」在**两个地方同时出现**——卡片上的圆点与定位针（`ui/common/RouteRail.kt`）、新建线路表单里的起点分组与终点分组（`ui/shipper/AddressScreen.kt`）——两处**共用一个色**（2026-10-03 CHG-0014 提上来的）：

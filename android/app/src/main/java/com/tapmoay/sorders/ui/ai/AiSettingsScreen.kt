@@ -47,8 +47,8 @@ import com.tapmoay.sorders.ui.common.PrimaryActionButton
 import com.tapmoay.sorders.ui.common.SectionCard
 import com.tapmoay.sorders.ui.common.SegmentedPicker
 import com.tapmoay.sorders.ui.common.appViewModel
-import com.tapmoay.sorders.ui.theme.AiBlue
 import com.tapmoay.sorders.ui.theme.Success
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import com.tapmoay.sorders.ui.common.Hint
 
 /**
@@ -75,7 +75,10 @@ fun AiSettingsScreen(
 ) {
     val vm: AiSettingsViewModel = appViewModel { AiSettingsViewModel(ai) }
     val snackbar = remember { SnackbarHostState() }
-    val accent = Color(AiBlue)
+    // 这一页的强调色＝主题绿（与聊天页的 AiAccent 同源）。
+    // 2026-10-09：原来读 Google AI 蓝 Color(AiBlue)，用户指着聊天页截图说「统一主题」（ref m03583），
+    // 而齿轮点进来就是这一页 —— 同一片表面不能一半绿一半蓝，所以这里一起收敛。
+    val accent = Color(ThemeGreen)
 
     // 能力开关（查询类 / 操作类 / 可读的列表）收在底部抽屉里，见文件中间那段注释。
     var showCapabilitySheet by remember { mutableStateOf(false) }
@@ -397,7 +400,7 @@ fun AiSettingsScreen(
                         selected = ThinkingLevel.entries.indexOf(vm.thinkingLevel).coerceAtLeast(0),
                         onSelect = { i -> vm.thinkingLevel = ThinkingLevel.entries[i] },
                         // 与聊天页的切换面板同色：同一个 App 里同一个控件的强调色不能两样
-                        accent = Color(AiBlue),
+                        accent = Color(ThemeGreen),
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(

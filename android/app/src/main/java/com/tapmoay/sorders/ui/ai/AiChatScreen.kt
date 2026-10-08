@@ -92,7 +92,8 @@ import com.tapmoay.sorders.ui.common.DangerConfirmDialog
 import com.tapmoay.sorders.ui.common.OneShotSnackbar
 import com.tapmoay.sorders.ui.common.SegmentedPicker
 import com.tapmoay.sorders.ui.common.appViewModel
-import com.tapmoay.sorders.ui.theme.AiBlue
+import com.tapmoay.sorders.ui.theme.ThemeGreen
+import com.tapmoay.sorders.ui.theme.ThemeGreenDeep
 import com.tapmoay.sorders.ui.theme.aiBrandBrush
 import kotlinx.coroutines.launch
 import com.tapmoay.sorders.ui.common.Hint
@@ -122,14 +123,20 @@ private val MetaTextSize = 11.sp
 private val ModelBarTextSize = 12.sp
 
 /**
- * AI 的单色强调色 = Google AI 蓝（#4285F4，品牌渐变的起点）。
+ * AI 的单色强调色 = **主题绿**（#00A870，与全 App 的主操作色同源）。
  *
- * 界面里凡是要"表示这是 AI"的单色元素（链接、选中态、图标着色）都用它；
- * 需要更"AI"的地方用品牌渐变（空状态星标徽章），见 [aiBrandBrush]。
- * ⚠️ 发送键**不在**这里（原来在）：用户 2026-09-18 要求它改成蓝色，
- * 于是它和同一行的 ⊕ 一样用 [AiAccent]——一行里两个控件同色，比一个蓝一个渐变更干净。
+ * 界面里凡是要"表示这是 AI"的单色元素（顶栏那三颗图标、输入行的 ⊕、链接、选中态、
+ * 侧栏与抽屉、块引与代码块描边）都读它：**一处定义，这一页所有"这是 AI"的地方一起变**。
+ *
+ * 历史：原来写的是 Google AI 蓝 `#4285F4`（品牌渐变的起点）。2026-10-09 全 App 主色换成
+ * 低饱和深绿（CHG-0091）之后，用户指着这一页的截图说「改成就是我框起来的……统一主题哦」
+ * （ref `m03583`，框的是顶栏三颗图标 + 输入行 ⊕ + 发送键）⇒ 收敛到主题绿。
+ * ⚠️ 品牌三段渐变（[aiBrandBrush] 的蓝→紫→粉）**不在这里**：那是"AI 品牌徽章"
+ *    （工作台圆钮、聊天空状态星标），不是强调色，本单刻意没动它。
+ * ⚠️ 发送键**不在**这里：它读 [ThemeGreenDeep]（深一档）——用户给的口径是
+ *    「颜色可以做一些稍微的区别」：三颗图标是"入口"，发送键是"主行动"。
  */
-private val AiAccent = Color(AiBlue)
+private val AiAccent = Color(ThemeGreen)
 
 /**
  * 确认卡明细区的最大高度。
@@ -2200,13 +2207,15 @@ private fun InputBar(
                                 // 原来空格子用的是 `surfaceVariant`（浅灰），在浅色底上和背景几乎同色，
                                 // 一眼看不出那里有个按钮。
                                 //
-                                // 改法：**始终是蓝的**，只用深浅区分两态——
-                                //   空格子 = 淡蓝（看得见"这儿有个发送键"，但仍看得出"还没东西可发"）
-                                //   有内容 = 品牌蓝
-                                // 不敢两边都用实心深蓝：那会让"可发/不可发"彻底消失，
+                                // 改法：**始终是绿的**，只用深浅区分两态——
+                                //   空格子 = 淡绿（看得见"这儿有个发送键"，但仍看得出"还没东西可发"）
+                                //   有内容 = 深绿（ThemeGreenDeep，比顶栏那三颗图标深一档）
+                                // 用户 2026-10-09 的口径是「改成类似的绿色……颜色可以做一些稍微的区别」
+                                // （ref `m03583`）——三颗图标是"入口"、发送键是"主行动"，深一档正好分主次。
+                                // 不敢两边都用实心深绿：那会让"可发/不可发"彻底消失，
                                 // 用户点了没反应比看不清更困惑（这条是原来那行注释里的顾虑，依然成立）。
                                 !canSend -> SolidColor(AiAccent.copy(alpha = 0.45f))
-                                else -> SolidColor(AiAccent)
+                                else -> SolidColor(Color(ThemeGreenDeep))
                             },
                             shape = CircleShape,
                         ),

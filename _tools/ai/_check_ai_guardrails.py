@@ -2066,6 +2066,11 @@ def main() -> int:
     # 用户原话："颜色改成谷歌的 AI 智能体的配色方法，它里面的颜色也要按这个方法进行配色"。
     # Google 的做法是三件套：三段品牌渐变（蓝#4285F4→紫#9B72CB→粉#D96570）、
     # 渐变圆角块 + 白色四角星的图标形态、单色强调取渐变起点那个蓝。
+    # ⚠️ 2026-10-09 / CHG-0093：**单色强调那一件已经不再跟 Google 蓝走了** ——
+    #    全 App 主色换成低饱和深绿（CHG-0091）之后，用户指着聊天页的截图要求「统一主题」
+    #    （ref m03583，框的是顶栏三颗图标 + 输入行 ⊕ + 发送键）⇒ 聊天页与设置页的强调色
+    #    改成主题绿 ThemeGreen、发送键改成深一档的 ThemeGreenDeep。
+    #    **品牌三段渐变本身不动**（它是"AI 品牌徽章"不是"强调色"，见下面那几条 present）。
     # 为什么要断言：渐变只要有一处颜色顺序写反或退化成单色，**没有任何功能测试会报错**，
     # 只会"看起来不像 AI 了"——这种偏差只能靠断言 + 只有一处定义来守。
     c.present("品牌三色：Google 蓝 #4285F4", color, r"val AiBlue = 0xFF4285F4L")
@@ -2092,16 +2097,16 @@ def main() -> int:
     #    而 2026-09-18 用户明确要求发送键改成蓝色（「灰色的话不是很明显、很不容易看清」），
     #    于是把它换成钉**可见性**：两档都必须是品牌蓝家族，**任何一档都不许退回灰色**。
     #    钉"用了哪个画刷"会随设计调整反复红；钉"不许是灰的"才是这条红线真正守的东西。
-    c.present("发送键有内容时是品牌蓝", screen, r"else -> SolidColor\(AiAccent\)")
-    c.present("发送键空格子时是**淡蓝**而不是灰", screen, r"!canSend -> SolidColor\(AiAccent\.copy\(alpha = 0\.45f\)\)")
+    c.present("发送键有内容时是主题绿、深一档（CHG-0093）", screen, r"else -> SolidColor\(Color\(ThemeGreenDeep\)\)")
+    c.present("发送键空格子时是**淡绿**而不是灰", screen, r"!canSend -> SolidColor\(AiAccent\.copy\(alpha = 0\.45f\)\)")
     c.absent(
         "发送键任何一档都不许用 surfaceVariant/outline 这类灰（用户报过「看不清」）",
         screen,
         r"!canSend -> [^\n]*colorScheme\.(surfaceVariant|outline)",
     )
-    c.present("发送键停止态仍用单色红（不跟 AI 蓝混）", screen, r"SolidColor\(MaterialTheme\.colorScheme\.error\)")
-    c.present("单色强调 = Google 蓝", screen, r"private val AiAccent = Color\(AiBlue\)")
-    c.present("设置页强调色同源", settings, r"val accent = Color\(AiBlue\)")
+    c.present("发送键停止态仍用单色红（不跟主题绿混）", screen, r"SolidColor\(MaterialTheme\.colorScheme\.error\)")
+    c.present("单色强调 = 主题绿（CHG-0093；不再是 Google 蓝）", screen, r"private val AiAccent = Color\(ThemeGreen\)")
+    c.present("设置页强调色同源（同一片表面不能一半绿一半蓝）", settings, r"val accent = Color\(ThemeGreen\)")
     c.present("派单端圆钮也用同一个渐变（同一个 AI 不该有两种外观）", home, r"\.background\(aiBrandBrush\(\), CircleShape\)")
     # 输入框提示语：举一个用户自己做不到的例子，等于教错（他照着敲一句，得到的
     # 只会是"你没这个权限"，然后不会再敲第二句）。空状态与提示语都必须按角色给。
