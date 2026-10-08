@@ -58,7 +58,7 @@
 
 `判据 / 反验`：`python _tools/qa/_check_ai_export_card.py`（八节 **67/67 全绿**）/ `python _tools/qa/_reverse_verify_ai_export_card.py`（**29** 条注入 ✅ 全部报红 ＋ 被碰过的文件逐字节还原），单测 ✅ `AiExportCardTest` **15 条 BUILD SUCCESSFUL**；全量单测 **1424 / 0 failed / 0 errors / 2 skipped**（100 个类 —— 一开始被**并行会话**在写的 `ai/AiWorkflow.kt` 编译错挡住，它落定后重跑）；全量静检 **227/227**；文档可达 **218/218**。
 
-- 状态：✅ **已关闭**（2026-10-09；变更单 `docs/changes/CHG-0095.md`；台账 **L-61**；Blast Radius **L0 —— 展示层**；提交 `__`）。
+- 状态：✅ **已关闭**（2026-10-09；变更单 `docs/changes/CHG-0095.md`；台账 **L-61**；Blast Radius **L0 —— 展示层**；提交 `a596f9a`）。
 - 真机：`emulator-5554` 派单员 —— 发「把 2026-09 的营业纵览导成 Excel」⇒ 卡片按用户画的样子出现（左带框文件图标 / 中文件名＋`营业纵览 · 2026-09-01 ~ 2026-09-30` / 右两颗键），点下载 ⇒ 状态行写「已保存到：/storage/emulated/0/Download/SOrders报表/营业纵览-2026-09-01_2026-09-30.xlsx」＋一个绿勾，**两颗键仍都在**。像素取证（屏幕 1080×2400、density 440）：两颗之间空 **90px = 32.7dp**；还没点下载时 下载那颗主色 **`#FF9500`（MoneyOrange）** / 分享那颗 **`#CFD4E0`（灰）**，点过之后 **对调**（下载 `#CFD4E0` / 分享 `#00A870` ThemeGreen）；左边框里的文件图标 **`#FF9500`**。⚠️ `uiautomator dump` 对灰掉那颗仍报 `enabled="true"`（Material3 `IconButton`），所以"灰"只能看像素。截图 `shots/72_ai_导出卡_改后_待下载.png` / `shots/73_ai_导出卡_改后_已下载.png`。
 - 核心改动：**无** —— 为什么：改的 `ui/ai/AiChatScreen.kt` 与新建的 `ai/AiExportCard.kt`、`ai/AiExportCardTest.kt` 都不在 `_tools/qa/_core_files.txt` 里。
 
