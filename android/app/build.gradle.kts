@@ -183,4 +183,6 @@ dependencies {
 
     // 纯 JVM 单元测试（AI agent 循环逻辑；不联网、不依赖 Android 框架）
     testImplementation(libs.junit)
+    // 调度可控的协程单测（BUG-0026：取数挂起时被下一次取数取消 —— 取消不是失败）
+    testImplementation(libs.kotlinx.coroutines.test)
 }

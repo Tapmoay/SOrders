@@ -10,7 +10,9 @@ import com.tapmoay.sorders.core.OrderStatusModel
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.DatePresets
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -24,7 +26,37 @@ import java.time.LocalDate
  */
 private val FINISHED_STATUSES: List<String> = listOf("DELIVERED", "RETURNED")
 
-class DriverOrdersViewModel(private val container: AppContainer) : ViewModel() {
+class DriverOrdersViewModel(
+    private val container: AppContainer,
+    /**
+     * **取数接缝**（只为单测存在；真机走默认值）：取「[wanted] 那一栏」的订单 ——
+     * `wanted == 0` = 进行中（不看日期），`wanted == 1` = 已完成（看 `from`/`to`）。
+     *
+     * 为什么要有这个参数：本单（BUG-0026）的病灶是「旧的取数被新的取数打断」时的**落笔顺序**，
+     * 而它只有在取数**挂在别的调度器上**（真机：OkHttp 的回调从网络线程回到主线程）时才看得见 ——
+     * 交错探针 `_tmp/test_round3/probe_out.txt` 里 P1/P3/P4/P5 四种交错都看不见，只有 P2 那一格看得见。
+     * 要在 JVM 单测里把这一格摆出来就得能换掉这一段：[AppContainer] 的 `repo` 是具体类，
+     * 构造它需要真的 `ApiClient`（JVM 里没有真 Context）。同一体例先例：`AiAgentLoopTest`
+     * 用构造接缝注入 `FakeTransport`。
+     */
+    private val fetchOrders: suspend (wanted: Int, from: String?, to: String?) -> List<OrderDto> = { wanted, from, to ->
+        // 进行中 = 已派单（还没接）+ 已接单。状态取自 `OrderStatusModel.DRIVER_OPEN`
+        // （原来这里硬写两个字面量；只查 ACCEPTED 时新派来的单在司机端**根本不出现**）。
+        // 已完成档 = 已送达 + 已退货（[FINISHED_STATUSES]）—— 整单退货的单**不许**从
+        // 司机列表里消失（2026-10-03，E2E 走查 P27）。
+        val statuses = if (wanted == 0) OrderStatusModel.DRIVER_OPEN else FINISHED_STATUSES
+        statuses
+            .flatMap { container.repo.orders(status = it, dateFrom = if (wanted == 1) from else null, dateTo = if (wanted == 1) to else null) }
+            .sortedByDescending { it.createdAt }
+    },
+    /**
+     * **实时推送接缝**（只为单测存在；真机走默认值 = `RealtimeHub.refreshOrders`）。
+     *
+     * 单测要能把「推送在取数途中插进来」这件事**从外面按下去**（不然就得构造整个 `AppContainer`，
+     * 而它的 `RealtimeHub` 一构造就会去连 Socket —— 单测里既连不上、也没必要）。
+     */
+    private val refreshSignals: Flow<Unit> = container.realtimeHub.refreshOrders,
+) : ViewModel() {
 
     var tab by mutableStateOf(0) // 0=进行中 1=已完成
     var orders by mutableStateOf<List<OrderDto>>(emptyList())
@@ -75,6 +107,19 @@ class DriverOrdersViewModel(private val container: AppContainer) : ViewModel() {
         private set
 
     private var loadJob: Job? = null
+
+    /**
+     * **取数世代号**：谁能让页面动，只看它（BUG-0026）。
+     *
+     * 为什么不能靠「`loadJob` 是不是我」来判：`viewModelScope.launch` 在
+     * `Dispatchers.Main.immediate` 下**可能当场内联执行**（[load] 是从 UI 事件与推送收集器里
+     * 在主线程上调的），那一刻 `loadJob` 还指着**旧**那一趟的 Job —— 拿它判「我是不是当前
+     * 那一趟」会当场判错。世代号在 `launch` **之前**取，与调度器怎么排无关。
+     *
+     * ⚠️ 只在主线程上递增（[load] 的调用点：`init` / 推送收集器 / 错误页的「重试」），
+     * 所以**不需要**原子类型。
+     */
+    private var loadSeq = 0
 
     /**
      * **正在确认接单的那一张单**（`null` = 没有请求在飞）—— 2026-10-08，CHG-0081。
@@ -142,7 +187,7 @@ class DriverOrdersViewModel(private val container: AppContainer) : ViewModel() {
         load()
         // Socket 实时事件驱动刷新（新单/撤回/完成等），新单由 RealtimeHub 语音播报
         viewModelScope.launch {
-            container.realtimeHub.refreshOrders.collect { load() }
+            refreshSignals.collect { load() }
         }
     }
 
@@ -303,6 +348,9 @@ class DriverOrdersViewModel(private val container: AppContainer) : ViewModel() {
 
     fun load() {
         loadJob?.cancel()
+        // 世代号必须在**挂起点之前**取（理由见 [loadSeq]）：`viewModelScope.launch` 在
+        // `Dispatchers.Main.immediate` 下可能**当场内联**跑起来，那时 `loadJob` 还指着**旧** Job。
+        val mySeq = ++loadSeq
         // ⚠️ **在挂起点之前**把"这一趟是给哪一栏取的"钉死：取数期间用户又切了一次 tab 的话，
         //    拿回来的是**旧那一栏**的数据 —— 那时若按新 tab 记 [ordersTab]，就又把两件事混成一件。
         val wanted = tab
@@ -310,24 +358,34 @@ class DriverOrdersViewModel(private val container: AppContainer) : ViewModel() {
             loading = orders.isEmpty()
             error = null
             try {
-                // 进行中 = 已派单（还没接）+ 已接单。状态取自 `OrderStatusModel.DRIVER_OPEN`
-                // （原来这里硬写两个字面量；只查 ACCEPTED 时新派来的单在司机端**根本不出现**）。
-                // 已完成档 = 已送达 + 已退货（[FINISHED_STATUSES]）—— 整单退货的单**不许**从
-                // 司机列表里消失（2026-10-03，E2E 走查 P27）。
-                val statuses = if (wanted == 0) OrderStatusModel.DRIVER_OPEN else FINISHED_STATUSES
-                val fetched = statuses
-                    .flatMap { container.repo.orders(status = it, dateFrom = if (wanted == 1) dateFrom else null, dateTo = if (wanted == 1) dateTo else null) }
-                    .sortedByDescending { it.createdAt }
+                val fetched = fetchOrders(wanted, dateFrom, dateTo)
+                // 过期的那一趟（没被取消、只是**回来得晚**）不许写状态：它手里的数据属于上一栏 /
+                // 上一次的日期条件 —— 写下去就是「刷新出来的还不如刚才」（BUG-0026 契约第 3 条）。
+                if (mySeq != loadSeq) return@launch
                 // ⚠️ 这两句**必须相邻**（中间不许出现任何挂起点）：`orders` 与 [ordersTab] 是同一个事实的两半，
                 //    要么一起换、要么都不换。拆开写就会出现"数据是新的、栏位还是旧的"（或反过来），
                 //    而这两种错都不会报错、只在屏幕上闪一下。
                 orders = fetched
                 ordersTab = wanted
+            } catch (e: CancellationException) {
+                // **取消不是失败**（BUG-0026）：这一趟是被新一次取数 / 实时推送打断的。
+                // `CancellationException` 是 `Exception` 的子类 —— 不先接住并原样抛出去的话，
+                // 下面那个通用 catch 会把 `StandaloneCoroutine was cancelled` 当成业务失败
+                // 写进页面级 [error]，渲染门（`DriverOrdersScreen.kt` 的 `vm.error != null`）
+                // 当场把整个列表顶掉（真机证据：_tmp/test_round3/evidence_ta04_before.txt）。
+                throw e
             } catch (e: Exception) {
+                // 只有**当前**这一趟才写错误页：过期那趟失败了，也不许把新一趟已经拿到的结果
+                // 盖成一张错误页。
+                if (mySeq != loadSeq) return@launch
                 error = toApiException(e).message
             } finally {
-                loading = false
-                refreshing = false
+                // 加载态也只归当前那一趟收 —— 过期那趟收掉，会把新一趟的转圈一起关掉
+                // （交错探针里 A 就把 B 的 loading 收成了 false，见 _tmp/test_round3/probe_out.txt）。
+                if (mySeq == loadSeq) {
+                    loading = false
+                    refreshing = false
+                }
             }
         }
     }
