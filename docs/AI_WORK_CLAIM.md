@@ -8195,3 +8195,12 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 **明确不碰**：业务代码与库表结构（本刀上线的是 0.2.6 之后那 39 个提交早已提交的实现）；`docs/PRODUCTION_ACCEPTANCE.md` §三 的人工清单本身。
 
 **实现提交**：`fd43e1d`（版本号 0.2.7）。
+
+## BUG-0030 · 账本报错文案的金额显示回归（已完成）
+
+- 谁 / 什么时候：父会话（`session-bd8fe093-…`）2026-10-10 CST（自查发现，未派 agent）
+- 改哪些文件：`backend/app/api/v1/ledger.py`（`_money` 改走 `money_text`）、`backend/tests/test_ledger_total_consistency.py`（两处**文案**断言）、`docs/changes/BUG-0030.md`、`docs/changes/README.md` 表行、本文件、`docs/TEST_BUG_LEDGER.md` 的 TB-10 补充行
+- 明确不碰：闸门判定与状态码、金额值与落库路径、接口出参格式、`_reject_if_order_closed`、`money_text.py` / `Money.kt` 本身
+- 核心改动：**无** —— 为什么：`backend/app/api/v1/ledger.py` 不在 `_tools/qa/_core_files.txt` 里；本单只改一条报错文案的金额写法与两条断言
+- 证据：`_tools/qa/_check_money_display.py` **50 项全绿**（改前 49 通过 / 1 失败）、`_tools/finance/_check_ledger_total_consistency.py` 52/52、`_tools/qa/_check_ledger_manual_entry.py` 49/49、`backend/tests/test_ledger_total_consistency.py` 6 passed、`_check_dev_spec.py` 5 项、`_check_core_freeze.py` 98 项
+- 实现提交：`644c203`
