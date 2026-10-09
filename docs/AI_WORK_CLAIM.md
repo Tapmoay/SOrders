@@ -31,6 +31,54 @@
 
 ## 进行中
 
+### [2026-10-09 09:2x → 10:0x CST 已完成] 会话：**CHG-0099 订单列表空着时那句「没有匹配的订单」改成说清是「哪一档」把结果挡住了**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`缺陷出处`：`docs/TEST_BUG_LEDGER.md` 的 **TA-01**（规模测试方向 A 的子代理 `e5d6c383` 2026-10-09 真机复现，严重度**可疑**）：「订单管理默认停在『派单中』页签，搜已派单的单号返回『没有匹配的订单』」。
+
+`病灶`：派单员「订单管理」的缺省档「派单中」自带 `status=PENDING_DISPATCH`、不带日期条件；粘一张**已派单**的单号 `SO202610095032003138` 去搜，屏幕上只有四个字「没有匹配的订单」，而这一页标题写着「全部订单」、右上角药丸写着「不限时间」—— **屏幕上没有一处**写着"这一页只看派单中"，用户以为单丢了 / 搜索坏了。接口那边 `q` 一点问题都没有（切「全部」立刻搜得到）。同一台机器上货主页「我的订单」有**一模一样**的一段 `if`（兜底句是「暂无订单」）。
+
+`改法`：① **新建 `ui/common/OrderEmptyHint.kt`**（52 行纯函数，⛔ 不 import Compose、不碰 Android）：`internal fun orderEmptyHint(tabLabel, statusFiltered, windowWord, searching, noMatch): String`，`when` 的**顺序即优先级** —— 日期窗＋搜过 ⇒ 两条出路都给 / 日期窗 ⇒ **原来那一句逐字照旧** / 状态筛＋搜过 ⇒ `「派单中」里没搜到 —— 这一页只看「派单中」，点页签「全部」可以搜别的状态` / 状态筛 ⇒ 说清这一档现在没单＋出路 / 其余交给调用方给的兜底句。② `ui/common/OrderWindowViewModel.kt:115` 收成共用入口 `fun emptyHint(searching: Boolean, noMatch: String)`（`statusFiltered = currentTab.key != null`；`noMatch` **故意不给默认值** —— 两个页面的兜底句本来就不同，给缺省就会悄悄串页）。③ `ui/dispatcher/DispatcherOrdersScreen.kt:104` 与 `ui/shipper/ShipperOrdersScreen.kt:104` 各删掉自己那段三行 `if`、改调 `vm.emptyHint(...)`（货主页没有搜索框 ⇒ `searching` 固定 false）。④ 新建单测 `ui/common/OrderEmptyHintTest.kt`（**8 档**）。⑤ 判据 `_tools/qa/_check_order_list_ui.py` 收编空态那一节（`EMPTY_KT` ＋ 红线"两个页面不许再自己写空态 `if`"），**110 → 113 项**；反验 `_tools/qa/_reverse_verify_order_list_ui.py` **29 → 32 条注入**。⑥ 文书：`docs/changes/CHG-0099.md` ＋ 登记簿 ＋ 本声明。
+
+`明确不碰`：**查询本身**（`status` / `q` / 日期窗一个字符都不改 —— 本单修的是"话说没说清"，**不是"搜法"**；改了搜索语义就等于换了一个缺陷）、档位表与缺省档（派单中 / 已接单）、右上角时间药丸的挂档、**日期窗口那一档的原文案**（司机端 2026-09-20 事故换来的）、卡片与列表的其它部分（截断提示 / 动作左右分区 / 单号与徽章分行）、司机端两个列表页（各有自己的同族文案、不在本次测试范围）、后端 / 端点 / 权限点 / 数据库 / 历史数据。
+
+`判据 / 反验`：`python _tools/qa/_check_order_list_ui.py` ⇒ **113/113 全过（exit 0）**；`python _tools/qa/_reverse_verify_order_list_ui.py` ⇒ **32/32 全部报红 ＋ 被碰过的文件逐字节还原**；单测 `OrderEmptyHintTest` **8 档**（全量 `:app:testEmuDebugUnitTest` ⇒ 102 个类 / tests=1444 / failures=0 / errors=0 / skipped=2）；编译 `:app:assembleEmuDebug` ⇒ **BUILD SUCCESSFUL in 1m 1s**。
+
+- 状态：✅ **已完成**（2026-10-09 立项并关闭；变更单 `docs/changes/CHG-0099.md`；台账 **TA-01**；Blast Radius **L1 —— 两个订单列表页的空态文案**；提交 ⟪HASH⟫）。
+- 真机：`emulator-5554`（派单员 13800000001，1080×2400）—— 工作台 → 订单管理 → 搜 `SO202610095032003138` ⇒ 空态原文「「派单中」里没搜到 —— 这一页只看「派单中」，点页签「全部」可以搜别的状态」（`shots/78_CHG-0099_空态_派单中里没搜到.png`）；点页签「全部」再搜 ⇒ 卡片立刻出现（`shots/79_CHG-0099_切到全部就搜到了.png`，`TA测试地址-派单池件数校验` / 已派单 / ¥44.1）。
+- 核心改动：**无** —— 为什么：改的 `ui/common/OrderWindowViewModel.kt`、`ui/dispatcher/DispatcherOrdersScreen.kt`、`ui/shipper/ShipperOrdersScreen.kt` 与新建的两个文件都不在 `_tools/qa/_core_files.txt` 里。
+
+### [2026-10-09 08:05 → 08:2x CST 已完成] 会话：**CHG-0098 AI 设置页的「能力说明」默认折起来：标题报数（能查 N 项 · 能改 M 项），点一下看全**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
+
+`用户口径（ref `m01649`，语音转写，逐字）：「顺便把这个做一个折叠和隐藏啊，他那些详情的解释啊，不然太长了很占位子。」`；附了一张「AI 助手设置」页截图（412×404），那一格几乎被这段字占满 —— 上面是 `API Key 加密存在本机、不上传；费用你自己承担。` 一行，下面整段是「能查：…」（39 项）＋「能改：…」（23 项）。
+
+`病灶`：设置页最上面那一格是「隐私与费用」＋「能力说明」两句话拼的。第一句只有一行，第二句是 `AiRolePrompt.settingsSummary(...)` 生成的能力声明 —— 真机上折行折成十几行，把这一格撑成了大半屏。用户第三次点名要「折叠和隐藏」，并且明确是**那一段的详情解释**，不是删掉。
+
+`改法`：① 新建 `ai/AiCapabilitySummary.kt`（纯函数、不 import android.\*）：`internal data class AiCapabilitySummary(canRead, canWrite, canWriteKnown)` ＋ `internal fun capabilitySummaryCounts(summary: String): AiCapabilitySummary`（数字**从那段话按「、」数出来**，不手写第二份清单；兜底话「暂时没有…」不算一项）＋ `internal fun capabilitySummaryLabel(counts, expanded): String`（四档，**顺序即判据：展开 > 认不出 > 全 0 > 报数** —— 展开写「收起清单」/ 认不出角色写「能做什么（点开看清单）」/ 一项能改的都没有就不许报「能改 0 项」/ 认得出写 `能查 39 项 · 能改 23 项（点开看清单）`）。② `ui/ai/AiSettingsScreen.kt` 那一格：`settingsSummary(...)` 提到 `if` 外面先算好，`var capacityExpanded by rememberSaveable { mutableStateOf(false) }`（这一页是整列 `verticalScroll`，`remember` 会丢），标题那一行整行 `clickable` ＋ 右端 `ExpandLess/ExpandMore` 16dp，正文只在 `if (capacityExpanded)` 里画。③ 新建单测 `AiCapabilitySummaryTest`（7 档；期望值**从真实那段话算**，不写死数字）。④ 新建判据 `_tools/qa/_check_ai_settings_fold.py`（七节 ＋ 文书节）；反验 `_tools/qa/_reverse_verify_ai_settings_fold.py`（20 条注入）。⑤ 文档：变更单 `docs/changes/CHG-0098.md` ＋ 登记簿 ＋ 设计系统 §4.25f ＋ 代码定位表。
+
+`明确不碰`：`AiRolePrompt.settingsSummary` **那段话本身一个字都不动**（它同时是模型的 system prompt —— 写窄了模型会跟着否认自己的能力，v3.7 实测踩过，见 §19.6）；它的 `actor` / `readModules` 两个入参与角色裁剪；`API Key 加密存在本机、不上传；费用你自己承担。` 这句仍在**折叠之外**、仍常显（CHG-0031 用户点名要留）；这一格的 Lock 图标、accent 8% 底色、放最上面的位置；AI 操作流水入口、只读开关清单、Key/模型/思考档那些卡片；`AiReads` / `AiWrites`；后端 / 端点 / 权限点 / 数据库 / 历史消息。
+
+`判据 / 反验`：`python _tools/qa/_check_ai_settings_fold.py`（七节 **51/51 全绿**）/ `python _tools/qa/_reverse_verify_ai_settings_fold.py`（**20** 条注入 ✅ 全部报红 ＋ 被碰过的 5 个文件逐字节还原），单测 `AiCapabilitySummaryTest` **7 档**；全量单测 101 个类 tests=1436 failures=0；全量静检 227/228（唯一那条红是并行会话的 `_tools/qa/_test_bug_ledger.py` 在 GBK 控制台打 ✅/❌ 没 reconfigure，与本单无关）。
+
+- 状态：✅ **已完成**（2026-10-09 立项并关闭；变更单 `docs/changes/CHG-0098.md`；台账 **L-63**；Blast Radius **L0 —— 展示层**；提交 `<sha 见下>`）。
+- 真机：`emulator-5554`（派单员 13800000001，1080×2400 / density 440 ⇒ 1dp = 2.75px）—— `shots/74_ai设置_能力说明_折叠.png`（折叠态：`API Key 加密存在本机、不上传；费用你自己承担。` ＋ 绿色 `能查 39 项 · 能改 23 项（点开看清单）` ＋ 右端 ⌄）／`shots/75_ai设置_能力说明_展开.png`（点一下后标题变「收起清单」＋ ⌃，正文整段展开、一个字没删）。**那一段的下沿从 y=1430 提到 y=656 px ⇒ 省下 774 px ≈ 281.5 dp**（节点几何 `uiautomator dump`）。
+- 核心改动：**无** —— 为什么：改的 `ui/ai/AiSettingsScreen.kt` 与新建的 `ai/AiCapabilitySummary.kt`、`ai/AiCapabilitySummaryTest.kt` 都不在 `_tools/qa/_core_files.txt` 里。
+
+### [2026-10-09 07:4x → 08:3x CST 已完成] 会话：**CHG-0097 AI 助手「导出文件卡」上的字太长：信息区压成一句话，「已保存到 ＋ 一整条路径」改成「已保存」**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
+
+`用户口径（ref `m01176`，语音转写，逐字）：「太长了，太长了，那个文字压缩成横杠啊，压缩成一个。也就是那个介绍吧，压缩成 11 杠一杠。包括什么已保存到那个什么什么什么？也喜也也省略掉啊，不要那么长的信息啊，只表示一保存做个简单的」`；附了一张截图，红框圈的就是那张卡（信息区第三行摊着 `/storage/emulated/0/Download/SOrders报表/营业纵览-2026-09-01_2026-09-30.xlsx`，占两行）。
+
+`病灶`：CHG-0095 把卡片的形状改对了（左框 / 中信息 / 右两颗按钮），但信息区第三行写的是 `"已保存到：" + saved.path` —— 一整条绝对路径摊在卡片上、`maxLines = 2` 占两行，把卡撑成一大块。用户第二次点名要「只表示一保存做个简单的」。
+
+`改法`：① 新建 `ai/AiExportCard.kt` 里加两个纯函数 —— `internal fun exportSavedLabel(): String = "已保存"` 与 `internal fun exportStatusLine(error: String, saved: Boolean, busy: Boolean, progress: String): String`（顺序即判据：**错误 > 已存好 > 正在忙**；这一行从前是 Composable 里的 `when`）。② `ui/ai/AiChatScreen.kt` 的 `ExportFileRow`：状态行整行改走 `exportStatusLine`，`maxLines` **2 → 1**，KDoc 补第二次点名的口径。③ 单测 `AiExportCardTest` 加 5 档（15 → 20，其中一条直接断言「存好那一档**不含** `/storage`」）。④ 判据 `_tools/qa/_check_ai_export_card.py` 加 14 条（67 → 89，含**四条 `absent`** 反向钉住路径不许漏回来）；反验加 7 条注入（29 → 36）。⑤ `_tools/qa/_check_ai_export_files.py` 里「存到哪了要说出来」那条随本单改口径（**不是放松**：从"路径必须在卡片上"改成钉「由纯函数给出 ＋ 卡片确实不再读 `saved.path`」）。⑥ 文档：变更单 + 登记簿 + 设计系统 §4.25e + 代码定位表那一行。
+
+`明确不碰`：失败那一档的「⚠ ＋后端原话」与错误色（换个字就等于把错误吞了）；忙那一档的进度原话与「正在生成…」兜底；Android 10 以下那句中文说明（它是**唯一**还写着文件位置的地方，而那一档本来就分享不了、用户确实在找文件）；左框与右两颗按钮的一切（44dp、语义色、12dp 间距、**两颗永远都在**、enabled 只来自 `exportCardActions`）；`ExportFileRow` 三个入参两个回调签名；`StoredExportRecipe` / `ExportRowState` / `ExportedFile` 的字段与落盘（`path` 照旧存在，只是不显示了）；导出链路、落点、分享、404 清任务号、连点拦截；后端 / 端点 / 权限 / 数据库 / 历史消息。
+
+`判据 / 反验`：`python _tools/qa/_check_ai_export_card.py`（八节 **89/89 全绿**）/ `python _tools/qa/_reverse_verify_ai_export_card.py`（**35** 条注入 ✅ 全部报红 ＋ 被碰过的文件逐字节还原），单测 `AiExportCardTest` **20 档**；全量单测与全量静检见下。
+
+- 状态：✅ **已完成**（2026-10-09 立项并关闭；变更单 `docs/changes/CHG-0097.md`；台账 **L-62**；Blast Radius **L0 —— 展示层**）。
+- 真机：`emulator-5554`（派单员 13800000001，1080×2400 / density 440 ⇒ 1dp = 2.75px）—— `shots/76_ai_导出卡_改后_状态行只剩已保存.png`（刚生成、还没点下载：卡上**只有两行字**，没有第三行）／`shots/77_ai_导出卡_改后_已保存三个字.png`（点过下载：第三行就是 `已保存`，y=1951→2014 一次 63px ＝ **一行**，改前同一句是「已保存到：/storage/…」占**两行**）。两态 `uiautomator dump` 里含 `/storage` 或 `emulated/0` 的节点数都 **= 0**。
+- 核心改动：**无** —— 为什么：改的 `ui/ai/AiChatScreen.kt` 与新建/改的 `ai/AiExportCard.kt`、`ai/AiExportCardTest.kt` 都不在 `_tools/qa/_core_files.txt` 里。
+
 ### [2026-10-09 03:5x → 04:53 CST 已完成] 会话：**CHG-0096 AI 助手的业务多步工作流（第一批）：说一句「这个月对一下账」/「把菜籽油降 5%」就自己按步骤跑完，先给结论再问要不要发卡**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径（goal `goal-9c29e859-ec5e-444e-9e78-6e330bf0aa07` 原文，语音转写）：「业务工作流 —— 内置多步流程（对账、批量调价这类），AI 认出来后自己按步骤跑完整件事，用户少说几句。」`；本会话在 `ask_user_question` 上拍了两条：① **两条一起做**（对账 ＋ 批量调价同一单交）；② 跑到要改数据那一步 —— 「**先给结论，再问一句要不要发卡**」（先把明细和金额摆出来让他看，他点头才生成确认卡）。

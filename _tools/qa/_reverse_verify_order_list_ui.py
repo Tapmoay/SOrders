@@ -45,6 +45,7 @@ SHIP_SCREEN = UI + "shipper/ShipperOrdersScreen.kt"
 CARD_KT = UI + "common/OrderCard.kt"
 DETAIL_KT = UI + "order/OrderDetailScreen.kt"
 WINDOW_BASE = UI + "common/OrderWindowViewModel.kt"
+EMPTY_KT = UI + "common/OrderEmptyHint.kt"
 TABS_KT = UI + "common/OrderTabs.kt"
 ACCT_SCREEN = UI + "dispatcher/AccountManageScreen.kt"
 FREIGHT_SCREEN = UI + "dispatcher/FreightTemplatesScreen.kt"
@@ -150,9 +151,9 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     ),
     (
         "⑬ 空态不再指路（默认「今天」+ 今天没单 = 用户以为这一页坏了）",
-        DISP_SCREEN,
-        '                                "的订单 —— 点右上角可以换一段时间"',
-        '                                "的订单"',
+        EMPTY_KT,
+        '        "「" + windowWord + "」没有" + tabLabel + "的订单 —— 点右上角可以换一段时间"',
+        '        "「" + windowWord + "」没有" + tabLabel + "的订单"',
         "派单员「订单管理」：空列表时文案指向右上角那个药丸",
     ),
     (
@@ -274,6 +275,38 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "                            DatePresetPill(label = word)\n",
         "                            DatePresetPill(label = word, onClick = { vm.showDatePresets = true })\n",
         "货主「我的订单」：按 `pillPickable` 分两种画法",
+    ),
+    # ── 2026-10-09 测试台账 TA-01：缺省档「派单中」自带 status 条件 ──────────────
+    # 搜一个**已派单**的单号时，屏幕上原来只有四个字"没有匹配的订单"，而页面上没有一处
+    # 写着"这一页只看派单中" —— 用户看到的是"这单不见了"。下面四条分别打这个判断的
+    # 每一层：那一档自己怎么判、两句文案、以及页面有没有绕开共用实现自己写一句。
+    (
+        "㉙ 带状态筛选那一档退回一句「没有匹配的订单」（TA-01 原样复现：不说是谁挡住的）",
+        EMPTY_KT,
+        '        "「" + tabLabel + "」里没搜到 —— 这一页只看「" + tabLabel + "」，点页签「全部」可以搜别的状态"',
+        '        noMatch',
+        "TA-01：带状态筛选 + 搜过时",
+    ),
+    (
+        "㉚ 没单那一句里把出路删掉（说「这一档没单」却不说怎么看到别的档）",
+        EMPTY_KT,
+        '        "「" + tabLabel + "」还没有单 —— 点页签「全部」可以看到其他状态的单"',
+        '        "「" + tabLabel + "」还没有单"',
+        "TA-01：带状态筛选、没搜过时",
+    ),
+    (
+        "㉛ 把「这一档带不带状态筛选」写死成 false（两页的缺省档就再也不点名了）",
+        WINDOW_BASE,
+        "        statusFiltered = currentTab.key != null,",
+        "        statusFiltered = false,",
+        "TA-01：有没有状态筛选是按",
+    ),
+    (
+        "㉜ 页面绕开共用判断、自己写死一句（抄两份 = 下次只修一页）",
+        DISP_SCREEN,
+        'vm.emptyHint(searching = vm.search.isNotBlank(), noMatch = "没有匹配的订单")',
+        '"没有匹配的订单"',
+        "派单员「订单管理」：空态走共用那一份判断",
     ),
 ]
 

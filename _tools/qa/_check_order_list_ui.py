@@ -30,7 +30,7 @@
 每节都带数量下限，注册表腐烂时先红而不是安静地什么都不查。
 
 用法：python _tools/qa/_check_order_list_ui.py
-配套：python _tools/qa/_reverse_verify_order_list_ui.py（28 种破坏方式全被抓）
+配套：python _tools/qa/_reverse_verify_order_list_ui.py（32 种破坏方式全被抓）
 """
 from __future__ import annotations
 
@@ -55,6 +55,8 @@ SHIP_VM = UI / "shipper/ShipperOrdersViewModel.kt"
 SHIP_SCREEN = UI / "shipper/ShipperOrdersScreen.kt"
 TABS_KT = COMMON / "OrderTabs.kt"
 WINDOW_BASE = COMMON / "OrderWindowViewModel.kt"
+#: 空态那一句（2026-10-09 台账 TA-01 收编：四档判断两页共用，⛔ 不许各页各写一份）。
+EMPTY_KT = COMMON / "OrderEmptyHint.kt"
 CARD_KT = COMMON / "OrderCard.kt"
 COMPONENTS_KT = COMMON / "Components.kt"
 DETAIL_KT = UI / "order/OrderDetailScreen.kt"
@@ -101,7 +103,8 @@ def main() -> int:
     c = Checker()
 
     c.section("0. 反空转（文件搬走/被清空时先喊）")
-    for p in (DISP_VM, DISP_SCREEN, SHIP_VM, SHIP_SCREEN, TABS_KT, CARD_KT, COMPONENTS_KT, DETAIL_KT, WINDOW_BASE):
+    for p in (DISP_VM, DISP_SCREEN, SHIP_VM, SHIP_SCREEN, TABS_KT, CARD_KT, COMPONENTS_KT, DETAIL_KT,
+              WINDOW_BASE, EMPTY_KT):
         c.ok(f"{p.name} 在", p.exists())
     if c.fails:
         print("\n❌ 关键文件不在，后面的判据没有意义")
@@ -196,6 +199,7 @@ def main() -> int:
 
     c.section("3. 档位 → 窗口的判据：共用内核 + 跟着档位自己走（不是下标）")
     base_kt = read(WINDOW_BASE)
+    empty_kt = read(EMPTY_KT)
     c.ok("共用的窗口内核只有一处定义（`ui/common/OrderWindowViewModel.kt`）",
          sum(len(re.findall(r"abstract class OrderWindowViewModel\(", s)) for s in srcs.values()) == 1
          and "abstract class OrderWindowViewModel(" in base_kt)
@@ -287,8 +291,39 @@ def main() -> int:
              and re.search(r"DatePresetPill\(label = word\)\s*\n", screen) is not None)
         # 带窗口的档默认是「今天」→ 今天没单时列表本来就该是空的。空态不指路，用户只会觉得
         # "这一页坏了"（司机端 2026-09-20 就是这么被困住的：筛空之后没有出路）。
+        # ⚠️ 这句话现在住在共用的 `ui/common/OrderEmptyHint.kt`（2026-10-09 TA-01 把它收编了），
+        #    页面只调 `vm.emptyHint(...)` —— 所以下面查的是**那一份**，不是页面自己写的字。
         c.ok(f"{label}：空列表时文案指向右上角那个药丸",
-             "点右上角可以换一段时间" in screen)
+             # ⚠️ 必须连着前面那半句一起查：只查「点右上角可以换一段时间」的话，
+             #    「搜过之后」那一条出路里也有这几个字 —— 把日期窗口那一句删掉照样绿
+             #    （反向验证第 ⑬ 条当场抓出来的）。
+             "的订单 —— 点右上角可以换一段时间" in empty_kt)
+        c.ok(f"{label}：空态走共用那一份判断（页面只给 searching / 兜底句）",
+             "vm.emptyHint(" in screen)
+    # ── 2026-10-09 测试台账 TA-01（真机复现）─────────────────────────────────
+    # 缺省档「派单中」自带 `status=PENDING_DISPATCH`、列表不带日期条件：搜一个**已派单**的单号，
+    # App 发的是 `GET /orders?status=PENDING_DISPATCH&q=SO…` → 200 空 → 屏幕上只有四个字
+    # 「没有匹配的订单」，而页面上没有一处写着"这一页只看派单中"（接口的 q 参数其实是好的）。
+    # 规矩：空态**说清是哪个筛子把结果挡住了** —— 这时"点页签「全部」"就是出路。
+    c.ok("空态的四档判断全库只有一处（`orderEmptyHint`，两页共用）",
+         sum(len(re.findall(r"internal fun orderEmptyHint\(", s)) for s in srcs.values()) == 1
+         and "internal fun orderEmptyHint(" in empty_kt)
+    c.ok("TA-01：有没有状态筛选是按**档位自己的 key** 判的（⛔ 不写死某一档）",
+         "statusFiltered = currentTab.key != null" in base_kt)
+    c.ok("TA-01：带状态筛选 + 搜过时**点名那一档**，并给出路（点页签「全部」）",
+         "这一页只看「" in empty_kt and "可以搜别的状态" in empty_kt,
+         '只写"没有匹配的订单"，用户看到的是"这单不见了，接口明明有"—— 这就是 TA-01 报的那一幕')
+    c.ok("TA-01：带状态筛选、没搜过时也说清是这一档没单 + 出路",
+         "还没有单 —— 点页签「全部」可以看到其他状态的单" in empty_kt)
+    c.ok("TA-01：日期窗口那一档的两句都还在（有窗口时说的是时间，不是状态）",
+         "的订单 —— 点右上角可以换一段时间" in empty_kt
+         and "点右上角可以换一段时间，或者点页签「全部」再搜" in empty_kt)
+    c.ok("TA-01：两页的兜底句分别从页面传来（⛔ 不许写成同一个缺省值）",
+         'noMatch = "没有匹配的订单"' in disp_screen and 'noMatch = "暂无订单"' in ship_screen)
+    c.ok("TA-01：`emptyHint` 不给 `noMatch` 默认值（给了缺省 = 两页兜底句会串页）",
+         re.search(r"fun emptyHint\(searching: Boolean, noMatch: String\)", base_kt) is not None
+         and "noMatch: String =" not in base_kt)
+
     n_range_filter_calls = sum(len(re.findall(r"(?<!fun )DateRangeFilter\(", s)) for s in srcs.values())
     c.ok(f"`DateRangeFilter` 还有真实调用者（>=1，实际 {n_range_filter_calls}）—— 别把它变成孤儿控件",
          n_range_filter_calls >= 1)

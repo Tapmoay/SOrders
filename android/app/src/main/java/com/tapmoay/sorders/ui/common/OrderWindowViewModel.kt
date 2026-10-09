@@ -106,6 +106,21 @@ abstract class OrderWindowViewModel(
     val pillPickable: Boolean get() = datedTab
 
     /**
+     * 列表空着时该说的那一句（两页共用；四种走法与措辞全在 `ui/common/OrderEmptyHint.kt`）。
+     *
+     * @param searching 用户**这一次**是不是搜过（派单员页有搜索框；货主页没有，固定传 false）。
+     * @param noMatch 四档都不适用时的兜底句（派单员「没有匹配的订单」/ 货主「暂无订单」）。
+     *        ⚠️ 故意**不给默认值**：两个页面的兜底句本来就不同，给个缺省就会悄悄串了页。
+     */
+    fun emptyHint(searching: Boolean, noMatch: String): String = orderEmptyHint(
+        tabLabel = currentTab.label,
+        statusFiltered = currentTab.key != null,
+        windowWord = if (datedTab && periodWord != DatePresets.ALL) periodWord else null,
+        searching = searching,
+        noMatch = noMatch,
+    )
+
+    /**
      * 这一档这次实际要带的日期区间（两端 null = 不带日期条件）。
      *
      * ⚠️ **每次查询现算**（不在 init 里算一次存起来）：跨过零点之后「今天」还应该是真的今天，

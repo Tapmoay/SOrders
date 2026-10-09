@@ -94,15 +94,14 @@ fun DispatcherOrdersScreen(
                     vm.loading -> LoadingBox()
                     vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
                     vm.orders.isEmpty() -> EmptyView(
-                        // 空态必须**指到右上角那个药丸**（司机端 2026-09-20 栽过同一个坑：
-                        // 「已完成」筛空后没有出路）：默认档是「今天」，今天没单时这一页
-                        // 本来就该是空的，不指路就会被当成"坏了"。
-                        if (vm.datedTab && vm.periodWord != DatePresets.ALL) {
-                            "「" + vm.periodWord + "」没有" + DISPATCH_TABS[vm.tab].label +
-                                "的订单 —— 点右上角可以换一段时间"
-                        } else {
-                            "没有匹配的订单"
-                        },
+                        // 空态必须**说清是哪个筛子把结果挡住了**：「默认档是今天、今天没单时本来就该空」
+                        // 要指路（司机端 2026-09-20 栽过没有出路那个坑），而**状态筛选**这一路更要紧 ——
+                        // 2026-10-09 测试台账 TA-01：缺省档「派单中」自带 `status=PENDING_DISPATCH`，
+                        // 搜一个**已派单**的单号只得到四个字"没有匹配的订单"，而屏幕上没有一处写着
+                        // "这一页只看派单中"（接口的 q 参数其实是好的，切「全部」立刻搜得到）。
+                        // 怎么说只有一处：`ui/common/OrderEmptyHint.kt`（两页共用）。
+                        // ⛔ 别在这一页里再写一份 if —— 抄两份 = 下次只修一页。
+                        vm.emptyHint(searching = vm.search.isNotBlank(), noMatch = "没有匹配的订单"),
                         Modifier.align(Alignment.Center),
                     )
                     else -> LazyColumn(

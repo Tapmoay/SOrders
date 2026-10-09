@@ -14,11 +14,16 @@
 
 ## 2. 模拟器与账号（三台）
 
-| 端口 | AVD | 分辨率 | 用户角色 | 登录账号（密码均 pass12345） |
+| 端口 | AVD | 分辨率 | 用户角色 | 登录账号（密码均 **123321**） |
 |---|---|---|---|---|
 | **5554** | Pixel_2_XL_API_35 | 1440x2880 | 派单员 | 13800000001（Dispatcher） |
 | **5556** | Pixel_6_API_35 | 1080x2400 | 货主（批发商 is_member） | 13800000002（Shipper） |
 | **5558** | 7_WSVGA_Tablet_API_35 | 600x1024 | 司机 | 13800000003（Driver，另有 13000000009 SALARY 司机） |
+
+> ⚠️ **密码是 `123321`**（不是 `pass12345` —— 2026-10-09 测试台账 **TA-02** 改的：本页原来写 pass12345，
+> 用它登录一律 401，`docs/PROJECT_MAP/09_DEV_ONLY_INDEX.md:20` 写的才是对的）。
+> ⛔ **连错几次会把账号顶进约 15 分钟的登录锁**（接口 429，detail「这个账号连续登录失败太多次，已被临时锁定（约 15 分钟）…」）——
+> 被锁了别继续试，等 15 分钟或换一个账号；确认密码的办法是比对 `backend/sorders.db` 的 `users.password_hash`，不是反复试。
 
 ### 启动模拟器（电脑重启后必须重新启动）
 ```powershell
@@ -158,4 +163,31 @@ python _tools/qa/_probe_prod_readonly.py --sql              # 只打印会发出
 11. **导出**：账本导出租（异步任务）、报表导出（同步 xlsx）→ ⚠️ **xlsx 要逐格与接口对账**
     （七个 kind 全覆盖：`backend/tests/test_export_cells_match_api.py` 管 turnover/products，
     `test_export_cells_other_kinds.py` 管 finance/customers/drivers/audit；
+
+---
+
+## 9. 大规模测试：两个方向（2026-10-09 起）
+
+用户口径（2026-10-09）：「你分别派 2 个子代理按照这 2 个方向进行测试……测试完之后，你就来进行修改。」
+两个方向各有一份**详细作业书**（怎么走、看哪些文件、什么算 bug、证据怎么留），
+测出来的东西一律写进**同一份**台账，编号 `TA-nn`（方向 A）/ `TB-nn`（方向 B）：
+
+| 文档 | 是什么 | 谁看 |
+|---|---|---|
+| [TEST_PROMPT_A_ORDER.md](../TEST_PROMPT_A_ORDER.md) | **方向 A 作业书**：订单状态/订单信息 + 地点/商品/联系人等基础数据 + 对应的 AI 读/写动作（含 AI 操作流水） | 做方向 A 的测试会话（一台模拟器独占） |
+| [TEST_PROMPT_B_FINANCE.md](../TEST_PROMPT_B_FINANCE.md) | **方向 B 作业书**：财务（账本/现金流水/挂账/司机账单与结算/报表与导出 + 发票/供应商/采购单）+ 对应的 AI 动作；中心判据是「**一笔钱的六个落点**」 | 做方向 B 的测试会话（一台模拟器独占） |
+| [TEST_BUG_LEDGER.md](../TEST_BUG_LEDGER.md) | **统一缺陷台账**（两个方向共用）：总表 + 两个方向的详情块 + 收口小结。状态链 待核实 → 已复现 → 已核实（静态代码路径）→ 已立项 → 已修复 <提交> / 不修 | 测试者写、修的人回填状态 |
+
+台账**只追加、不改代码**；写它用追加器（跨进程互斥、自动编号，两个会话并发写不丢行）：
+
+```powershell
+python -X utf8 _tools/qa/_test_bug_ledger.py list            # 看两个方向已有的行
+python -X utf8 _tools/qa/_test_bug_ledger.py show TA-01      # 看某条的详情块
+python -X utf8 _tools/qa/_test_bug_ledger.py add --dir A --title "标题" --severity 可见 ^
+    --status 已复现 --phenomenon "现象" --repro "复现步骤" --expect "期望" --actual "实际" ^
+    --where android/app/src/main/java/com/tapmoay/sorders/ui/.../X.kt:88 --evidence "shots/x.png"
+```
+
+⚠️ 一个方向一个 bug 一条，**编号由脚本分配**，别手写编号、别手改别人的行。
+
     反向验证 `_tools/qa/_reverse_verify_export_cells.py`，注入条数以它自己打印的为准）

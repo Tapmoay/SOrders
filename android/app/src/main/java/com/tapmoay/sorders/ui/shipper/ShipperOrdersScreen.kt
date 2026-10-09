@@ -98,14 +98,10 @@ fun ShipperOrdersScreen(
                     vm.loading -> LoadingBox()
                     vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
                     vm.orders.isEmpty() -> EmptyView(
-                        // 空态必须**指到右上角那个药丸**（司机端 2026-09-20 栽过同一个坑）：
-                        // 默认档是「今天」，今天没单时这一页本来就该是空的，不指路会被当成"坏了"。
-                        if (vm.datedTab && vm.periodWord != DatePresets.ALL) {
-                            "「" + vm.periodWord + "」没有" + SHIPPER_TABS[vm.tab].label +
-                                "的订单 —— 点右上角可以换一段时间"
-                        } else {
-                            "暂无订单"
-                        },
+                        // 空态必须**说清是哪个筛子把结果挡住了**（同派单员页，见 `ui/common/OrderEmptyHint.kt`）：
+                        // 默认档是「已接单」（带 status 条件），这一页**没有搜索框**，
+                        // 所以 `searching` 固定 false，兜底句是「暂无订单」。
+                        vm.emptyHint(searching = false, noMatch = "暂无订单"),
                         Modifier.align(Alignment.Center),
                     )
                     else -> LazyColumn(
