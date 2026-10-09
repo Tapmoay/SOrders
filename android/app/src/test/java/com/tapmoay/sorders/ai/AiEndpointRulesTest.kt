@@ -29,6 +29,9 @@ class AiEndpointRulesTest {
     fun `默认全开：默认集里连写工具都在，且与角色无关`() {
         val all = AiKeyStore.DEFAULT_ENABLED_TOOLS
         assertTrue("写工具必须在默认集里（2026-10-09：写工具也默认开）", AiTools.PREVIEW_WRITE in all)
+        // BUG-0022：只读工具漏进默认集 = `resolveEnabledTools` 末尾那句 intersect 把它静默筛掉，
+        // 设置页的开关点开就弹回、模型那边永远看不到这个工具（run_workflow 就是这么没的）。
+        assertTrue("只读工具 run_workflow 必须在默认集里（BUG-0022）", AiTools.RUN_WORKFLOW in all)
         assertEquals("首装默认就是默认集本身", all, AiKeyStore.defaultEnabledTools())
     }
 

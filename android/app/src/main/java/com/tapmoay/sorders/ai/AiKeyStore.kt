@@ -619,12 +619,20 @@ class AiKeyStore(
         /**
          * 默认全开的工具。
          *
-         * **7 个只读工具**：没有任何写操作，默认全开是安全的。
+         * **8 个只读工具**：没有任何写操作，默认全开是安全的。
          * （第 7 个是 `export_ledger`，CHG-0078 / 台账 L-43：它**只回一张"配方"**、
          *   一个网络调用都不发，真正建导出任务的是用户点的那颗「下载」按钮 ——
          *   所以在"不安全"这件事上它与 `export_sheet` 同类，同样默认全开。
          *   ⛔ 漏进这个集合 = 末尾那句 `intersect(DEFAULT_ENABLED_TOOLS)` 把新工具**静默筛掉**，
          *   用户升级后什么都点不到，且没有任何报错。）
+         *
+         *   ⚠️ **`run_workflow` 就是这么漏了一次**（BUG-0022，2026-10-09 真机抓到的）：
+         *   CHG-0096 加的工具、设置页里那条「跑工作流」开关也能点开、`enabled_tools`
+         *   里**确实存了它的名字**，但集合里没有它 ⇒ 下面 [resolveEnabledTools] 末尾那句
+         *   `intersect(DEFAULT_ENABLED_TOOLS)` 把它筛掉 ⇒ 开关**打开就弹回**、
+         *   `run_workflow` 从来不在模型看到的工具表里，模型只能如实说"这个我查不了"。
+         *   第 8 个就是它：它自己只调读目录里的接口，要改数据也只是把"该发哪张卡"交回去
+         *   （见 `_tools/ai/_check_ai_guardrails.py` 对它的只读论证）。
          * 外加 **`remember`**：它只写本机记忆文件（App 私有目录、用户能逐条看见/改/删、
          * 不出手机），不碰任何业务数据，所以同样可以默认开
          * （理由与红线见 [AiTools.REMEMBER] 与 `_check_ai_guardrails.py` 的 §2）。
@@ -639,6 +647,9 @@ class AiKeyStore(
             AiTools.DRIVER_PERFORMANCE,
             AiTools.SHIPPER_PERFORMANCE,
             AiTools.READ_DATA,
+            // BUG-0022：漏了这一行 = 开关能点开、名字也存进了 prefs，但末尾那句 intersect
+            // 把它静默筛掉（"跑工作流"在设置页里点开就弹回、模型永远看不到这个工具）。
+            AiTools.RUN_WORKFLOW,
             AiTools.EXPORT_SHEET,
             AiTools.EXPORT_LEDGER,
             AiTools.REMEMBER,

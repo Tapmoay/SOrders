@@ -38,7 +38,33 @@ class AiEnabledToolsTest {
         assertTrue("新加的工具没按默认开（老用户升级后新功能会静默失效）：$effective", AiTools.EXPORT_SHEET in effective)
         // 同一个规矩对 CHG-0078 新加的 export_ledger 也成立（漏进默认集 = 静默筛掉）
         assertTrue("新加的工具没按默认开：$effective", AiTools.EXPORT_LEDGER in effective)
+        // CHG-0096 的 run_workflow 同一条规矩（BUG-0022 就是漏了它）
+        assertTrue("新加的工具没按默认开：$effective", AiTools.RUN_WORKFLOW in effective)
         assertTrue(AiTools.READ_DATA in effective)
+    }
+
+    /**
+     * BUG-0022（2026-10-09 真机抓到）：`run_workflow` 漏进了 [AiKeyStore.DEFAULT_ENABLED_TOOLS]。
+     *
+     * 症状**不是**"新工具没自动开"那么轻 —— 设置页那条「跑工作流」开关**能点开**、
+     * `enabled_tools` 里**确实存了它的名字**，但末尾那句 `intersect(DEFAULT_ENABLED_TOOLS)`
+     * 把它筛掉：再进设置页开关**自己弹回关的**（"查询 7/8"永远差一条），
+     * `AiTools.specs` 也从不把它放进模型看到的工具表 —— 模型只能如实回一句
+     * 「对账工作流在我这边没有启用」。**开关看起来有、其实没有**。
+     */
+    @Test
+    fun `用户自己点开的 run_workflow 不许被筛掉（存进 prefs 也不生效就是这个 bug）`() {
+        // 真机上那一份 prefs（BUG-0022 的取证）：enabled_tools 里有 run_workflow，
+        // tools_seen 里没有它（它是 CHG-0096 之后才有的）。修之前这两条断言都是红的。
+        val savedWithWorkflow = saved + AiTools.RUN_WORKFLOW
+        assertTrue(
+            "存进 prefs 的开关被筛掉了（开关点开就弹回）：" + AiKeyStore.resolveEnabledTools(savedWithWorkflow, seenAtSave),
+            AiTools.RUN_WORKFLOW in AiKeyStore.resolveEnabledTools(savedWithWorkflow, seenAtSave),
+        )
+        assertTrue(
+            "老用户（存过白名单、没点过它）升级后该自动能跑工作流：" + AiKeyStore.resolveEnabledTools(saved, seenAtSave),
+            AiTools.RUN_WORKFLOW in AiKeyStore.resolveEnabledTools(saved, seenAtSave),
+        )
     }
 
     @Test
