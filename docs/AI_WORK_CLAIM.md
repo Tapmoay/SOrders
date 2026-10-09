@@ -31,7 +31,22 @@
 
 ## 进行中
 
-### [2026-10-10 04:0x → ⏳ CST 进行中] 会话：**BUG-0028 基础数据表单：输入被静默改掉、显示口径两处不一致（TA-08 / TA-09 / TA-10）**（DSH `9a5b6961-c1fe-4292-8001-8318d06b970e`）
+### [2026-10-10 立项 → 2026-10-10 已完成] 会话：**BUG-0026 司机端「进行中」列表被实时推送打断后整页报 StandaloneCoroutine was cancelled**（DSH `session-4f7d4be2-3e4b-4b95-bb10-d9f28eaa106a`）
+
+`用户口径`：测试台账 **TA-04**（方向 A 测试 2026-10-10 03:25 CST 在 `emulator-5558` + 隔离后端 8010 上复现 ≥3 次，严重度 **可见**）—— 司机端停在「进行中」，点顶部「刷新」后 1 秒内用派单员 token `POST /orders/{id}/assign` 给 driver_id=128 ⇒ 整页被错误态顶掉，文案是协程取消的原始异常串 `StandaloneCoroutine was cancelled`，只剩一个「重试」。
+
+`病灶`：`android/app/src/main/java/com/tapmoay/sorders/ui/driver/DriverOrdersViewModel.kt:304-333`（HEAD）的 `fun load()` = `loadJob?.cancel()` ＋ `catch (e: Exception) { error = toApiException(e).message }` —— `CancellationException` 是 `Exception` 的子类，被吞成页面级 error；被取消那趟的 catch/finally 落笔排在**新一趟** `error = null` 之后（取数跨调度器挂起时，探针 `_tmp/test_round3/probe_out.txt` 的 P2 形状），屏上就留下那串异常；`ui/driver/DriverOrdersScreen.kt:104` 的 `vm.error != null -> ErrorView(...)` 把整页顶掉。
+
+`改法`：① 构造接缝 `fetchOrders: suspend (wanted: Int, from: String?, to: String?) -> List<OrderDto>`（默认 lambda 逐字等于原取数，只为 JVM 单测能注入 —— 仓库既有先例 `AiAgentLoopTest` 靠构造接缝注入 FakeTransport）；② `catch (e: CancellationException) { throw e }` 排在通用 catch **之前**；③ 取数世代号 `loadSeq`（挂起点之前 `val mySeq = ++loadSeq`）＋ 成功路径 / 失败路径 / finally 三处守卫 —— 只有当前这一趟能写状态（不靠 Job 同一性：`Main.immediate` 下 launch 体可能内联先跑）。
+
+`明确不碰`：同类点位另外 4 文件 5 处（`ui/dispatcher/DispatcherOrdersViewModel.kt:171`、`ui/dispatcher/DispatcherPoolViewModel.kt:145` / `:177`、`ui/shipper/ShipperOrdersViewModel.kt:164`、`ui/common/ReturnRequestsViewModel.kt:130`）、`ui/driver/DriverOrdersScreen.kt`（并行配色会话在飞）、渲染门顺序、后端 / 接口 / 权限 / 数据库 / 历史数据、`ui/common/ProductCardKit.kt`。
+
+`判据 / 反验`：`_tools/qa/_check_cancellation_not_error.py` **23 项全过**（改前 11 项红）；反验 `_tools/qa/_reverse_verify_cancellation_not_error.py` **13/13 都红了**（被碰文件逐字节还原）；单测 `DriverOrdersLoadCancelTest`（`android/app/src/test/java/com/tapmoay/sorders/ui/driver/DriverOrdersLoadCancelTest.kt`）改前 1 failed / 2 passed → 改后 3 passed。
+
+- 状态：✅ **已完成**（2026-10-10 立项 · 2026-10-10 关闭；变更单 `docs/changes/BUG-0026.md`；台账 **TA-04**；Blast Radius **L2 —— 行为契约（页面状态写入权）**；提交 `HASH2BEFILLED`）。
+- 核心改动：**无** —— 为什么：`_tools/qa/_core_files.txt` 里没有本单任何文件（该清单里唯一的 Kotlin 文件是 `ai/AiWriteService.kt`，本单只动 `ui/driver/DriverOrdersViewModel.kt` 与新增单测、`_tools/qa/` 两个脚本）。
+
+### [2026-10-10 04:0x → 05:0x CST 已完成] 会话：**BUG-0028 基础数据表单：输入被静默改掉、显示口径两处不一致（TA-08 / TA-09 / TA-10）**（DSH `9a5b6961-c1fe-4292-8001-8318d06b970e`）
 
 `用户口径`：测试台账 **TA-08 / TA-09 / TA-10**（方向 A 基础数据测试 2026-10-10 凌晨在隔离栈 8010 + 5556 上复现，只记录未修；报告 `_tmp/test_round3/trackA1_basicdata_report.md`）——TA-08 同一个单价两处两个数：商品卡 `¥0.01/箱`、改价弹窗 `0.005`（product id=76 的子分价，卡上是真值的两倍）；TA-09 改价弹窗输入 `-3` 被静默改成 `3` 并保存（更早 `-1` → `1`），全程无提示；TA-10 联系人电话填 `abc` 被静默清空仍保存成功（库 `phone=NULL`），卡片上那一行是空白，看不出"这条没有电话"。
 
@@ -41,11 +56,11 @@
 
 `明确不碰`：后端一行不改（`backend/app/**`、表结构、迁移、接口契约）；金额显示口径与 `formatMoney` 的进位算法；库精度 `Numeric(14,4)`；`moneyInput` / `priceInput` / `moneyError` / `phoneInput` / `phoneError` 的语义与既有单测；CHG-0010「新建联系人的时候不需要必填手机号」（电话仍选填，⛔ 不许改成必填）；账本/结算/报表金额口径；软删与状态机；AI 写闸门。
 
-`判据 / 反验`：（回填：`_tools/qa/_check_basicdata_input_guard.py` 项数 / `_tools/qa/_reverse_verify_basicdata_input_guard.py` 注入条数 / 单测改前红改后绿 / 隔离工作树 `_tmp/wt_0028` 的红绿日志）
+`判据 / 反验`：`_tools/qa/_check_basicdata_input_guard.py` **31 项锚点全过**（打印原文：`✅ 31 项锚点全绿：改价框拒绝负数并说明（TA-09）、联系人电话丢字要说明且空电话可见（TA-10）、商品卡与改价弹窗同一个单价口径（TA-08）`）；`_tools/qa/_reverse_verify_basicdata_input_guard.py` **13 条注入逐条报红**（＋ 末尾还原后复绿 ＝ 14/14，还原后逐字节读回比对）；单测在隔离工作树 `_tmp/wt_0028`（detached `1b91cdf`）跑 `:app:testEmuDebugUnitTest`：**改前红** ＝ `InputRulesRewriteTest` 编译失败 `Unresolved reference 'priceRewriteNote'`（`_tmp/tb28/red2b_rules.log`）＋ `ProductCardKitTest` 10 tests / 3 failed 含子分价那条（`_tmp/tb28/red1b_card.log`），**改后绿** ＝ **18 passed**（9 ＋ 9，`_tmp/tb28/green3_tests.log`）＋ 判据在工作树 HEAD 源码上真红（`_tmp/tb28/red0b_check.log`）。
 
 ⚠️ **交叉点**：`ui/common/ProductCardKit.kt` 与 `ui/dispatcher/ProductsScreen.kt` 正被并行会话改（CHG-0105 低饱和配色 / CHG-0103），本单只做**追加式**改动并在「交叉点」记一笔。
 
-- 状态：⏳ **进行中**（2026-10-10 立项；变更单 `docs/changes/BUG-0028.md`；台账 **TA-08 / TA-09 / TA-10**；Blast Radius **L2 —— 展示口径 / 输入契约**）
+- 状态：✅ **已完成**（2026-10-10 立项 · 2026-10-10 关闭；变更单 `docs/changes/BUG-0028.md`；台账 **TA-08 / TA-09 / TA-10**；Blast Radius **L2 —— 展示口径 / 输入契约**；提交 `6db304e`）。`ProductCardKit.kt` 的售价行改动被并行会话的 CHG-0105 提交（`ca2780c`）一并带上去了，本单实现提交只余 5 个源文件 ＋ 2 个单测 ＋ 2 个判据 ＋ 变更单。
 
 ### [2026-10-10 04:0x → 05:0x CST 已完成] 会话：**BUG-0027 派单员软删/恢复在途单不发任何实时推送、司机端旧卡片点开只说「订单不存在」（TA-05 / TA-06）**（DSH `d8de659b-72c0-4695-9cb6-8b7b0f7e4868`）
 

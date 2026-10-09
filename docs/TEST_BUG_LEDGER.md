@@ -26,9 +26,9 @@
 | TA-05 | A | 删除/恢复在途单不产生实时推送：司机端刷新前无变化、刷新后静默消失/静默回归（… | 可疑 | **已修复 db7b3a4** | 派单员 DELETE /orders/{id}（司机已接单的在途单）与 POST /{id}/restore 都只写 op… | backend\app\api\v1\orders_lifecycle.py:45<br>… | _tmp\test_round3\evidence_del_restore.md |
 | TA-06 | A | 派单员软删在途单后，司机端旧卡片仍可点开：详情页只显示「订单不存在」+「重试」… | 可见 | **已修复 db7b3a4** | 派单员软删一张已派给司机的单（DELETE /orders/{id} → 204）后，司机端「进行中」列表里的卡片不会消失… | backend/app/api/v1/orders_lifecycle.py:45<br>… | _tmp/test_round3/evidence_del_stale_car… |
 | TA-07 | A | 预订单模板表单：点「保存」后没有任何可见反馈（校验红字排在视口外，不滚动也不提… | 可见 | 已复现 | 新建预订单时只填名字、不选商品，点底部「保存」后界面完全不动：没有红字、没有 toast、也没跳走，看起来像按钮坏了。把表… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A13_tpl_save_no_feedba… |
-| TA-08 | A | 商品列表卡的单价与改价弹窗口径不一致：0.005 在卡片上显示成 ¥0.01 | 可见 | 已复现 | 商品 id=76（T1-prod-frac，库 default_unit_price=0.005，单位 箱）在商品管理列表… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A8_price_frac_display.… |
-| TA-09 | A | 改价弹窗输入负数被静默过滤成正数并保存（-3 存成 3，无提示） | 可疑 | 已复现 | 商品改价弹窗（改默认售价）里输入 -3，输入框当场变成 3 —— 负号被输入规则悄悄丢掉，没有任何提示；点保存后库里就是 … | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A8_price_negative_filt… |
-| TA-10 | A | 联系人电话栏输入字母被静默清空，仍能保存出「没有电话」的联系人 | 可疑 | 已复现 | 添加联系人时电话栏填 abc，点「添加」直接成功，列表里出现这条联系人，但库里 phone 是空的，没有任何校验提示。同一… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A9_contact_phone_filte… |
+| TA-08 | A | 商品列表卡的单价与改价弹窗口径不一致：0.005 在卡片上显示成 ¥0.01 | 可见 | **已修复 6db304e** | 商品 id=76（T1-prod-frac，库 default_unit_price=0.005，单位 箱）在商品管理列表… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A8_price_frac_display.… |
+| TA-09 | A | 改价弹窗输入负数被静默过滤成正数并保存（-3 存成 3，无提示） | 可疑 | **已修复 6db304e** | 商品改价弹窗（改默认售价）里输入 -3，输入框当场变成 3 —— 负号被输入规则悄悄丢掉，没有任何提示；点保存后库里就是 … | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A8_price_negative_filt… |
+| TA-10 | A | 联系人电话栏输入字母被静默清空，仍能保存出「没有电话」的联系人 | 可疑 | **已修复 6db304e** | 添加联系人时电话栏填 abc，点「添加」直接成功，列表里出现这条联系人，但库里 phone 是空的，没有任何校验提示。同一… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A9_contact_phone_filte… |
 <!-- TESTBUG:ROWS:A -->
 <!-- /TESTBUG:ROWS:A -->
 | TB-01 | B | 挂账单位页看不到任何余额：只有信用额度，点卡片也没反应 | 可见 | **已修复 0bcbf39** | 工作台 → 挂账单位：每张卡片只显示 名称 / 电话 / 账期（月结 30 天）/ 信用额度 + 删除 / 编辑；点卡片主… | android/app/src/main/java/com/tapmoay/sorders… | shots/TB_arrears_list.png、shots/TB_arre… |
@@ -127,33 +127,36 @@
 
 ### TA-08 · 商品列表卡的单价与改价弹窗口径不一致：0.005 在卡片上显示成 ¥0.01
 
-- 严重度：可见　／　状态：已复现　／　记录：2026-10-10 03:44 CST
+- 严重度：可见　／　状态：已修复　／　记录：2026-10-10 03:44 CST　／　修复：2026-10-10（BUG-0028）
 - 现象：商品 id=76（T1-prod-frac，库 default_unit_price=0.005，单位 箱）在商品管理列表卡上显示「¥0.01/箱」，点「改价」打开的弹窗里同一个价是 0.005。同一个字段两处口径不同，子分价场景下卡片显示的是真实价的两倍。
 - 复现：5556/13900000011：工作台→商品管理→搜索 T1-prod-frac→卡片读到「¥0.01/箱」（库值 0.005）→点该卡「改价」(449,882)→弹窗 EditText text=0.005（dump2 佐证 box=183,1160-897,1328）。
 - 期望：列表卡与弹窗/编辑页口径一致：要么都显示 0.005，要么列表也明确说明按分显示。
 - 实际：列表卡按两位小数显示（¥0.01），改价弹窗/编辑页走 trimMoneyZeros 显示真值 0.005；保存链路本身没问题（输入 0.005 能原样入库）。
 - 证据：_tmp/test_round3/A8_price_frac_display.txt
 - 定位：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductsScreen.kt:669`
+- 修复（BUG-0028）：商品卡的售价行改走保真到四位的 `trimMoneyZeros`（`android/app/src/main/java/com/tapmoay/sorders/ui/common/ProductCardKit.kt:180`）—— 卡片／改价弹窗／库三处同一个口径，子分价现在卡片上就是 `¥0.005/箱`；「金额显示到分、单价不许四舍五入」的分界写进了 `android/app/src/main/java/com/tapmoay/sorders/util/Money.kt` 的 KDoc。⛔ 库精度 `Numeric(14,4)` 与钱算法未动。
 
 ### TA-09 · 改价弹窗输入负数被静默过滤成正数并保存（-3 存成 3，无提示）
 
-- 严重度：可疑　／　状态：已复现　／　记录：2026-10-10 03:44 CST
+- 严重度：可疑　／　状态：已修复　／　记录：2026-10-10 03:44 CST　／　修复：2026-10-10（BUG-0028）
 - 现象：商品改价弹窗（改默认售价）里输入 -3，输入框当场变成 3 —— 负号被输入规则悄悄丢掉，没有任何提示；点保存后库里就是 3。用户以为自己填了负价会被拦，实际存下一个自己没打算写的合法价。
 - 复现：5556/13900000011：商品管理→搜 T1-prod-frac→「改价」→清空输入框→input text -3→dump2 显示 EditText text=3→点「保存」→SELECT default_unit_price FROM products WHERE id=76 → 3（随后已改回 0.005）。同一天更早一次：输入 -1 → 保存 → 库里变成 1。
 - 期望：非法输入应当被拒绝并给出提示（或保留原样让用户看见自己填了什么），而不是静默改写成另一个合法值。
 - 实际：InputRules.priceInput 把负号过滤掉，-3 变成 3 并被正常保存；界面全程无提示。
 - 证据：_tmp/test_round3/A8_price_negative_filter.txt
 - 定位：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductsScreen.kt:682`
+- 修复（BUG-0028）：改价框不再静默改数 —— 含负号/字母的输入**原样留在框里**并当场出红字说明原因（`android/app/src/main/java/com/tapmoay/sorders/core/InputRules.kt:238-262` 的 `priceRewriteNote` ＋ `ui/dispatcher/ProductsScreen.kt:686-707` 的四步块），保存键同时变灰（`:721` 的 `enabled = !busy && priceNote == null && price.toDoubleOrNull() != null`）⇒ `-3` 现在存不进去，用户看得见自己填了什么。
 
 ### TA-10 · 联系人电话栏输入字母被静默清空，仍能保存出「没有电话」的联系人
 
-- 严重度：可疑　／　状态：已复现　／　记录：2026-10-10 03:44 CST
+- 严重度：可疑　／　状态：已修复　／　记录：2026-10-10 03:44 CST　／　修复：2026-10-10（BUG-0028）
 - 现象：添加联系人时电话栏填 abc，点「添加」直接成功，列表里出现这条联系人，但库里 phone 是空的，没有任何校验提示。同一货主下还能再建第二条空电话联系人（UNIQUE(shipper_id, phone) 挡不住 NULL）。
 - 复现：5556/13900000011：工作台→地址与联系人→「联系人」页签→「新增联系人」→称呼 T1-ct-ui / 电话 abc→「添加」→列表出现 T1-ct-ui；SELECT id,shipper_id,phone,display_name FROM shipper_contacts WHERE display_name LIKE T1-% → 47|126|(空)|T1-ct-ui。第二次 T1-ct-ui2 同样 → 48|126|(空)。
 - 期望：电话格式非法应当报错或至少提示「非数字已忽略」，不该静默存成空电话。
 - 实际：输入被过滤成空（NULL）后照常入库，界面无提示；列表卡只显示名字，用户看不出这条没有电话。
 - 证据：_tmp/test_round3/A9_contact_phone_filter.txt
-- 定位：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher（联系人表单电话栏）`
+- 定位：`android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt:917-921,992,1369-1374`（原记 `ui/dispatcher（联系人表单电话栏）`，实为货主端 `ui/shipper` 的联系人抽屉）
+- 修复（BUG-0028）：电话栏丢字当场红字并且**不给保存**（`ui/shipper/AddressScreen.kt:917-921` ＋ `ui/shipper/AddressViewModel.kt:725-728` 的 `contactPhoneNote?.let { formError = it; return }`）；没有电话的联系人卡片上会写「无电话」（`AddressScreen.kt:1369-1374`），placeholder 改成「选填；留空＝无电话」。⛔ 本单在台账二选一里选的是「让空电话可见」而不是「唯一性对 NULL 生效」—— 同一货主仍能建两条「无电话」，代价与另选方案的代价写在 `docs/changes/BUG-0028.md` §⑥。
 
 <!-- /TESTBUG:DETAIL:A -->
 
