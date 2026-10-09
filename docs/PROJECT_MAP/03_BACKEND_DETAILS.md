@@ -100,6 +100,7 @@ app/
 | backend/scripts/reset_dev_passwords.py | 全部密码重置为 pass12345 |
 | backend/scripts/init_tables.py | 手动建表（一般不需要，导入即建） |
 | backend/scripts/backfill_cost_snapshots.py | 历史订单补齐 cost_price_snapshot（报表毛利前提） |
+| backend/scripts/backfill_expense_cash_flows.py | 历史开销单补齐现金流水 OUT（绕过记账留下的存量，一次性；默认预览，`--yes` 才写） |
 | backend/tests/ | pytest（conftest 造测试账号；注意与 seed 账号一致） |
 
 ### 文档校验四件套（改完代码 / 文档后各跑一次）

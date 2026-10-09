@@ -829,6 +829,61 @@ def cancel_settlement(db: Session, s: DriverSettlement, operator_id: int | None)
 
 
 # ---------- ⑥ 开销单 ----------
+# 分类名 → 现金流水口径（报表按它分类汇总）。
+# ⚠️ 中文名与**老英文键**都要认：迁移会把老键翻成中文名，但已经写进流水的老数据
+#    以及别的库（测试库）里可能还是老键；**认不出的落 OTHER**，不抛异常 ——
+#    用户新加一个分类不该让这笔开销存不进去。
+# ⚠️ 2026-10-09（BUG-0018 / 台账 TB-02）：这张表原来写死在 `create_expense` **函数体内**，
+#    于是存量回填脚本只能抄第二份 —— 抄出来的那份一旦与这里走散，同一张开销单就会有两条
+#    口径不同的流水，报表按 biz_type 分组求和时对不上。提到模块级，记账与回填共用这一处。
+EXPENSE_BIZ_TYPES: dict[str, CashFlowBizType] = {
+    "加油": CashFlowBizType.EXPENSE_FUEL, "fuel": CashFlowBizType.EXPENSE_FUEL,
+    "维修": CashFlowBizType.EXPENSE_REPAIR, "repair": CashFlowBizType.EXPENSE_REPAIR,
+    "过路": CashFlowBizType.EXPENSE_TOLL, "toll": CashFlowBizType.EXPENSE_TOLL,
+    "停车": CashFlowBizType.EXPENSE_PARKING, "parking": CashFlowBizType.EXPENSE_PARKING,
+    "罚款": CashFlowBizType.EXPENSE_FINE, "fine": CashFlowBizType.EXPENSE_FINE,
+    "保险": CashFlowBizType.EXPENSE_INSURANCE, "insurance": CashFlowBizType.EXPENSE_INSURANCE,
+    "货损": CashFlowBizType.EXPENSE_LOSS, "loss": CashFlowBizType.EXPENSE_LOSS,
+    "其他": CashFlowBizType.EXPENSE_OTHER, "other": CashFlowBizType.EXPENSE_OTHER,
+}
+
+
+def expense_biz_type(category: str) -> CashFlowBizType:
+    """开销分类名 → 现金流水口径（报表按它分组）。认不出的落 OTHER，⛔ 不抛异常。
+
+    `strip()` 是顺手掰正的一处口径不一致：老代码查表用的是**请求体里的原始分类名**，而落库的
+    是清洗过的 `clean` —— 用户把 "加油 " 带着空格提交时，开销单上是「加油」、流水却落进 OTHER。
+    现在记账与回填都过这一个函数（2026-10-09 BUG-0018）。
+    """
+    return EXPENSE_BIZ_TYPES.get(str(category).strip(), CashFlowBizType.EXPENSE_OTHER)
+
+
+def write_expense_cash_flow(
+    db: Session, expense: Expense, operator_id: int | None = None
+) -> CashFlow:
+    """开销单 → 一条现金流水（OUT）。**记账与存量回填必须走这同一个函数。**
+
+    字段全部取自**已经落库的那张开销单**（而不是请求体）：回填脚本手上只有这张行，
+    两处若各拼一遍，`party_name` / `biz_type` / `doc_id` 迟早会有一处走散。
+    """
+    flow = CashFlow(
+        flow_date=expense.exp_date,
+        direction=CashFlowDirection.OUT,
+        amount=expense.amount,
+        party_type="expense",
+        party_id=expense.id,
+        party_name=str(expense.category),
+        channel="cash",
+        biz_type=expense_biz_type(expense.category),
+        order_id=expense.order_id,
+        doc_id=expense.id,
+        note=expense.note,
+        operator_id=operator_id if operator_id is not None else expense.operator_id,
+    )
+    db.add(flow)
+    return flow
+
+
 def create_expense(db: Session, body: ExpenseCreate, operator_id: int | None) -> Expense:
     # 分类**先补进名册**（不在就补到最后）：否则用户在一个新分类下记的开销，
     # 左侧分类栏里没有它 —— 那条记录只能靠"名册外的分类"兜底显示（排序/改名都轮不到它）。
@@ -853,34 +908,7 @@ def create_expense(db: Session, body: ExpenseCreate, operator_id: int | None) ->
     )
     db.add(e)
     db.flush()
-    # 分类名 → 现金流水口径（报表按它分类汇总）。
-    # ⚠️ 中文名与**老英文键**都要认：迁移会把老键翻成中文名，但已经写进流水的老数据
-    #    以及别的库（测试库）里可能还是老键；**认不出的落 OTHER**，不抛异常 ——
-    #    用户新加一个分类不该让这笔开销存不进去。
-    biz_map = {
-        "加油": CashFlowBizType.EXPENSE_FUEL, "fuel": CashFlowBizType.EXPENSE_FUEL,
-        "维修": CashFlowBizType.EXPENSE_REPAIR, "repair": CashFlowBizType.EXPENSE_REPAIR,
-        "过路": CashFlowBizType.EXPENSE_TOLL, "toll": CashFlowBizType.EXPENSE_TOLL,
-        "停车": CashFlowBizType.EXPENSE_PARKING, "parking": CashFlowBizType.EXPENSE_PARKING,
-        "罚款": CashFlowBizType.EXPENSE_FINE, "fine": CashFlowBizType.EXPENSE_FINE,
-        "保险": CashFlowBizType.EXPENSE_INSURANCE, "insurance": CashFlowBizType.EXPENSE_INSURANCE,
-        "货损": CashFlowBizType.EXPENSE_LOSS, "loss": CashFlowBizType.EXPENSE_LOSS,
-        "其他": CashFlowBizType.EXPENSE_OTHER, "other": CashFlowBizType.EXPENSE_OTHER,
-    }
-    db.add(
-        CashFlow(
-            flow_date=body.exp_date,
-            direction=CashFlowDirection.OUT,
-            amount=body.amount,
-            party_type="expense",
-            party_id=e.id,
-            party_name=str(body.category),
-            channel="cash",
-            biz_type=biz_map.get(str(body.category), CashFlowBizType.EXPENSE_OTHER),
-            order_id=body.order_id,
-            doc_id=e.id,
-            note=body.note,
-            operator_id=operator_id,
-        )
-    )
+    # 分类名 → 现金流水口径的映射**只有一份**（模块级 `EXPENSE_BIZ_TYPES`，见文件上半部分）：
+    # 存量回填脚本与这里走的是同一个函数，⛔ 谁都不许再抄一份（2026-10-09 BUG-0018）。
+    write_expense_cash_flow(db, e, operator_id=operator_id)
     return e

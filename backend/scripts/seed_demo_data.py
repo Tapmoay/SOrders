@@ -129,7 +129,6 @@ from app.models.enums import (  # noqa: E402
     SettlementStatus,
     UserRole,
 )
-from app.models.expense import Expense  # noqa: E402
 from app.models.freight_template import FreightTemplate, FreightTemplateDriver  # noqa: E402
 from app.models.ledger import Ledger  # noqa: E402
 from app.models.order import Order, OrderProduct  # noqa: E402
@@ -1164,20 +1163,28 @@ def main() -> int:
     VEHICLE_CATEGORIES = ("加油", "维修", "过路", "停车", "罚款", "保险")
     # 车是上面逐台 `db.add` 建的、没留列表变量 —— 这里现查一次（可用的那几台）
     cars = list(db.scalars(select(Vehicle).where(Vehicle.is_active.is_(True))))
+    # ⚠️ 开销**必须走服务层的 `create_expense`**（2026-10-09 BUG-0018 / 台账 TB-02）：
+    #    原来这里是直接 `db.add` 一张开销单 —— 那样**绕过了记账**，于是这 30 笔在
+    #    「账本 / 收支」页上一分钱都看不见（现金流水里一笔都没有：开发库实测 expenses 53 张
+    #    / 44560.51 元，只有 23 张有流水）。流水由业务代码自己写，本脚本不直接 insert。
+    from app.schemas.accounting_v2 import ExpenseCreate  # noqa: E402
+    from app.services.accounting_service import create_expense  # noqa: E402
+
     for _ in range(30):
         et = rng.choice(list(EXPENSE_NOTES))
         car = rng.choice(cars) if (et in VEHICLE_CATEGORIES and cars) else None
-        db.add(Expense(exp_date=rng.choice(days), category=et,
-                       amount=Decimal(rng.choice([80, 120, 180, 260, 350, 480, 620, 900, 1500, 2600, 3800, 5200])),
-                       note=rng.choice(EXPENSE_NOTES[et]),
-                       vehicle_id=car.id if car else None,
-                       # 车相关的开销**跟着车走**（挂车的那台车的司机），其余才随机挑一个司机
-                       driver_id=(car.driver_id if car else None)
-                       if et in VEHICLE_CATEGORIES
-                       else (rng.choice(drivers).id if et in ("货损",) else None),
-                       operator_id=dispatcher.id))
+        create_expense(db, ExpenseCreate(
+            exp_date=rng.choice(days), category=et,
+            amount=Decimal(rng.choice([80, 120, 180, 260, 350, 480, 620, 900, 1500, 2600, 3800, 5200])),
+            note=rng.choice(EXPENSE_NOTES[et]),
+            vehicle_id=car.id if car else None,
+            # 车相关的开销**跟着车走**（挂车的那台车的司机），其余才随机挑一个司机
+            driver_id=(car.driver_id if car else None)
+            if et in VEHICLE_CATEGORIES
+            else (rng.choice(drivers).id if et in ("货损",) else None),
+        ), dispatcher.id)
     db.commit()
-    print("  手工流水 18 笔、开销 30 笔")
+    print("  手工流水 18 笔、开销 30 笔（现金流水由服务层自己写）")
 
     # ---------------------------------------------------------- ⑦ 收款单（核销 → 现金流水）
     #

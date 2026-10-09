@@ -35,7 +35,7 @@ orders/
 │   │   ├── api/v1/              # 路由（按资源分文件，router.py 汇总挂载）
 │   │   ├── services/            # 业务逻辑（订单流/账本/统计/导出/推送...）
 │   │   └── ...
-│   ├── scripts/                 # seed_dev_users / init_tables / backfill_cost_snapshots / reset_dev_passwords
+│   ├── scripts/                 # seed_dev_users / init_tables / backfill_cost_snapshots / backfill_expense_cash_flows / reset_dev_passwords
 │   ├── tests/                   # pytest（auth/orders/ledger/products/socket…）
 │   ├── requirements.txt         # fastapi uvicorn sqlalchemy pymysql openpyxl fpdf2 ...
 │   └── .env                     # database_url=sqlite:///./sorders.db 等
