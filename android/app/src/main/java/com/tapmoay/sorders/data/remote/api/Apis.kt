@@ -1668,10 +1668,32 @@ interface AccountingApi {
     @GET("ledger/receipts")
     suspend fun listReceipts(
         @Query("customer_id") customerId: Long? = null,
+        /** true = 含**已撤销**的（回收站档）—— 那是「恢复」入口的落点，见 [cancelReceipt]。 */
+        @Query("include_deleted") includeDeleted: Boolean = false,
     ): List<ReceiptDto>
 
     @POST("ledger/receipts")
     suspend fun createReceipt(@Body body: ReceiptCreateRequest): ReceiptDto
+
+    /**
+     * **撤销一笔客户收款**（2026-10-10 BUG-0029 / 台账 TB-09）。
+     *
+     * 后端同时做三件事：这笔收款写下的资金流水逐行**软删**、把核销过的订单收回「未收款」、
+     * 收款单本身软删（默认从收款记录里消失，只在 `includeDeleted=true` 那一档看得见）。
+     * ⛔ 不是物理删除，`restoreReceipt` 能原样放回来；⛔ 已撤销过的再撤会被 400 拒绝
+     *   （那会把账上的数改第二遍）。
+     */
+    @DELETE("ledger/receipts/{receiptId}")
+    suspend fun cancelReceipt(@Path("receiptId") receiptId: Long)
+
+    /**
+     * **恢复一笔被撤销的收款**（四个落点原样放回）。
+     *
+     * 三道门都在后端：没撤过 → 400；这一笔点过名的订单**又被收过一次**（现在是已收款）→ 400
+     * 并点名那张单（否则同一笔钱会被算两遍）；订单在回收站 / 已撤销 / 已退货 → 400 并说明原因。
+     */
+    @POST("ledger/receipts/{receiptId}/restore")
+    suspend fun restoreReceipt(@Path("receiptId") receiptId: Long): ReceiptDto
 }
 
 /**

@@ -1392,8 +1392,16 @@ class AppRepository(private val api: ApiBundle) {
      */
     suspend fun setVehicleDriver(id: Long, driverId: Long?) =
         api.accountingApi.setVehicleDriver(id, com.tapmoay.sorders.data.remote.dto.VehicleDriverSetRequest(driverId))
-    suspend fun receipts(customerId: Long? = null) = api.accountingApi.listReceipts(customerId)
+    /** 收款记录。`includeDeleted=true` = 连**已撤销**的一起列（回收站档，「恢复」的落点）。 */
+    suspend fun receipts(customerId: Long? = null, includeDeleted: Boolean = false) =
+        api.accountingApi.listReceipts(customerId, includeDeleted)
     suspend fun createReceipt(body: com.tapmoay.sorders.data.remote.dto.ReceiptCreateRequest) = api.accountingApi.createReceipt(body)
+
+    /** 撤销一笔客户收款（**软删**，后端 204 无出参）。 */
+    suspend fun cancelReceipt(receiptId: Long) = api.accountingApi.cancelReceipt(receiptId)
+
+    /** 恢复一笔被撤销的收款（原样放回四个落点）。 */
+    suspend fun restoreReceipt(receiptId: Long) = api.accountingApi.restoreReceipt(receiptId)
 
     // ===== AI 助手（全部只读，5 个工具的唯一数据出口）=====
 

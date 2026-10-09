@@ -31,6 +31,27 @@
 
 ## 进行中
 
+### [2026-10-10 05:3x → ⏳ CST 进行中] 会话：**BUG-0029 客户收款登记之后没有任何撤销/红冲入口（TB-09）**（DSH `625da590-1164-4807-ab86-106e24c84559`）
+
+`用户口径`：测试台账 **TB-09**（方向 B 测试 2026-10-10 03:03 CST 在 8020 副本库上实测；严重度 **可疑**）—— 派单员登记一笔客户收款（`POST /api/v1/ledger/receipts`）一次写四个落点：`shipper_receipts` 一行 ＋ `cash_flows`(`RECEIPT_CASH`) 一行 ＋ `orders.paid=true` ＋（由前两者算出来的）`turnover.collected/arrears` 与 `customer-balances`；而 `DELETE|PATCH /ledger/receipts/{id}`、`POST /{id}/restore`、`/{id}/cancel`、`DELETE|POST /cash-flows/{id}[/restore]` **全部 404**，App 侧只有 list/create。系统自己知道：`backend/app/api/v1/orders_payment.py:199` 的报错原文写「系统目前**没有撤销收款的入口**…请联系管理员在账上冲正」—— 而管理员同样没有任何入口。用户 2026-09-20 的硬规矩是「所有删除一律软删 ＋ 必须有恢复路径」，第④条明确「**界面要有一个手边的撤销入口**（不要只把恢复藏在 AI 撤回卡里）」，本单踩的正是这一条。
+
+**改法**（照供应商付款那一期的体例：`DELETE /supplier-payments/{flow_id}` ＋ `POST /{flow_id}/restore`）：
+1. `shipper_receipts` 加 `SoftDeleteMixin`（`is_deleted` / `deleted_at`）＋ `schema_bootstrap` 幂等 DDL（含索引与 `is_deleted=0` 回填）；
+2. 新增 `DELETE /api/v1/ledger/receipts/{receipt_id}`（**软删**：收款单打标记 ＋ `doc_id` 指向它的 `cash_flows`(`party_type=customer` 且 `biz_type ∈ RECEIPT_*`) 逐行打标记 ＋ 把这笔核销过的订单收回「未收款」）与 `POST /api/v1/ledger/receipts/{receipt_id}/restore`（原样放回，三道门：已删才可恢复 / 订单又被收过一次则拒绝并点名 / 订单在回收站或已撤销已退货则拒绝）；
+3. 两个动作各写一条 `operation_logs`（新码 `RECEIPT_CANCEL` / `RECEIPT_RESTORE`）并与写入同事务，钱动了照既有体例入 `outbox`（`ledger.updated`）；
+4. `GET /ledger/receipts` 加 `include_deleted`（默认过滤 = 回收站式），出参加 `is_deleted` / `deleted_at`；
+5. App：`ui/dispatcher/AccountToolsScreens.kt` 的收款记录行上加「撤销」（行内 TextButton ＋ 二次确认），列表底部/顶部加「显示已撤销（回收站）」档，撤销过的那一行给「恢复」—— **手边可点，不藏在 AI 撤回卡里**；`ReportCenter.kt::actionLabel` 加两个中文名（撤销收款 / 恢复收款）。
+⛔ **AI 侧本轮不开放**（`_tools/ai/_write_coverage.EXCLUDED` 写理由，与 FEAT-0015「本轮不开放」同一体例）：撤销/恢复要配成对的 `cancel↔restore` 动作 ＋ 撤回卡接线，属独立一项；本单只把 `ai/AiRevert.kt` 里那句「撤回来等于把账抹掉」改成**指向真实入口**（那句话在改完之后是假话）。
+
+**文件清单**：`backend/app/models/shipper_receipt.py`、`backend/app/models/enums.py`、`backend/app/core/schema_bootstrap.py`、`backend/app/api/v1/ledger.py`、`backend/app/schemas/accounting_v2.py`、`backend/tests/test_receipt_undo.py`（新）、`_tools/finance/_check_receipt_undo.py`（新）、`_tools/finance/_reverse_verify_receipt_undo.py`（新）、`_tools/ai/_write_coverage.py`（只加 EXCLUDED 两条）、`android/.../data/remote/api/Apis.kt`、`android/.../data/repo/AppRepository.kt`、`android/.../data/remote/dto/Dtos.kt`、`android/.../ui/dispatcher/AccountToolsScreens.kt`、`android/.../ui/dispatcher/ReportCenter.kt`、`android/.../ai/AiRevert.kt`（一句话文案）、`docs/changes/BUG-0029.md`（新）、`docs/changes/README.md`、`docs/TEST_BUG_LEDGER.md`、本文件。
+
+**明确不碰**：收款金额与订单金额口径（`accounting_service.create_receipt` 的校验、`money_map` / `line_receivable`）；`settle_mode`（itemized/rolling）语义与它决定的两条流水生成规则；`cash_flows` 逐单生成规则；结算与司机账单；`docs/changes/README.md` 里 CHG-0101/0103/0104/0105 的行与 `docs/AI_WORK_CLAIM.md` 里别人的块；`_tmp/wt_head`；端口 8000/8010/8020/8054 与模拟器 5554/5556/5558。
+
+**核心改动**：backend/app/models/enums.py —— 为什么必须动核心：新增两个审计动作码（`RECEIPT_CANCEL` / `RECEIPT_RESTORE`）只能加在这张全项目共用的领域词汇表里，撤销与恢复必须在审计页上分得开（合成一个码就看不出"这笔钱被撤了"和"又放回来了"）；改动是**纯追加两行**，既有取值一个字节不动。
+**核心改动**：backend/app/core/schema_bootstrap.py —— 为什么必须动核心：`shipper_receipts` 要能"伪装删除"就必须有 `is_deleted` / `deleted_at` 两列，而线上库结构变更的唯一入口就是这个文件（照 `cash_flows` 那一期的幂等 DDL 体例：补列 ＋ 索引 ＋ 回填 0）；不写它的话，已上线的库里 `is_deleted` 不存在，撤销接口当场 500。
+
+- 状态：⏳ **进行中**（变更单 `docs/changes/BUG-0029.md`；台账 **TB-09**；Blast Radius **L3 —— 钱 / 账本（软删 + 四个落点回滚 + 两个新写端点 + 一次库结构变更）**；提交 `__`）。
+
 ### [2026-10-10 立项 → 2026-10-10 已完成] 会话：**BUG-0026 司机端「进行中」列表被实时推送打断后整页报 StandaloneCoroutine was cancelled**（DSH `session-4f7d4be2-3e4b-4b95-bb10-d9f28eaa106a`）
 
 `用户口径`：测试台账 **TA-04**（方向 A 测试 2026-10-10 03:25 CST 在 `emulator-5558` + 隔离后端 8010 上复现 ≥3 次，严重度 **可见**）—— 司机端停在「进行中」，点顶部「刷新」后 1 秒内用派单员 token `POST /orders/{id}/assign` 给 driver_id=128 ⇒ 整页被错误态顶掉，文案是协程取消的原始异常串 `StandaloneCoroutine was cancelled`，只剩一个「重试」。
@@ -6826,6 +6847,10 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-10-10 05:3x | **BUG-0029 客户收款撤销/恢复**（我，`625da590`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/changes/BUG-0029.md`（新建，两文件同一次提交） | 在表尾追加 BUG-0029 登记行（**只碰我这一行**，CHG-0101/0103/0104/0105 那几行一个字符不动）；BUG-0029.md 按九节模板写全（体例照 BUG-0027.md）。 |
+| 2026-10-10 05:3x | **BUG-0029 客户收款撤销/恢复**（我，`625da590`） | `android/.../data/remote/api/Apis.kt`、`data/repo/AppRepository.kt`、`data/remote/dto/Dtos.kt`、`ui/dispatcher/ReportCenter.kt`、`ai/AiRevert.kt`（**五个多会话共写的共享文件**） | 全部**追加式**：`Apis.kt` 三只 Retrofit 函数（收款记录带 `includeDeleted`、`cancelReceipt`、`restoreReceipt`）、`AppRepository.kt` 三个包装、`Dtos.kt` 的 `ReceiptDto` 加两个字段（`isDeleted`/`deletedAt`，默认值 = 老后端照旧）、`ReportCenter.kt` 的 `actionLabel` 加两行中文名（`RECEIPT_CANCEL`/`RECEIPT_RESTORE`）、`AiRevert.kt:593` **同一行内**把那句「撤回来等于把账抹掉」改成指向真实入口（不动行数，别人的锚点不位移）。⚠️ 改前已重读最新内容；`AiChatScreen.kt` / `Money.kt` / `ProductsScreen.kt` 等并行会话正在改的文件**一概不碰**。 |
+| 2026-10-10 05:3x | **BUG-0029 客户收款撤销/恢复**（我，`625da590`） | `_tools/qa/_core_files.txt` 里登记的两个核心文件（`backend/app/models/enums.py`、`backend/app/core/schema_bootstrap.py`） | 已在上面「进行中」按 `_check_core_freeze.py` 的格式写了两行 `核心改动：…`。enums 是**纯追加两个动作码**；schema_bootstrap 是照 `cash_flows` 那一期的**幂等 DDL 体例**给 `shipper_receipts` 补两列 ＋ 索引 ＋ 回填。⛔ 既有一行 DDL、既有枚举取值一个字节未动。 |
+
 | 2026-10-06 08:5x | **CHG-0055 登录 / 断网期间的派单要响一声**（我，`session-bd8fe093`） | `core/NewOrderAlert.kt` ＋ `core/AlertPrefs.kt` ＋ `core/RealtimeHub.kt` ＋ `core/NotifyCenter.kt` ＋ `android/app/src/test/java/com/tapmoay/sorders/core/NewOrderAlertTest.kt`（**四处客户端 ＋ 一处单测，同一次改动**） | ① 新增纯判定 `ringbackOf(items, role, rung)`（从后往前、跳过 `shouldStop` 与已响过、一次只回一条）＋ 落盘记录 `rungDecode/rungEncode/rungTrim/markRung`（24h 窗口 / 64 条上限 / 坏行只丢不抛）＋ 顶层 `data class RingItem`；② `AlertPrefs` 加 `Keys.RUNG = "rung_keys"` 与 `var rungKeys`（写用 `apply()`，不挡收单线程）；③ `RealtimeHub` 的 `"sync"` 回补分支先收候选、整批之后 `ringback(candidates)`（顺序不能倒），补响交给唯一入口 `announce`，`announce` 里记「响过了」并在撤回/接单时作废（落盘两处）；④ `NotifyCenter` 新增 `orders_alert`（HIGH ＋ 静音 ＋ 三段震动，App 自己发音）与 `messages_alert`（HIGH ＋ 震动、不设 setSound ⇒ 系统默认提示音），`postOrder` / `postMessage` 改发新 id —— 平台硬约束：渠道建过就改不动，只能换新 id（旧两条保留定义、改名「（旧）」）；⑤ 单测补 9 个用例（现共 46 个 `@Test`）。**不碰**：后端零改动、`NewOrderPlayer`（自己看 `prefs.voiceEnabled`）、`BeepManager` 那条短哔。 |
 | 2026-10-06 08:5x | **CHG-0055**（我，`session-bd8fe093`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/changes/CHG-0055.md`（新建，两文件必须同一次提交） | 在 CHG-0054 行之后追加 CHG-0055 登记行（5 列，末列 `[CHG-0055.md](CHG-0055.md)`）；CHG-0055.md 按九节模板写全（312 行：六问、Must Change / Must Not Change、Boundary 逐字「CORE（回补路径的播报判定）＋ INFRASTRUCTURE（通知渠道 id 的一次性语义）」、Behavior / Data Contract、CHG 专章 Before/After/Must Preserve/Blast Radius、测试表、证据表、关闭块），口径以更晚那次裁定（m01132）为准、⑤ 那条权限引导归 CHG-0056。 |
 | 2026-10-06 08:5x | **CHG-0055**（我，`session-bd8fe093`） | `_tools/qa/` 里**两份新脚本**（本目录是**多会话共读的静态判据资产**） | 新增 `_check_alert_ringback.py`（8 组 79 项；docstring 带逐字 `R4-BOUNDARY-JUSTIFICATION:`）与 `_reverse_verify_alert_ringback.py`（**32 条注入**，被注入的文件里含**判据自己**，用来证明「判据写错时它自己也是假的」）；既有红线 `_tools/ai/_check_notify_guardrails.py` **不改**，靠新函数名进单测满足它第 10 节（自动响铃仍只有 `announce` 一处）。 |

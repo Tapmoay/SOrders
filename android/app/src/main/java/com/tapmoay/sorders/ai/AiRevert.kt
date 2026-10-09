@@ -590,7 +590,7 @@ object AiRevert {
         )
         none(
             listOf(AiWrites.LEDGER_CREATE_RECEIPT),
-            "收款一旦入账，撤回来等于把账抹掉；要改请在账本里改那一笔",
+            "AI 替你撤回这笔收款这一步还没开；请到账本 →「客户收款」的收款记录里点那一行的「撤销」（那是可恢复的软删，不是把账抹掉）",
         )
         none(
             listOf(AiWrites.LEDGER_SYNC_DELIVERED),

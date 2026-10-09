@@ -151,6 +151,15 @@ class OperationAction(str, enum.Enum):
     # 于是"这笔收款谁录的""这张 675 谁点的付款"事后无法回答；而
     # `docs/ACCOUNTING_V2_DESIGN.md` §4.10 明确写着「所有写账接口都要写 operation_logs」。
     RECEIPT_CREATE = "RECEIPT_CREATE"
+    # 撤销 / 恢复一笔客户收款（2026-10-10，BUG-0029 / 台账 TB-09）。
+    #
+    # ⛔ 为什么不复用 `RECEIPT_CREATE`：这是**方向相反的两件事** ——「这笔钱收到了」与
+    #    「这笔钱其实不算（登记错了）」在审计页上必须一眼分得开；出事时第一个要问的正是
+    #    "这笔收款是谁、什么时候撤掉的，后来又放回来了没有"。合成一个码的后果：
+    #    审计里只看得见"登记过一笔收款"，看不见它已经被撤销。
+    # 两个码而不是一个：撤销（软删）与恢复是**两个时刻、可能是两个人**做的相反决定。
+    RECEIPT_CANCEL = "RECEIPT_CANCEL"
+    RECEIPT_RESTORE = "RECEIPT_RESTORE"
     SETTLEMENT_CREATE = "SETTLEMENT_CREATE"
     SETTLEMENT_STATUS = "SETTLEMENT_STATUS"
     EXPENSE_CREATE = "EXPENSE_CREATE"

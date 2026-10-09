@@ -171,6 +171,11 @@ class ShipperReceiptOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     customer_id: int
+    #: 「这笔收款已经被撤销」——撤销是**软删**（行还在、`is_deleted=1`）。回收站档
+    #: （`GET /ledger/receipts?include_deleted=true`）靠它把已撤销的那几行标出来，
+    #: 界面上的「恢复」键也只在它上面出现（2026-10-10，BUG-0029 / 台账 TB-09）。
+    is_deleted: bool = False
+    deleted_at: datetime | None = None
     amount: Decimal
     method: str
     received_at: date

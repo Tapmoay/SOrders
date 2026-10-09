@@ -2200,6 +2200,18 @@ data class ReceiptDto(
     @SerialName("received_at") val receivedAt: String = "",
     @SerialName("order_ids") val orderIds: List<Long> = emptyList(),
     @SerialName("customer_name") val customerName: String? = null,
+    /**
+     * **这笔收款已经被撤销**（2026-10-10 BUG-0029 / 台账 TB-09）。
+     *
+     * 撤销是**软删**：收款单那一行还在库里（`is_deleted=1`），默认从收款记录里消失，
+     * 只有 `GET /ledger/receipts?include_deleted=true`（界面上那颗「显示已撤销」）
+     * 才看得见它 —— 那一档就是「恢复」的落点。
+     *
+     * ⚠️ 服务端出参有这个字段之前（老后端 / 老快照）反序列化回落 `false`：
+     *   界面照旧只画「撤销」，不会把一笔正常的收款误画成已撤销。
+     */
+    @SerialName("is_deleted") val isDeleted: Boolean = false,
+    @SerialName("deleted_at") val deletedAt: String? = null,
 )
 
 @Serializable

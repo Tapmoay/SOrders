@@ -12,7 +12,13 @@ from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.database import get_db
 from app.deps import require_any_permission, CurrentUser, require_permission
 from app.models import Ledger, LedgerExportJob, Order, User
-from app.models.enums import LedgerSource, OperationAction, OrderStatus, UserRole
+from app.models.enums import (
+    CashFlowBizType,
+    LedgerSource,
+    OperationAction,
+    OrderStatus,
+    UserRole,
+)
 from app.models.export_job import ExportFormat, ExportJobStatus
 from app.schemas.export_job import LedgerExportJobCreate, LedgerExportJobOut
 from app.schemas.accounting_v2 import ShipperReceiptCreate, ShipperReceiptOut
@@ -142,6 +148,7 @@ def _money(value) -> str:
     末尾多余的 0」相冲突（`_tools/qa/_check_money_display.py` 会红，见 BUG-0030）。
     """
     return money_text(value)
+
 
 def resolve_line_total(
     source: LedgerSource,
@@ -877,12 +884,22 @@ def list_receipts(
     customer_id: int | None = Query(None),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
+    include_deleted: bool = Query(False, description="含已撤销的（回收站）"),
 ) -> list[ShipperReceiptOut]:
+    """收款记录（默认**不含**已撤销的）。
+
+    ⚠️ 默认过滤 is_deleted（2026-10-10，BUG-0029 / 台账 TB-09）：撤销是**软删**，
+    已撤销的那几行还躺在库里 —— 不带这一句，界面上"撤销"点了跟没点一样
+    （用户会以为这笔钱还在账上）。回收站档由 include_deleted=true 显式打开，
+    那一档同时是「恢复」入口的落点。
+    """
     if user_role_key(current) != UserRole.DISPATCHER.value:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅派单员可查看")
     from app.models import ShipperReceipt
 
     stmt = select(ShipperReceipt).order_by(ShipperReceipt.received_at.desc(), ShipperReceipt.id.desc())
+    if not include_deleted:
+        stmt = stmt.where(ShipperReceipt.is_deleted.is_(False))
     if customer_id is not None:
         stmt = stmt.where(ShipperReceipt.customer_id == customer_id)
     # 日期窗口：`received_at` 也是 `Date` 列 → 同一处校验（格式错 400、**反序也 400**）。
@@ -908,6 +925,256 @@ def list_receipts(
                 arrears_unit_id=r.arrears_unit_id, invoiced=r.invoiced, note=r.note,
                 operator_id=r.operator_id,
                 customer_name=names.get(r.customer_id, ""), created_at=r.created_at,
+                is_deleted=bool(r.is_deleted), deleted_at=r.deleted_at,
             )
         )
     return out
+
+
+# ============================================================== 撤销 / 恢复一笔客户收款
+#
+# 2026-10-10（BUG-0029 / 台账 TB-09）：在这之前收款是**只增不撤**的 —— 登记错了之后，
+# 收款单、它写下的资金流水、被翻成 paid=1 的订单，一处回头路都没有；系统自己的报错
+# 文案还写着「请联系管理员在账上冲正」，而管理员同样没有这个入口。
+#
+# 两个动作照供应商付款那一期的体例（app/api/v1/suppliers.py 的
+# DELETE /supplier-payments/{flow_id} 与 POST /{flow_id}/restore）：
+#   · **软删**（用户定的硬规矩）：收款单与它那几行流水都只打 is_deleted 标记，行还在；
+#   · 撤销要**四个落点一起回滚**（收款单 / 资金流水 / orders.paid / 由前两者算出来的
+#     turnover 与 customer-balances），恢复要四个一起回来 —— services/order_money.py 的
+#     口径是"有流水按流水算、没流水才看 paid"，所以只做一半（只软删流水、或不翻 paid）
+#     **数字都回不去**；
+#   · 两个动作各写一条 operation_logs，与写入同一个事务；钱动了照既有体例入发件箱。
+
+#: 一笔客户收款会写哪几种资金流水。⛔ 判据不能只看 RECEIPT_CASH：method 决定 biz ——
+#: transfer / wechat 写 RECEIPT_TRANSFER、arrears_settle 写 RECEIPT_ARREARS
+#: （唯一来源 services/accounting_service.create_receipt）。所以这里认的是"谁写的"：
+#: doc_id == 收款单 id 且 party_type == customer。
+RECEIPT_FLOW_BIZ = (
+    CashFlowBizType.RECEIPT_CASH,
+    CashFlowBizType.RECEIPT_TRANSFER,
+    CashFlowBizType.RECEIPT_ARREARS,
+)
+
+
+def _receipt_flows(db: Session, receipt_id: int, *, include_deleted: bool = False) -> list:
+    """这笔收款写下的资金流水（撤销与恢复共用的唯一判据，见上面 RECEIPT_FLOW_BIZ）。"""
+    from app.models import CashFlow
+
+    stmt = select(CashFlow).where(
+        CashFlow.doc_id == receipt_id,
+        CashFlow.party_type == "customer",
+        CashFlow.biz_type.in_(RECEIPT_FLOW_BIZ),
+    )
+    if not include_deleted:
+        stmt = stmt.where(CashFlow.is_deleted.is_(False))
+    return list(db.scalars(stmt).all())
+
+
+def _receipt_order_ids(receipt) -> list[int]:
+    return [int(x) for x in (receipt.order_ids or [])]
+
+
+def _receipt_push(db: Session, customer_id: int, order_ids: list[int]) -> None:
+    """入队"账本变了"（与写入**同一个事务**）。
+
+    撤销 / 恢复同样要推：不推的话，货主手机上那个欠款数与他自己的账本页都不动，
+    而钱其实已经变了（与 create 那条路上的收件人口径一致：客户账号 ＋ 司机 ＋ 派单员）。
+    """
+    from app.models import Customer
+
+    shipper_uid: int | None = None
+    driver_uid: int | None = None
+    try:
+        customer = db.get(Customer, customer_id) if customer_id else None
+        shipper_uid = customer.user_id if customer is not None else None
+        if order_ids:
+            driver_uid = db.scalar(
+                select(Order.driver_id)
+                .where(Order.id.in_(order_ids), Order.driver_id.isnot(None))
+                .limit(1)
+            )
+    except Exception:  # 收件人算不出来不该影响"钱已经改好了"这件事
+        pass
+    outbox.enqueue(
+        db,
+        "ledger.updated",
+        {"shipper_id": shipper_uid, "driver_id": driver_uid, "dispatchers": True},
+    )
+
+
+@router.delete("/receipts/{receipt_id}", status_code=status.HTTP_204_NO_CONTENT)
+def cancel_receipt_endpoint(
+    receipt_id: int,
+    current: CurrentUser,
+    db: Session = Depends(get_db),
+) -> Response:
+    """**撤销**一笔客户收款（软删；可 POST /receipts/{id}/restore 原样放回）。
+
+    ## 撤销同时做三件事（少一件账上就是两个答案）
+    ① 这笔收款写下的资金流水逐行软删（is_deleted=1、记 deleted_at）——
+       「资金收支」与营业额里的这一笔当场不算数；
+    ② 把这笔核销过的订单收回「未收款」（paid=False、payment_method="arrears"）——
+       ⛔ 不翻 paid 的话，money_map 里"没有流水就按 paid × 全额"那条兜底会继续
+       把这笔钱算成已收；
+    ③ 收款单本身软删（is_deleted=1）—— 它默认从「收款记录」里消失，只在回收站档
+       （include_deleted=true）里看得见，那一档就是「恢复」的落点。
+
+    ⛔ **不是物理删除**（用户定的硬规矩）：三处的行都还在，restore 原样放回来。
+    ⛔ 已经撤销过的不能再撤（400）—— 那会把账上的数改第二遍。
+    ⛔ 找不到流水就拒绝（400）：只软删收款单而钱没撤，账上就是"收款记录说没这笔、
+       流水里还留着"，比不撤更糟。
+    """
+    if user_role_key(current) != UserRole.DISPATCHER.value:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅派单员可操作")
+    from app.models import ShipperReceipt
+
+    r = db.scalar(select(ShipperReceipt).where(ShipperReceipt.id == receipt_id).with_for_update())
+    if r is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="这笔收款记录不存在")
+    if r.is_deleted:
+        raise HTTPException(status_code=400, detail=f"这笔收款（#{r.id}）已经撤销过了，不用再撤一次")
+    flows = _receipt_flows(db, receipt_id)
+    if not flows:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"这笔收款（#{r.id}）没有对应的资金流水，没法撤销；"
+                "（只把收款单藏起来、钱还留在账上会让两边对不上）请先核对这笔收款的流水"
+            ),
+        )
+    order_ids = _receipt_order_ids(r)
+    now = utc_now_naive()
+    for f in flows:
+        f.is_deleted = True
+        f.deleted_at = now
+    rolled: list[int] = []
+    if order_ids:
+        orders = list(db.scalars(select(Order).where(Order.id.in_(order_ids)).with_for_update()).all())
+        for o in orders:
+            if not o.paid:
+                continue  # 已经是未收（比如刚被别的路撤过）—— 幂等，不动它
+            o.paid = False
+            # 钱回到"还没收到"，收款方式跟着回到「挂账」（挂账的语义就是"这笔还没收"）。
+            # ⛔ 金额字段一个都没碰。
+            o.payment_method = "arrears"
+            rolled.append(o.id)
+    r.is_deleted = True
+    r.deleted_at = now
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=(order_ids[0] if order_ids else None),
+        action=OperationAction.RECEIPT_CANCEL,
+        change_payload={
+            "receipt_id": r.id,
+            "customer_id": r.customer_id,
+            "amount": str(r.amount),
+            "method": r.method,
+            "order_ids": order_ids,
+            "flow_ids": [f.id for f in flows],
+            "orders_rolled_back": rolled,
+            "note": "撤销收款（伪装删除）：流水与收款单都只打标记，可 restore 原样放回",
+        },
+    )
+    _receipt_push(db, r.customer_id, order_ids)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/receipts/{receipt_id}/restore", response_model=ShipperReceiptOut)
+def restore_receipt_endpoint(
+    receipt_id: int,
+    current: CurrentUser,
+    db: Session = Depends(get_db),
+) -> ShipperReceiptOut:
+    """**恢复**一笔被撤销的收款（四个落点原样放回）。三道门都在"改数"之前：
+
+    ① 只有**已撤销**的才能恢复（没撤过 → 400）—— 幂等，第二次恢复不许把数改回来第二遍；
+    ② 这一笔点过名的订单里**已经有「已收款」的** → 400 并点名那张单：
+       先把那一笔撤销掉再来恢复这一笔，否则同一笔钱会被算两遍；
+    ③ 订单进了回收站 / 已撤销 / 已退货 → 400 并说明原因：
+       恢复一笔收款会把钱算在一张不算数的单上。
+    """
+    if user_role_key(current) != UserRole.DISPATCHER.value:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅派单员可操作")
+    from app.models import Customer, ShipperReceipt
+
+    r = db.scalar(select(ShipperReceipt).where(ShipperReceipt.id == receipt_id).with_for_update())
+    if r is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="这笔收款记录不存在")
+    if not r.is_deleted:
+        raise HTTPException(status_code=400, detail=f"这笔收款（#{r.id}）没有被撤销，不需要恢复")
+    order_ids = _receipt_order_ids(r)
+    if order_ids:
+        orders = {
+            o.id: o
+            for o in db.scalars(select(Order).where(Order.id.in_(order_ids)).with_for_update()).all()
+        }
+        for oid in order_ids:
+            o = orders.get(oid)
+            if o is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"订单 {oid} 不存在，恢复这笔收款会把钱算在一张查不到的单上",
+                )
+            if o.deleted_at is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"订单 {oid} 在回收站里，请先把它恢复回来再恢复这笔收款",
+                )
+            if str(getattr(o.status, "value", o.status)) in (
+                OrderStatus.CANCELLED.value,
+                OrderStatus.RETURNED.value,
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"订单 {oid} 已撤销或已退货，恢复这笔收款会把钱算在一张不算数的单上",
+                )
+            if o.paid:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"订单 {oid} 现在已经是「已收款」了（可能又收过一次），"
+                        "恢复这笔会把同一笔钱算两遍；请先撤销那一次收款"
+                    ),
+                )
+        for oid in order_ids:
+            o = orders[oid]
+            o.paid = True
+            o.payment_method = "cash" if r.method in ("cash", "transfer", "wechat") else "arrears"
+    flows = _receipt_flows(db, receipt_id, include_deleted=True)
+    if not flows:
+        raise HTTPException(status_code=400, detail=f"这笔收款（#{r.id}）找不到资金流水，没法恢复")
+    for f in flows:
+        f.is_deleted = False
+        f.deleted_at = None
+    r.is_deleted = False
+    r.deleted_at = None
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=(order_ids[0] if order_ids else None),
+        action=OperationAction.RECEIPT_RESTORE,
+        change_payload={
+            "receipt_id": r.id,
+            "customer_id": r.customer_id,
+            "amount": str(r.amount),
+            "method": r.method,
+            "order_ids": order_ids,
+            "flow_ids": [f.id for f in flows],
+            "note": "恢复收款：把撤销掉的那一笔原样放回来",
+        },
+    )
+    _receipt_push(db, r.customer_id, order_ids)
+    db.commit()
+    db.refresh(r)
+    c = db.get(Customer, r.customer_id)
+    return ShipperReceiptOut(
+        id=r.id, customer_id=r.customer_id, amount=r.amount, method=r.method,
+        received_at=r.received_at, order_ids=r.order_ids, settle_mode=r.settle_mode,
+        arrears_unit_id=r.arrears_unit_id, invoiced=r.invoiced, note=r.note,
+        operator_id=r.operator_id,
+        is_deleted=bool(r.is_deleted), deleted_at=r.deleted_at,
+        customer_name=c.name if c else "", created_at=r.created_at,
+    )

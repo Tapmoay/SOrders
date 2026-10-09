@@ -118,12 +118,32 @@ class ReceiptsViewModel(private val container: AppContainer) : androidx.lifecycl
     var selectedOrderIds by mutableStateOf<Set<Long>>(emptySet())
     var submitting by mutableStateOf(false)
 
+    /**
+     * 回收站档：默认只列"活着"的收款；打开之后**已撤销**的那几行也列出来。
+     *
+     * 那一档是「恢复」的入口 —— 撤销之后收款单那一行默认从收款记录里消失
+     * （软删，还在库里），看不见它就等于没有回头路（2026-10-10 BUG-0029 / 台账 TB-09）。
+     */
+    var showDeleted by mutableStateOf(false)
+
+    /** 刚撤销掉的那一笔（给 snackbar 上那个「撤回」用）—— 与供应商付款那一页同形。 */
+    var lastCancelled by mutableStateOf<ReceiptDto?>(null)
+
+    /** 撤销的二次确认（钱的动作，必须先问一句）：非空 = 弹层开着。 */
+    var pendingCancel by mutableStateOf<ReceiptDto?>(null)
+
+    /** 撤销/恢复正在飞：一次网络往返里点两下等于发两遍（第二遍必然被后端拒）。 */
+    var acting by mutableStateOf(false)
+
+    /** 撤销/恢复自己的错误：画在**弹层里**，不是页面级（页面级在这块弹层下面，用户看不见）。 */
+    var actionError by mutableStateOf<String?>(null)
+
     fun load() {
         loading = true
         viewModelScope.launch {
             try {
                 customers = container.repo.customers()
-                receipts = container.repo.receipts()
+                receipts = container.repo.receipts(includeDeleted = showDeleted)
                 if (receivedAt.isBlank()) receivedAt = today()
                 orders = emptyList()
             } catch (e: Exception) {
@@ -202,7 +222,7 @@ class ReceiptsViewModel(private val container: AppContainer) : androidx.lifecycl
             try {
                 container.repo.createReceipt(ReceiptCreateRequest(c.id, amount, method, receivedAt, selectedOrderIds.toList(), "itemized"))
                 actionResult = "收款已记录"
-                receipts = container.repo.receipts()
+                receipts = container.repo.receipts(includeDeleted = showDeleted)
                 selectedOrderIds = emptySet()
                 amount = ""
                 loadCustomerOrders()
@@ -213,6 +233,73 @@ class ReceiptsViewModel(private val container: AppContainer) : androidx.lifecycl
             }
         }
     }
+
+    /** 只重载收款记录（撤销/恢复/切档都用它）。 */
+    fun reloadReceipts() {
+        viewModelScope.launch {
+            try {
+                receipts = container.repo.receipts(includeDeleted = showDeleted)
+            } catch (e: Exception) {
+                error = toApiException(e).message
+            }
+        }
+    }
+
+    fun toggleDeleted() {
+        showDeleted = !showDeleted
+        reloadReceipts()
+    }
+
+    /**
+     * 撤销一笔收款（**软删**）：钱从「已收」里退回来、核销过的订单回到「未收款」。
+     *
+     * ⚠️ 回执由那条带「撤回」的 snackbar 说，这里**不重复**写一句（与供应商付款那一页同形）。
+     * ⚠️ 失败原因写进 [actionError]（弹层里面），⛔ 不写页面级 `error` —— 页面级错误在这块
+     *    弹层**下面**，用户看到的是"弹层一直在、点了没反应"。
+     */
+    fun cancel(r: ReceiptDto) {
+        if (acting) return
+        acting = true
+        actionError = null
+        viewModelScope.launch {
+            try {
+                container.repo.cancelReceipt(r.id)
+                lastCancelled = r
+                pendingCancel = null
+                reloadReceipts()
+                // 撤销之后那几张单又回到"未收款"，上面那份可勾选列表要跟着变
+                loadCustomerOrders()
+            } catch (e: Exception) {
+                actionError = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
+
+    /** 把一笔已撤销的收款放回来（原样放回四个落点）。 */
+    fun restore(r: ReceiptDto) {
+        if (acting) return
+        acting = true
+        viewModelScope.launch {
+            try {
+                container.repo.restoreReceipt(r.id)
+                actionResult = "已恢复这笔收款（" + formatMoney(r.amount) + " 元）"
+                reloadReceipts()
+                loadCustomerOrders()
+            } catch (e: Exception) {
+                actionResult = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
+
+    fun restoreLastCancelled() {
+        val r = lastCancelled ?: return
+        lastCancelled = null
+        restore(r)
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -222,6 +309,17 @@ fun ReceiptsScreen(container: AppContainer, onBack: () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
     LaunchedEffect(Unit) { vm.load() }
+    // 撤销之后那条 snackbar 自带一个「撤回」—— 与供应商付款那一页同形的"手边恢复入口"。
+    // ⚠️ 它只是**顺手那一下**：真正的回收站档是列表顶上那颗「显示已撤销」（撤销完再回来也找得到）。
+    LaunchedEffect(vm.lastCancelled) {
+        val r = vm.lastCancelled ?: return@LaunchedEffect
+        val res = snackbar.showSnackbar(
+            message = "已撤销这笔收款（" + formatMoney(r.amount) + " 元）",
+            actionLabel = "撤回",
+            withDismissAction = false,
+        )
+        if (res == SnackbarResult.ActionPerformed) vm.restoreLastCancelled()
+    }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = { ReuseTopBar("客户收款", onBack) },
@@ -286,7 +384,16 @@ fun ReceiptsScreen(container: AppContainer, onBack: () -> Unit) {
                     }
                 }
             }
-            item { Text("收款记录", style = MaterialTheme.typography.titleMedium) }
+            item {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("收款记录", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    // 已撤销的那几行默认看不见（软删）—— 这一档是它们的落点，也是「恢复」的入口。
+                    // ⛔ 不许把恢复只藏在 AI 撤回卡里（用户 2026-09-20 定的硬规矩第④条）。
+                    TextButton(onClick = { vm.toggleDeleted() }) {
+                        Text(if (vm.showDeleted) "只看未撤销" else "显示已撤销")
+                    }
+                }
+            }
             if (vm.receipts.isEmpty()) item { EmptyView("暂无收款记录", Modifier.fillMaxWidth()) }
             else items(vm.receipts, key = { it.id }) { r ->
                 SectionCard {
@@ -301,8 +408,41 @@ fun ReceiptsScreen(container: AppContainer, onBack: () -> Unit) {
                     }
                     Spacer(Modifier.height(4.dp))
                     Text("核销订单：" + r.orderIds.joinToString(", "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (r.isDeleted) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "已撤销" + (r.deletedAt?.take(10)?.let { "（" + it + "）" } ?: "") +
+                                " —— 这笔钱现在不算数，点「恢复」原样放回来",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        if (r.isDeleted) {
+                            TextButton(onClick = { vm.restore(r) }, enabled = !vm.acting) { Text("恢复") }
+                        } else {
+                            TextButton(onClick = { vm.pendingCancel = r; vm.actionError = null }) {
+                                Text("撤销", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
                 }
             }
+        }
+        // 撤销是钱的动作：先问一句，并把"会变成什么样"写清楚（不是删掉，随时能恢复）。
+        // 错误画在**弹层自己**里面（页面级 error 在这块弹层下面，用户看不见）。
+        vm.pendingCancel?.let { r ->
+            DangerConfirmDialog(
+                title = "撤销这笔收款？",
+                message = "「" + (r.customerName ?: "客户") + "」" + r.receivedAt + " 的 ¥" + formatMoney(r.amount) +
+                    " 会从「已收」里退回来：资金流水与营业额里不再算这一笔，核销过的订单回到「未收款」。\n" +
+                    "⛔ 不是删掉 —— 收款记录还在（列表顶上那颗「显示已撤销」里），随时能点「恢复」放回来。",
+                confirmText = "撤销",
+                onConfirm = { vm.cancel(r) },
+                onDismiss = { vm.pendingCancel = null; vm.actionError = null },
+                error = vm.actionError,
+                enabled = !vm.acting,
+            )
         }
     }
 }

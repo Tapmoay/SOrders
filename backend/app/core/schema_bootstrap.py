@@ -1884,6 +1884,47 @@ def _bootstrap_impl(engine: Engine) -> None:
                 conn.execute(text("UPDATE cash_flows SET is_deleted = 0 WHERE is_deleted IS NULL"))
             except DBAPIError:
                 logger.debug("cash_flows.is_deleted 回填跳过")
+
+    # ---------- 客户收款单的软删（2026-10-10，BUG-0029 / 台账 TB-09）----------
+    #
+    # 与上面 cash_flows 那一段同一个理由：用户定的硬规矩是「**所有删除一律软删 ＋
+    # 必须有恢复路径**」，而收款单在这之前是**只增不撤**的 —— 登记错了之后，
+    # 收款单、它写下的资金流水、被翻成 paid=1 的订单，一处回头路都没有
+    # （系统自己的报错文案还写着"请联系管理员在账上冲正"，而管理员也没有入口）。
+    #
+    # 撤销 = 把收款单与它那几行流水一起打标记（is_deleted=1），恢复 = 原样放回来。
+    # 收款单本身不参与任何**金额**计算（钱是按 cash_flows 与 orders.paid 算的），
+    # 所以加这两列对历史账**一个数都不改**：is_deleted 默认 0（历史收款全是"活着"的）、
+    # deleted_at 默认 NULL。
+    #
+    # ⚠️ 加了这两列之后，凡是从 shipper_receipts 取数的地方都要带 is_deleted = 0
+    #    （GET /ledger/receipts 默认过滤、挂账单位占用计数、客户合并时的搬迁三处）。
+    #    漏一处的后果是"这笔钱明明撤了、列表里还在"。
+    if "shipper_receipts" in tables:
+        receipt_cols = {c["name"] for c in insp.get_columns("shipper_receipts")}
+        with engine.begin() as conn:
+            for col, ddl_type in (("is_deleted", "BOOLEAN NOT NULL DEFAULT 0"), ("deleted_at", "DATETIME")):
+                if col in receipt_cols:
+                    continue
+                try:
+                    conn.execute(text(f"ALTER TABLE shipper_receipts ADD COLUMN {col} {ddl_type}"))
+                    logger.warning("补列：shipper_receipts.%s", col)
+                except DBAPIError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        continue
+                    raise
+            # 索引只为"回收站里翻一下"与"默认过滤掉已撤销的"服务；重复执行会报 duplicate，忽略即可。
+            try:
+                conn.execute(text("CREATE INDEX ix_shipper_receipts_is_deleted ON shipper_receipts (is_deleted)"))
+            except DBAPIError:
+                logger.debug("shipper_receipts.is_deleted 索引已存在")
+            # ⛔ 回填必须写 0 而不是留 NULL：is_deleted IS NULL 在 WHERE is_deleted = 0
+            #    下**不成立**，历史收款会整体从"收款记录"里消失（钱看起来从来没收到过）。
+            try:
+                conn.execute(text("UPDATE shipper_receipts SET is_deleted = 0 WHERE is_deleted IS NULL"))
+            except DBAPIError:
+                logger.debug("shipper_receipts.is_deleted 回填跳过")
     # ---------- 迁移版本表（2026-09-24 · 整改报告 §4「整个架构改造的第一核心任务」）----------
     #
     # 上面这一大段的每一句 DDL 都是**幂等自愈**：每次启动重跑一遍，跑过的再跑也不出错。
