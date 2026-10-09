@@ -32,6 +32,7 @@
 <!-- TESTBUG:ROWS:B -->
 <!-- /TESTBUG:ROWS:B -->
 | TB-07 | B | 开销能挂到不存在的司机/车辆/订单上；挂到不存在车辆的那笔被车辆成本表静默吞掉 | 可疑 | **已修复 512ec98** | POST /api/v1/expenses 不校验 driver_id / vehicle_id / order_id 是… | backend/app/services/accounting_service.py:88… | _tmp/test_round3/evidence_TB07_expense_… |
+| TB-08 | B | 同一笔司机明细能被两张草稿结算单同时锁住：冲突到确认时才报，且报错把「被占用」… | 可疑 | **已修复 9744177** | driver_settlements.py:93 的注释写「建结算单＝把一批「待结」明细锁进一张单子（钱虽未出，但已经不能… | backend/app/api/v1/driver_settlements.py:93<b… | _tmp/test_round3/evidence_TB08_settleme… |
 
 ---
 
@@ -183,6 +184,18 @@
 
 
 ---
+
+### TB-08 · 同一笔司机明细能被两张草稿结算单同时锁住：冲突到确认时才报，且报错把「被占用」与「已删除」糊成一句
+
+- 严重度：可疑　／　状态：**已修复 9744177**　／　记录：2026-10-10 02:57 CST
+- 现象：driver_settlements.py:93 的注释写「建结算单＝把一批「待结」明细锁进一张单子（钱虽未出，但已经不能再被第二张单占用）」，实测同一司机同一月连续建两张草稿单 #59/#60，两张的 bill_ids 都是 [12]、amount 都是 22.00，而被锁的明细 id=12 仍是 open / settled_doc_id 为空。确认 #59 之后再确认 #60 才被拦下，报错是「这张结算单锁定的 1 笔明细里有 1 笔已经不在了（被删除或已被别的结算单占用），请作废后重新结算」——用户分不清是明细被删了还是被别的单占了。钱不会重复付（守卫有效，cash_flows 里只有 #59 那一笔）。
+- 复现：账号 13900000001（派单员，8020 副本库）：1) POST /api/v1/driver-settlements {"driver_id":3,"settle_type":"piece","month":"2026-06"} 连做两次 → 200 id=59 与 id=60，两者 bill_ids 都是 [12]、amount 22.00；2) PATCH /api/v1/driver-settlements/59 {"action":"confirm"} → 200 confirmed，明细 12 变 settled/settled_doc=59；3) PATCH /api/v1/driver-settlements/60 {"action":"confirm"} → 400（上句原文）；4) PATCH /api/v1/driver-settlements/60 {"action":"cancel"} → 200 收尾。脚本 _tmp/test_round3/t3b_close.py、t3c_guard.py、ev_tb08.py。
+- 期望：要么建单时就把明细标成「已被某张草稿单占用」并让第二张单建不出来（注释所写），要么列表页明确标出「这笔明细同时挂在 N 张草稿单上」；确认失败时应把「被别的结算单占用」与「明细已删除」拆成两句，别让用户以为明细被删了。
+- 实际：两张草稿单同时占用同一笔明细；确认第二张时才报错，且错误措辞把两种成因混在一句里；草稿单列表照原样显示两张都能结同一笔钱。
+- 证据：_tmp/test_round3/evidence_TB08_settlement_dup.txt（含两次建单回执、确认被拦的 400 原文、SQL 行）；_tmp/test_round3/t3_out/t3b_log.json、t3c_log.json
+- 建议改法：create_settlement 里对 settleable_bills 加占用检查（或给 driver_bills 加 draft_doc_id 字段锁草稿），confirm 的报错拆成「被别的结算单占用」/「明细已删除」两种；草稿单列表把重复占用标出来。
+- 定位：`backend/app/api/v1/driver_settlements.py:93`　`backend/app/services/accounting_service.py:611`　`backend/app/services/accounting_service.py:661`　`backend/app/services/accounting_service.py:570`
+- 补充（2026-10-10，已修复）：**提交 `9744177`（变更单 docs/changes/BUG-0024.md）**。改法：① 锁复用已有列 `driver_bills.settled_doc_id` —— `create_settlement` 在 `db.add(s)` 之后 `db.flush()` 拿 id，再逐行写 `b.settled_doc_id = s.id`（状态仍是 `open`，钱未出）⇒ 注释里那句「已经不能再被第二张单占用」在建单当刻真的发生；`settleable_bills` 新增 `doc_id` / `include_claimed` 两个关键字口子，**默认只取「没人锁的」**（`DriverBill.settled_doc_id.is_(None)`），确认时传 `doc_id=s.id` 把本单自己锁住的算回来。② 建单时若这个月的待结明细都被别的单锁着 ⇒ 400 并点名：「2026-06 的 1 笔待结明细已经被别的结算单锁住了（明细 12 在结算单 #57（草稿））；请先作废那张单再来建单，本单未创建」。③ 确认的报错按成因分句（新增模块级 `_why_gone` 三分桶：被别的结算单占用 / 已被删除 / 已不是待结状态；`_settlement_label` 把单号翻成「#57（草稿）」，`_claimed_where` 点名单号），保留「已经不在了」与「请作废后重新结算」两个既有锚点，糊成一句的老话从文件里消失。④ 作废解锁从「只放回 SETTLED」扩成 `settled_doc_id == s.id` 且 `status ∈ {settled, open}`（⛔ 不含 `cancelled` —— 保留任务作废的明细不复活）。⑤ `backend/app/api/v1/driver_settlements.py:93` 的注释与行为对齐（扩写「锁落在哪一列、状态是什么、谁解锁、为什么要 flush」）。证据：单测 `backend/tests/test_settlement_locking.py` 7 条（改前在 HEAD 干净副本里 **5 failed / 2 passed**，改后 7 passed、与既有 8 条合计 15 passed）；判据 `_tools/finance/_check_settlement_locking.py` **39 项全过**；反验 `_tools/finance/_reverse_verify_settlement_locking.py` **24/24 都红了**＋逐字节还原；现场 8032（HEAD 副本 = 改前：两张草稿单都 200、`bill_ids` 都是 `[12]`、明细仍 open）／8033（工作树 = 改后：第一张 200、第二张 **400** 点名单号；确认报错分因）—— `_tmp/tb08/live_before.txt` ／ `_tmp/tb08/live_after.txt`。
 
 ## 四、怎么写一条（给测试会话看的规矩）
 

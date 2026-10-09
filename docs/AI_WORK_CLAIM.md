@@ -31,6 +31,21 @@
 
 ## 进行中
 
+### [2026-10-10 03:20 → 03:4x CST 已完成] 会话：**BUG-0024 同一笔司机明细能被两张草稿结算单同时锁住（TB-08）**（DSH `aa2bd0a9-2891-4edd-9bc9-925cf0ba6637`）
+
+`用户口径`：测试台账 **TB-08**（财务方向测试 2026-10-10 02:57 CST 在 8020 副本库 `sorders_a3.db` 上复现，严重度**可疑**）：同一司机同一月连建两张草稿结算单（#59 / #60），两张的 `bill_ids` 都是 `[12]`、金额都是 `22.00`，而明细 12 此刻仍是 `open` / `settled_doc_id` 为空；确认第一张 200，确认第二张才 400「这张结算单锁定的 1 笔明细里有 1 笔已经不在了（被删除或已被别的结算单占用），请作废后重新结算」——用户分不清是明细被删了还是被别人占着。而 `backend/app/api/v1/driver_settlements.py:93` 的注释写的是「建结算单＝把一批「待结」明细锁进一张单子（钱虽未出，但已经不能再被第二张单占用），必须留痕。」
+
+`病灶`：`create_settlement`（`backend/app/services/accounting_service.py:611`）建单只写结算单一行，**明细一个字节都没碰** —— 全仓唯一的取数实现 `settleable_bills`（:570）只筛 `status == OPEN`，不看 `settled_doc_id` ⇒「锁」只存在于注释里；`confirm_settlement`（:661）才重取明细，缺一笔就用同一句话糊住两种成因（被别的单占用 / 明细已删除）；`cancel_settlement`（:798）的解锁只认 `status == SETTLED`，草稿期既锁不上也放不开。
+
+`改法`：① 锁复用已有列 `driver_bills.settled_doc_id`（不加列、不动迁移）：`create_settlement` 在 `db.add(s)` 后 `db.flush()` 拿 id，再逐行写 `b.settled_doc_id = s.id`（状态仍 `open`，钱未出）；`settleable_bills` 加 `doc_id` / `include_claimed` 两个关键字口子，**默认只取「没人锁的」**，确认时传 `doc_id=s.id` 把本单自己锁住的算回来。② 建单时若这个月的待结明细都被别的单锁着 ⇒ 400 并点名单号与状态（「明细 12 在结算单 #57（草稿）」），本单不创建。③ 确认报错按成因分句：新增模块级 `_why_gone` 三分桶（被别的结算单占用 / 已被删除 / 已不是待结状态）＋ `_settlement_label`（单号翻成「#57（草稿）」）＋ `_claimed_where`（点名单号），保留「已经不在了」与「请作废后重新结算」两个既有锚点，糊成一句的老话从文件里消失。④ 作废解锁扩成 `settled_doc_id == s.id` 且 `status ∈ {settled, open}`（⛔ 不含 `cancelled`：保留任务作废的明细不复活）。⑤ `driver_settlements.py:93` 的注释扩写成「锁落在哪一列、状态是什么、谁解锁、为什么要 flush」——注释与行为对齐（这一条是本 bug 的一半）。
+
+`明确不碰`：已确认 / 已付款结算单的不可撤销性（设计）；`pay_settlement` 的取数与 `cash_flows` 的写入时机 / 口径；金额恒等式 `s.amount == 明细合计 + adjustment`；表结构 / 迁移 / `schema_bootstrap` / 接口出参；BUG-0007 的 8 条回归用例与 40 项判据字面量；`data_retention` 的语义。
+
+`判据 / 反验`：`python -X utf8 _tools/finance/_check_settlement_locking.py` ⇒ 39 项全过；`_tools/finance/_reverse_verify_settlement_locking.py` ⇒ 24/24 都红了 ＋ 逐字节还原；单测 `backend/tests/test_settlement_locking.py` 7 条（改前在 HEAD 干净副本里 5 failed / 2 passed，改后 7 passed，与既有 8 条合计 15 passed）；既有判据 `_tools/qa/_check_settlement_single_source.py` 40 项仍绿；现场 8032（HEAD 副本 = 改前）/ 8033（工作树 = 改后）各跑一遍 TB-08 复现步骤。
+
+- 状态：✅ **已完成**（2026-10-10 立项 · 2026-10-10 关闭；变更单 `docs/changes/BUG-0024.md`；台账 **TB-08**；Blast Radius **L2 —— 契约 / 数据**；提交 `9744177`）。
+- 核心改动：backend/app/services/accounting_service.py —— 为什么必须动核心：这笔钱「谁占着」的取数口径与结算单三态机（建单 / 确认 / 作废）全在这一个文件里，而 `settled_doc_id` 的写入时机正是本 bug 的病灶；边界（接口层 / 前端）既拿不到「这笔明细是不是挂在别的草稿单上」的真相，也没法在并发下正确判锁（只能拼 `bill_ids LIKE` 反查，两个派单员同时建单时必然漏），所以只能在核心区的服务层把取数收口（`_tools/qa/_core_files.txt` 收录：账本入账与欠款口径）。
+
 ### [2026-10-10 03:12 → 03:3x CST 已完成] 会话：**BUG-0023 开销能挂到不存在的司机/车辆/订单上；挂到不存在车辆的那笔被车辆成本表静默吞掉**（DSH `session-1ad1cd28-67cd-4778-9b93-23f101063a40`）
 
 `用户口径`：修复会话任务书（TB-07，ref **m00001**，逐字）「**标题**：开销能挂到不存在的司机/车辆/订单上；挂到不存在车辆的那笔被车辆成本表静默吞掉」＋三条要修「① 写入/修改开销时校验 driver_id / vehicle_id / order_id 真实存在（且未软删/未停用），不存在就 400 并说清是哪个字段、哪个 id；② 报表口径不许静默吞：车辆成本表要么把这部分单列一行（例如「未挂车的运费/开销」＋笔数），要么在两处口径差异处给出可核对的说明 —— 目标是一个用户拿同一窗口能把两张表对上，或至少看到「另有 N 笔 X 元未挂车」；③ 顺手确认：软删司机/车辆之后，原来挂在它上面的开销会去哪（写进变更单 §⑤ Data Contract）」。
