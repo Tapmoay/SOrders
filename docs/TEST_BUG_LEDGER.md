@@ -33,6 +33,7 @@
 <!-- /TESTBUG:ROWS:B -->
 | TB-07 | B | 开销能挂到不存在的司机/车辆/订单上；挂到不存在车辆的那笔被车辆成本表静默吞掉 | 可疑 | **已修复 512ec98** | POST /api/v1/expenses 不校验 driver_id / vehicle_id / order_id 是… | backend/app/services/accounting_service.py:88… | _tmp/test_round3/evidence_TB07_expense_… |
 | TB-08 | B | 同一笔司机明细能被两张草稿结算单同时锁住：冲突到确认时才报，且报错把「被占用」… | 可疑 | **已修复 9744177** | driver_settlements.py:93 的注释写「建结算单＝把一批「待结」明细锁进一张单子（钱虽未出，但已经不能… | backend/app/api/v1/driver_settlements.py:93<b… | _tmp/test_round3/evidence_TB08_settleme… |
+| TB-10 | B | 账本行的「合计」能写成与 数量×单价 不符的值：AI「改合计金额」只传 tot… | 可疑 | **已修复 47ccdf0** | 手工记账建的行（quantity=3、unit_price=20.00，total 自动为 60.0000）再用 PATC… | backend/app/api/v1/ledger.py:464-467<br>andro… | _tmp/test_round3/evidence_TB10_ledger_t… |
 
 ---
 
@@ -143,6 +144,19 @@
 - 定位：`android/app/src/main/java/com/tapmoay/sorders/ai/AiWrite.kt:384-396`　`android/app/src/main/java/com/tapmoay/sorders/ai/AiWrite.kt:473`　`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt:1236-1251`　`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt:1305`　`android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiChatViewModel.kt:312-317`
 
 - 补充（2026-10-10，已修复）：**提交 `a87eaca`（变更单 docs/changes/BUG-0021.md）**。改法：`ai/AiWrite.kt` 新增 `doneTokens`（`LinkedHashSet<String>`，只留最近 `DONE_KEEP = 8` 个、只在内存里）与 `markWritten(token)` / `hasWritten(token)`，`AiWriteOutcome.Rejected` 补第三位 `alreadyWritten`；`ai/AiWriteService.kt` 的 `execute` 改成「拿不到卡时先问 `hasWritten`」—— 写过了回「这一次已经写进去了（同一张确认卡只生效一次），没有写第二遍。要改回来的话，点上面那条「撤回」…」＋ `alreadyWritten = true`，没写过回「这张确认卡已经失效了（有效期 5 分钟，App 重启或新开对话也会清掉），这一次什么都没写。要办的话请重新发起。」，并在 `handler.commit(p.payload, "ai-" + token)` **成功之后**才 `store.markWritten(token)`（抛异常时不记，否则重试会被谎报）；`ui/ai/AiChatViewModel.kt` 按这一位换口气（ℹ️ / ⚠️ 没写成）。真机 `emulator-5556` 改前 / 改后各一次对照（`_tmp/tb9/tapcard_pre3_after.png` / `_tmp/tb9/p21d_post_after.png`）。
+
+### TB-10 · 账本行的「合计」能写成与 数量×单价 不符的值：AI「改合计金额」只传 total，落库后同一行两个答案
+
+- 严重度：可疑　／　状态：**已修复 47ccdf0**　／　记录：2026-10-10 03:03 CST
+- 现象：手工记账建的行（quantity=3、unit_price=20.00，total 自动为 60.0000）再用 PATCH /api/v1/ledger/entries/{id} 只给 {"total":"288.00"} → 200 落库，库里该行 quantity=3 / unit_price=20 / total=288，而 quantity×unit_price=60 —— 同一行两个答案。账本账户与欠款口径**按 total 走**（Shipper 账户 total 200.0000→488.0000）；界面把这行的数量/单价/合计三个数并排显示，也没有任何不一致标记。写入点 backend/app/api/v1/ledger.py:464-467 是显式设计：给了 total 就用 total，否则才 unit_price × quantity。危险在于用户唯一能造出这种行的路径是 AI —— android/.../ai/AiWriteLedgerHandlers.kt:130-133 的「合计金额」参数（new_amount）只把 total 放进 payload、不动 quantity/unit_price（:161 的能力提示原文「可以改：合计金额、数量、单价、日期、摘要、备注」），而人工界面**不提供**改账本行的入口（repo.updateLedger 全仓唯一调用点 AiWriteDataSource.kt:628）。对照：对 source=ORDER 的行（订单 597 的 ledger id=970）只改 total 会被已送达闸挡下（400），所以回写订单行那条路在 HEAD 上对已送达/已退货单不可达 —— 本条只针对 MANUAL 行。
+- 复现：账号 13900000001（派单员，8020 副本库）：1) POST /api/v1/ledger/entries {"entry_date":"2026-10-10","product_name":"TR3-total逸出","shipper_id":2,"quantity":3,"unit_price":"20.00","source":"manual"} → 201 id=976，total=60.0000；2) PATCH /api/v1/ledger/entries/976 {"total":"288.00"} → 200；3) SQL：ledgers 行 quantity=3/unit_price=20/total=288；GET /api/v1/ledger/accounts?date_from=2026-10-01&date_to=2026-10-31 → Shipper 账户 total 200.0000→488.0000（按 288 计）；4) 对照 ORDER 行：PATCH /api/v1/ledger/entries/970 {"total":"999.00"} → 400「这张单已送达，账上这笔钱已经定了…」；5) 清理 DELETE /api/v1/ledger/entries/976 → 204。脚本 _tmp/test_round3/ev_tb10.py（可重跑）、t6a2.py。
+- 期望：改「合计」时要么同步单价（让 数量×单价 == 合计 恒成立），要么把这种行显式标成「整行金额（与数量×单价无关）」并在界面/导出上标出来；至少 AI 的「改合计金额」卡片应当说清「只改合计，数量×单价 不会跟着变」。
+- 实际：200 落库，账户/欠款按 total 计，行内 数量×单价 与 合计 永久不一致，界面与 AI 都不提示；写审计只记 before/after 的三个数，事后能看出不一致但没有任何一处会拦下它。
+- 证据：_tmp/test_round3/evidence_TB10_ledger_total_escape.txt（建行/改合计/账户前后/ORDER 行反例/SQL 行）；_tmp/test_round3/t6_out/t6a2_log.json
+- 建议改法：LedgerUpdate 在只给 total 时同步 unit_price = total / quantity（或加 total_override 标记并在列表/导出显示）；AI 卡片对「只改合计」加一句三数会不一致的提示。
+- 定位：`backend/app/api/v1/ledger.py:464-467`　`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteLedgerHandlers.kt:130-133`　`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteLedgerHandlers.kt:161`　`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteDataSource.kt:628`
+
+- 补充（2026-10-10，已修复）：**提交 `47ccdf0`（变更单 docs/changes/BUG-0025.md）**。改法：合计的算法收成**唯一**一处 `resolve_line_total`（`backend/app/api/v1/ledger.py:141-182`，配 `_money` `:136-139`）—— 手工行（source=MANUAL）的合计必须 ≡ 数量 × 单价，不一致就 **400**，文案把两个数都报出来（「这一行是 数量 3 × 单价 20.00 = 60.00，与你给的 合计 288.00 不一致」＋「要改合计，请同时把数量或单价改成乘积等于它的值（例如 数量 1、单价 288.00 —— 记一整笔金额就这么写）」）；`create_entry`（`:382-383`）与 `update_entry`（`:519-521`）都改成调它，**创建路径同样收口**（POST 带不一致的 total 也 400）。⚠️ 台账「建议改法」里那条 `unit_price = total / quantity` 没采用 —— 那会凭空造出用户没说的单价（折扣抹零场景更错），改成要求一致、由人自己写清楚。订单来的行（source=ORDER）仍按订单行金额记、那一支没变；「已送达」闸 `_reject_if_order_closed`（`:97-134`）与「只改备注或摘要绝不动钱」那道闸都没碰。⛔ 没加 `allow_total_mismatch` 这类旁路、没动表/模型/迁移、没回填历史行、没动 Android。判据 `_tools/finance/_check_ledger_total_consistency.py` ＋ 反验 `_tools/finance/_reverse_verify_ledger_total_consistency.py` ＋ 单测 `backend/tests/test_ledger_total_consistency.py`（改前 2 failed / 4 passed）。现场证据：`_tmp/test_round3/fix_TB10_live_改前.txt`（8031：只改合计 → 200、账户 7259.9000→7547.9000）／`_tmp/test_round3/fix_TB10_live_改后.txt`（8032：同一步 → 400、同时给数量与单价 → 200、账户只 +60）。
 
 <!-- /TESTBUG:DETAIL:B -->
 
