@@ -219,6 +219,21 @@ async def _outbox_deliver(event) -> None:
         await push_events.push_order_cancelled(recipients, oid)
         await push_events.push_order_cancelled_to_dispatchers(oid)
         return
+    if event.event_type == "orders.deleted":
+        # 软删一张单 → 两个当事人各收一条（BUG-0027 / 测试台账 TA-05）。
+        # 收件人由**负载**决定（像 orders.cancelled 一样）：删除动作在 orders_lifecycle 里，
+        # 那里知道这单是谁的；派发表只做「负载 → 实参」的翻译。
+        await push_events.push_order_deleted(
+            [int(x) for x in (event.payload.get("user_ids") or [])],
+            int(event.payload.get("order_id") or 0),
+        )
+        return
+    if event.event_type == "orders.restored":
+        await push_events.push_order_restored(
+            [int(x) for x in (event.payload.get("user_ids") or [])],
+            int(event.payload.get("order_id") or 0),
+        )
+        return
     raise RuntimeError("发件箱没有登记处理器：" + str(event.event_type))
 
 

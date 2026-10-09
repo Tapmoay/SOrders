@@ -57,6 +57,9 @@ object PushTrust {
         "order.cancelled",
         "order.cancelled_dispatcher",
         "order.created",
+        // BUG-0027（台账 TA-05）：派单员把在途单删进回收站 —— 司机端「进行中」列表要当场撤掉那张卡，
+        // 所以它必须走订单渠道（否则降级成普通消息，列表还是得手动下拉才变）。
+        "order.deleted",
         "order.delivered",
         "order.delivered_dispatcher",
         "order.delivered_driver",
@@ -68,6 +71,8 @@ object PushTrust {
         "order.freight.updated",
         "order.navigation.filled",
         "order.recalled",
+        // BUG-0027（台账 TA-05）：从回收站恢复 —— 那张卡自己回来（同样是订单渠道的事）。
+        "order.restored",
         "order.revoked",
     )
 

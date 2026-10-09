@@ -88,6 +88,10 @@ AGGREGATE_KEY: dict[str, str] = {
     "orders.driver_acked": "order_id",
     "orders.freight_updated": "order_id",
     "orders.navigation_filled": "order_id",
+    # 软删 / 恢复（BUG-0027 / 测试台账 TA-05）：聚合根同样是**那张订单** ——
+    # 排障时「这单为什么在司机端消失了」要能把两条事件串起来看。
+    "orders.deleted": "order_id",
+    "orders.restored": "order_id",
     "ledger.updated": "shipper_id",
     "notifications.created": "notification_id",
     "notifications.unread_changed": "user_id",

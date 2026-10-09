@@ -56,9 +56,12 @@ class PushTrustTest {
         // 少一个的后果：那条站内信降级成普通消息（不丢，但不再走「派单与新单」渠道）。
         listOf(
             "order.assigned", "order.cancelled", "order.cancelled_dispatcher", "order.created",
+            // BUG-0027（台账 TA-05）：派单员软删 / 从回收站恢复
+            "order.deleted",
             "order.delivered", "order.delivered_dispatcher", "order.delivered_driver",
             "order.dispatched", "order.driver_ack", "order.driver_ack_dispatcher",
-            "order.freight.updated", "order.navigation.filled", "order.recalled", "order.revoked",
+            "order.freight.updated", "order.navigation.filled", "order.recalled",
+            "order.restored", "order.revoked",
         ).forEach { assertTrue("$it 应当被认成订单事件", PushTrust.isOrderEvent(it)) }
     }
 

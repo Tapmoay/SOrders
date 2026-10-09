@@ -425,6 +425,81 @@ async def publish_order_cancelled_multi(db: Session, user_ids: list[int], order_
         await emit_realtime(uid, {"type": "order.cancelled", "order_id": order_id})
 
 
+async def publish_order_deleted(db: Session, user_ids: list[int], order_id: int) -> None:
+    """软删一张单 → **当事人**各收一条站内信 + 一条实时信号（BUG-0027 / 测试台账 TA-05）。
+
+    ### 为什么必须有（这是本单的病根）
+    撤回（publish_order_revoked）、取消（publish_order_cancelled_multi）、送达都有推送，
+    唯独「派单员把单删进回收站」一条都没有：司机端「进行中」列表在推送前毫无变化、
+    手动刷新后那张卡**静默消失**，全程没有一句话（恢复则相反，静默回归）。
+    司机拿着打不开的单跑车，到现场才发现单子没了 —— 这是**可见**级缺陷，不是体验问题。
+
+    ⚠️ 站内信是「回过头还能查到」的那一份（消息中心留痕），实时信号是让司机端列表**当场**
+    重拉的那一份（order.deleted → RealtimeHub 的 _refreshOrders）；两个渠道都要，
+    少一个就退化成「要么当时没提示、要么过后查不到」。
+    """
+    if not user_ids:
+        return
+    order = db.get(Order, order_id)
+    ono = order.order_no if order else str(order_id)
+    ns: list[Notification] = []
+    for uid in user_ids:
+        ns.append(
+            create_message(
+                db,
+                recipient_id=uid,
+                category="order",
+                type="order.deleted",
+                title="订单已被删除",
+                # ⚠️ 与 orders_common.DELETED_ORDER_NOTICES[1] 是同一句话：详情页 404 与这条
+                #    站内信说的是同一件事，两处文案不一致会让司机以为是两回事。
+                content=f"订单 {ono} 已被派单员删除，如需找回请联系派单员从回收站恢复。",
+                payload={"order_id": order_id, "order_no": ono},
+                speech_important=True,
+                idem_key="order.deleted" + ":" + str(order_id),
+            )
+        )
+    db.commit()
+    for n in ns:
+        db.refresh(n)
+        await emit_notification(n)
+    for uid in user_ids:
+        await emit_realtime(uid, {"type": "order.deleted", "order_id": order_id, "order_no": ono})
+
+
+async def publish_order_restored(db: Session, user_ids: list[int], order_id: int) -> None:
+    """从回收站恢复 → 当事人的清单里**多了一张单**，必须说明它的来历（否则是静默回归）。
+
+    speech_important=False：恢复是「好事」，不需要像撤回那样打断语音；实时信号照发，
+    列表要当场把它挪回「进行中」。
+    """
+    if not user_ids:
+        return
+    order = db.get(Order, order_id)
+    ono = order.order_no if order else str(order_id)
+    ns: list[Notification] = []
+    for uid in user_ids:
+        ns.append(
+            create_message(
+                db,
+                recipient_id=uid,
+                category="order",
+                type="order.restored",
+                title="订单已恢复",
+                content=f"订单 {ono} 已由派单员从回收站恢复。",
+                payload={"order_id": order_id, "order_no": ono},
+                speech_important=False,
+                idem_key="order.restored" + ":" + str(order_id),
+            )
+        )
+    db.commit()
+    for n in ns:
+        db.refresh(n)
+        await emit_notification(n)
+    for uid in user_ids:
+        await emit_realtime(uid, {"type": "order.restored", "order_id": order_id, "order_no": ono})
+
+
 async def _broadcast_to_dispatchers(
     db: Session,
     order_id: int,

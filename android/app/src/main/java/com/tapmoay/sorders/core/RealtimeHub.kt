@@ -216,6 +216,14 @@ class RealtimeHub(private val container: AppContainer) {
                         _refreshOrders.tryEmit(Unit)
                         announce(e.type, orderIdOf(e.data), "")
                     }
+                    // BUG-0027（台账 TA-05）：派单员把这张单删进回收站 / 从回收站恢复。
+                    // 删：清单里那张卡当场撤掉 + 说一句话（司机可能正拿着手机找它）。
+                    // 恢复：卡片自己回来，但**不播报**（不是"该司机动手"的事，也不该打断他）。
+                    "order.deleted" -> {
+                        _refreshOrders.tryEmit(Unit)
+                        announce(e.type, orderIdOf(e.data), "")
+                    }
+                    "order.restored" -> _refreshOrders.tryEmit(Unit)
                     "order.delivered", "order.delivered_driver", "order.delivered_dispatcher",
                     "order.cancelled", "order.cancelled_dispatcher", "order.dispatched", "order.recalled",
                     "order.driver_ack", "order.driver_ack_dispatcher", "order.created", "order.freight.updated" ->

@@ -39,6 +39,24 @@ async def push_order_cancelled(target_user_ids: list[int], order_id: int) -> Non
         db.close()
 
 
+async def push_order_deleted(target_user_ids: list[int], order_id: int) -> None:
+    """软删一张单 → 当事人收到「这单已被派单员删除」（BUG-0027 / 测试台账 TA-05）。"""
+    db = SessionLocal()
+    try:
+        await message_center.publish_order_deleted(db, target_user_ids, order_id)
+    finally:
+        db.close()
+
+
+async def push_order_restored(target_user_ids: list[int], order_id: int) -> None:
+    """从回收站恢复 → 当事人收到「这单又回来了」（同上；否则是静默回归）。"""
+    db = SessionLocal()
+    try:
+        await message_center.publish_order_restored(db, target_user_ids, order_id)
+    finally:
+        db.close()
+
+
 async def push_order_delivered(order_id: int) -> None:
     db = SessionLocal()
     try:

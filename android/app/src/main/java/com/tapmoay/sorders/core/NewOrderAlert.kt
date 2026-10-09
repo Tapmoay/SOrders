@@ -266,7 +266,10 @@ object NewOrderAlert {
         )
         // 撤回与取消对司机是同一件事：这单不用跑了。取消单不会再有 realtime 事件，
         // 只有站内信，所以这里也得认。
-        "order.revoked", "order.cancelled" -> AlertEvent(
+        // BUG-0027（台账 TA-05）：**被派单员删进回收站**是第三件同一件事 —— 单子从司机手里
+        // 消失了，他得听见一句（语音素材沿用「有任务被撤回」，不新增音频）。
+        // 去重键沿用 `revoked:`：同一单先撤回后被删（或反过来）不该喊两遍。
+        "order.revoked", "order.cancelled", "order.deleted" -> AlertEvent(
             kind = AlertKind.REVOKED,
             orderId = orderId,
             title = title,
@@ -285,6 +288,8 @@ object NewOrderAlert {
     fun shouldStop(type: String): Boolean = when (type) {
         "order.driver_ack", "order.delivered_driver", "order.delivered",
         "order.revoked", "order.cancelled", "order.recalled",
+        // BUG-0027（台账 TA-05）：单子被删进回收站 → 活没了，正在喊的「来订单了」立刻闭嘴
+        "order.deleted",
         // 派单员的三个：`*_dispatcher` 是后端广播给**所有**派单员的同形事件
         // （司机接单/送达/订单被撤销）——对派单员就是"这一单已经有人处理了/没了"，
         // 他手机上那句「有新订单待派单」此时已经过时（他还盯着手机找那一单呢）。

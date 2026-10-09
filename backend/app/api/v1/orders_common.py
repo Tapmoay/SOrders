@@ -25,7 +25,51 @@ from app.config import uploads_root
 from app.core.rbac import user_role_key
 from app.core.upload_read import MAX_DELIVERY_PHOTO_BYTES, read_limited
 from app.models import Order, User
-from app.models.enums import UserRole
+from app.models.enums import OrderStatus, UserRole
+
+
+#: 软删单的**当事人**看到的话（BUG-0027 / 测试台账 TA-06）。
+#: ⚠️ 安卓端 android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDeleted.kt 的 HINTS
+#:    必须**逐字**含这两句（判据 _tools/qa/_check_soft_delete_realtime.py 会两边对账）——
+#:    文案靠 contains 认，改这里就要同步改那里，否则司机端又只剩一句「订单不存在」。
+DELETED_ORDER_NOTICES: tuple[str, ...] = (
+    "订单已被删除，如需找回请联系派单员从回收站恢复。",
+    "订单已被派单员删除，如需找回请联系派单员从回收站恢复。",
+)
+
+#: 非当事人（以及「查无此单」）仍然只说这一句 —— 别为了体贴把口径放宽。
+PLAIN_NOT_FOUND_NOTICE = "订单不存在"
+
+
+def _deleted_order_notice(order: Order, role: str, current: User) -> str:
+    """软删单的 404 文案：**当事人听人话**，其余人仍然是「订单不存在」。
+
+    ### 为什么原来那句不够（测试台账 TA-06）
+    司机端列表里的旧卡片还能点开（推送/刷新之前它一直在），点进去只有「订单不存在」+「重试」：
+    不说是谁删的、也不说能不能找回 —— 司机唯一能做的事是反复点「重试」。
+
+    ### ⛔ 为什么只给当事人（别好心改成「谁都告诉他」）
+    _order_not_deleted_or_404 的 docstring 写了同一件事的理由：读侧对所有非派单员一视同仁，
+    否则能从状态码/文案的差异反推出「有一张我看不到的已删除单」。
+    这里放宽的只有**这一单的当事人**（order.driver_id / order.shipper_id 是本人）——
+    他本来就看得见这单（列表里那张卡就是他的），告诉他「它被删了」不泄露任何新信息。
+
+    ### 为什么在途说「派单员删除」、其余说中性那句
+    在途单（已派单 / 已接单）**只有派单员能删**（货主那一支要求状态是「已撤销」，
+    见 orders_lifecycle.delete_cancelled_order 里 `if order.status != OrderStatus.CANCELLED` 那一支），
+    所以这一格说「派单员删除」是**准的**；已撤销单可能是货主自己删的，那格不许替他认账。
+    """
+    if role == UserRole.DRIVER.value:
+        mine = order.driver_id is not None and order.driver_id == current.id
+    elif role == UserRole.SHIPPER.value:
+        mine = order.shipper_id is not None and order.shipper_id == current.id
+    else:
+        mine = False
+    if not mine:
+        return PLAIN_NOT_FOUND_NOTICE
+    if order.status in (OrderStatus.DISPATCHED, OrderStatus.ACCEPTED):
+        return DELETED_ORDER_NOTICES[1]
+    return DELETED_ORDER_NOTICES[0]
 
 
 UPLOAD_DIR = uploads_root() / "delivery"
@@ -61,9 +105,14 @@ def _get_order_scoped(order_id: int, current: User, db: Session) -> Order:
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="订单不存在")
     role = user_role_key(current)
-    # 软删除（隔离区）订单：仅派单员可见可操作；普通用户视为不存在
+    # 软删除（隔离区）订单：仅派单员可见可操作；普通用户视为不存在。
+    # ⚠️ 状态码仍然是 404（不改 410）：写路径的 _order_not_deleted_or_404 与既有用例都按 404
+    #    钉着，改码会同时改掉「看不见的单在哪里」的语义；变的只是**文案**（BUG-0027 / TA-06）。
     if order.deleted_at is not None and role != UserRole.DISPATCHER.value:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="订单不存在")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_deleted_order_notice(order, role, current),
+        )
     if role == UserRole.SHIPPER.value and (
         order.shipper_id is None or order.shipper_id != current.id
     ):

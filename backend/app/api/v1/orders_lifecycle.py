@@ -20,6 +20,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from app.commands import order as order_commands
+from app.core import outbox
 from app.core.business_time import utc_now_naive
 from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.database import get_db
@@ -96,6 +97,21 @@ def delete_cancelled_order(
     # `deleted_at < cutoff`，而原来这里是 tz-aware UTC、其它六张表是本地时间 —— 三种基准混用，
     # 30 天隔离期在同一套判据下有的早 8 小时、有的同秒比较还会受字符串形状影响（R14-9 同族）。
     order.deleted_at = utc_now_naive()
+    # ⛔ BUG-0027（测试台账 TA-05）：这一步原来**一个实时事件都不发** —— 撤回、取消、送达都有推送，
+    # 唯独「派单员把单删进回收站」没有，于是司机端「进行中」列表在推送前毫无变化、手动刷新后
+    # 那张卡**静默消失**（恢复则相反，静默回归）。司机拿着打不开的单跑车，到现场才发现单子没了。
+    # 收件人 = **这一单的当事人**（司机 + 货主）：只有他们有「这单被撤回了」的知情利益，
+    # 不相干的人不该被抖一下（与 orders.cancelled 的 user_ids 同形）。
+    # ⚠️ enqueue 与业务写在**同一个事务**里（它自己不 commit）：回滚时事件一并消失，
+    #    不会出现「推送说删了、库里其实没删」。
+    outbox.enqueue(
+        db,
+        "orders.deleted",
+        {
+            "order_id": order.id,
+            "user_ids": [x for x in (order.driver_id, order.shipper_id) if x],
+        },
+    )
     write_log(
         db,
         operator_id=current.id,
@@ -221,6 +237,16 @@ def restore_order(
     if order is None or order.deleted_at is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="订单不在隔离区")
     order.deleted_at = None
+    # 恢复也要说一句（BUG-0027 / TA-05）：否则是**静默回归** —— 司机端列表里凭空多出一张单，
+    # 他不知道这是刚才那笔被撤回来的，还以为是新派单。与删除对称，收件人同样是当事人。
+    outbox.enqueue(
+        db,
+        "orders.restored",
+        {
+            "order_id": order.id,
+            "user_ids": [x for x in (order.driver_id, order.shipper_id) if x],
+        },
+    )
     write_log(
         db,
         operator_id=current.id,

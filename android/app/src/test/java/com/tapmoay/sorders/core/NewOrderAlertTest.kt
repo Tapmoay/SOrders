@@ -43,10 +43,14 @@ class NewOrderAlertTest {
     fun `撤回与取消都认，且同一单共用一个去重键`() {
         val a = NewOrderAlert.eventOf("order.revoked", 9L)
         val b = NewOrderAlert.eventOf("order.cancelled", 9L)
+        // BUG-0027（台账 TA-05）：被派单员删进回收站，是同一件事的第三种说法
+        val c = NewOrderAlert.eventOf("order.deleted", 9L)
         assertEquals(AlertKind.REVOKED, a!!.kind)
         assertEquals(AlertKind.REVOKED, b!!.kind)
-        // 同一单先撤回后取消（或反过来）不该喊两遍
+        assertEquals(AlertKind.REVOKED, c!!.kind)
+        // 同一单先撤回后取消（或反过来，或先撤回后被删）不该喊两遍
         assertEquals(a.dedupeKey, b.dedupeKey)
+        assertEquals(a.dedupeKey, c.dedupeKey)
     }
 
     @Test
@@ -193,6 +197,7 @@ class NewOrderAlertTest {
             "order.delivered_driver", // 已送达
             "order.revoked",          // 撤回
             "order.cancelled",        // 取消
+            "order.deleted",          // BUG-0027：被派单员删进回收站（活没了）
         ).forEach { assertTrue("$it 应该停止播报", NewOrderAlert.shouldStop(it)) }
     }
 
@@ -274,6 +279,8 @@ class NewOrderAlertTest {
     fun `取消、接单、撤回、召回都会作废该单的去重键（司机与派单员两条都作废）`() {
         listOf(
             "order.cancelled", "order.driver_ack", "order.revoked", "order.recalled",
+            // BUG-0027（台账 TA-05）：被删进回收站之后，那单的「新单」去重键同样必须作废
+            "order.deleted",
             "order.cancelled_dispatcher", "order.delivered_dispatcher", "order.driver_ack_dispatcher",
         ).forEach { t ->
             val seen = mutableMapOf("assigned:5" to 1_000L, "pending:5" to 1_000L)
