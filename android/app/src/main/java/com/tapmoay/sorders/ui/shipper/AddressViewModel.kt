@@ -680,6 +680,17 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
     var contactPhone by mutableStateOf("")
 
     /**
+     * 电话栏**被过滤掉的字符**的说明（BUG-0028 / 测试台账 TA-10）。
+     *
+     * 用户在电话栏里打 `abc`：`InputRules.phoneInput` 会把它们丢掉，框子当场变空 —— 用户以为
+     * "我没填电话"，实际保存下去是 `phone = NULL`（而卡片上那一行是空白，回头也看不出缺电话）。
+     * 这个字段记住"这次过滤把什么丢掉了"（`InputRules.phoneInputNote`），[saveContact] 看到它
+     * 就**拒绝保存**，红字由 `FormErrorLine(contactPhoneNote ?: formError)` 画在同一处。
+     * `null` = 没有丢字（可以保存）。
+     */
+    var contactPhoneNote by mutableStateOf<String?>(null)
+
+    /**
      * 联系人备注（L-10，用户 2026-10-06：「联系人他也是要有备注的」）。
      *
      * "" = 没写。**只有自己看得见** —— 服务端只把它回给联系人自己的主人；
@@ -698,6 +709,7 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         // 备注同理**必须回填**：保存走的是「整份回传」（新建与编辑共用同一个请求体），
         // 不回填就等于「改个称呼顺手把备注清掉了」。
         contactRemark = c?.remark ?: ""
+        contactPhoneNote = null
         formError = null
         showContactDialog = true
     }
@@ -707,6 +719,13 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
         // 只数字、7~12 位。原来是"长度 ≥5 就算过" —— 于是 `222`、`12345` 这种打不通的号
         // 也能进库（生产库里真有一条 `222`）。规则唯一实现在 core/InputRules.kt。
         // CHG-0010：电话**选填**，改成姓名与电话**至少填一个**（与后端那句 400 一字不差）。
+        // "丢字"要排在最前面（BUG-0028 / 测试台账 TA-10）：在电话栏打 `abc`，过滤会把它们丢掉、
+        // 框子当场变空，用户以为"我没填电话"，存下去却是 `phone = NULL`。丢过字就不许保存，
+        // 先把那句话画出来（`InputRules.phoneInputNote`）。
+        contactPhoneNote?.let {
+            formError = it
+            return
+        }
         InputRules.phoneError(contactPhone.trim(), required = false)?.let {
             formError = it
             return
@@ -744,6 +763,7 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
                 }
                 contactName = ""
                 contactPhone = ""
+                contactPhoneNote = null
                 showContactDialog = false
                 load()
             } catch (e: Exception) {

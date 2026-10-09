@@ -911,9 +911,14 @@ fun AddressScreen(
                     FormInputRow(
                         label = "电话",
                         value = vm.contactPhone,
-                        // 电话只让数字进来（规则唯一实现在 core/InputRules.kt）
-                        onValueChange = { vm.contactPhone = InputRules.phoneInput(it) },
-                        placeholder = "请输入手机号",
+                        // 电话只让数字进来（规则唯一实现在 core/InputRules.kt）。**丢了什么要说出来**
+                        // （BUG-0028 / 测试台账 TA-10）：打 `abc` 时框子原来会当场变空、保存照样成功，
+                        // 库里 `phone = NULL`，而用户以为"我填过电话了"。note 非空 → saveContact 拒绝保存。
+                        onValueChange = {
+                            vm.contactPhone = InputRules.phoneInput(it)
+                            vm.contactPhoneNote = InputRules.phoneInputNote(it)
+                        },
+                        placeholder = "选填；留空 = 无电话",
                         // CHG-0010：这一栏**不再必填**（用户原话「新建联系人的时候不需要必填手机号」）——
                         // ⛔ 别再挂 required = true：校验早就放开了，标记却还写着必填，
                         //    用户会以为「只填称呼存不下来」（模拟器上就是这么被抓到的）。
@@ -981,8 +986,10 @@ fun AddressScreen(
                         onDismiss = { newCatDialog = false },
                     )
                 }
-                // 同上：电话不合规（InputRules 那一句）也画在这张抽屉里
-                FormErrorLine(vm.formError)
+                // 同上：电话不合规（InputRules 那一句）也画在这张抽屉里。
+                // ⚠️ BUG-0028 / TA-10：**丢字**（被过滤掉的字符）排在最前面说 —— 用户连自己填了什么
+                // 都不知道的时候，"格式不对"这种话是说不通的。
+                FormErrorLine(vm.contactPhoneNote ?: vm.formError)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { vm.showContactDialog = false }, modifier = Modifier.weight(1f).height(48.dp)) { Text("取消") }
                     Button(onClick = { vm.saveContact() }, modifier = Modifier.weight(1f).height(48.dp)) { Text(if (vm.editingContact == null) "添加" else "保存") }
@@ -1359,7 +1366,14 @@ private fun ContactCard(c: ContactDto, onEdit: () -> Unit) {
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(c.displayName.ifBlank { "联系人" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(c.phone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // 没有电话就写明"无电话"（BUG-0028 / 测试台账 TA-10）：原来这一行画的是 c.phone，
+                // 空电话 = 一行空白 —— 用户看不出这条联系人缺电话（而"缺电话"是合法状态，CHG-0010）。
+                // ⛔ 别改回空白：空值也必须是一个**看得见**的事实。
+                Text(
+                    c.phone.orEmpty().ifBlank { "无电话" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 // 备注（L-10）也上卡：用户 2026-10-06 明确要求备注显示在联系人卡上
                 // （「联系人他也是要有备注的」）。形状与地点卡那一行相同：没写就整行不画、不留空标签。
                 if (c.remark.isNotBlank()) {

@@ -643,6 +643,10 @@ private fun QuickPriceDialog(
     // 预填时去掉尾部多余的 0（后端单价是 Numeric(14,4)，直接显示会是 "12.5000"）；
     // ⚠️ 用 trimMoneyZeros 而不是 formatMoney —— 后者只留两位小数，会把 12.3456 显示成 12.35
     var price by remember { mutableStateOf(trimMoneyZeros(p.defaultUnitPrice)) }
+    // 2026-10-10（BUG-0028 / 测试台账 TA-09）：输入里"会被过滤掉的东西"必须让用户看见 ——
+    // 原来打进 `-3`，框子会**静默**变成 `3` 并可以保存（库里就是 3）。现在：有改写就保留用户
+    // 打的字 ＋ 框下红字 ＋ 确定键变灰（**拒绝**）。文案来自 core/InputRules.kt 的唯一那份规则。
+    var priceNote by remember { mutableStateOf<String?>(null) }
     val unit = p.unit.ifBlank { "件" }
     CardAlertDialog(
         tone = DialogTone.WARN,
@@ -654,15 +658,31 @@ private fun QuickPriceDialog(
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = price,
-                    // 单价规则唯一实现在 core/InputRules.kt（4 位小数：库里的单价列是 Numeric(14,4)）
-                    onValueChange = { price = InputRules.priceInput(it) },
+                    // 单价规则唯一实现在 core/InputRules.kt（4 位小数：库里的单价列是 Numeric(14,4)）：
+                    // 过滤走 priceInput、说明走 priceRewriteNote（同一份规则的两面，BUG-0028 / TA-09）。
+                    // note 非空 = 用户打的字会被改成别的值 —— 原样留着让他看见，⛔ 不许静默改数。
+                    onValueChange = { raw ->
+                        val next = InputRules.priceInput(raw)
+                        val note = InputRules.priceRewriteNote(raw)
+                        priceNote = note
+                        price = if (note == null) next else raw
+                    },
                     label = { Text("售价（元 / $unit）") },
+                    isError = priceNote != null,
                     singleLine = true,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                         keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal,
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (priceNote != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        priceNote!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 Spacer(Modifier.height(6.dp))
                 Text(
                     "只改这一个价，不动名称、成本、库存、分类。批发商的专属价在「各批发商价格」里单独设。",
@@ -673,7 +693,8 @@ private fun QuickPriceDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = !busy && price.toDoubleOrNull() != null,
+                // 被改写过就不给保存（BUG-0028 / TA-09 的口径是**拒绝**，不是把负号悄悄吃掉转成正数）
+                enabled = !busy && priceNote == null && price.toDoubleOrNull() != null,
                 onClick = { onConfirm(price) },
             ) { Text(if (busy) "保存中…" else "保存") }
         },

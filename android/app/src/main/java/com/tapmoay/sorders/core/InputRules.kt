@@ -202,6 +202,105 @@ object InputRules {
      */
     fun priceInput(v: String): String = moneyInput(v, maxDecimals = PRICE_DECIMALS)
 
+    // ------------------------------------------------------------ 过滤的说明
+    // 2026-10-10（BUG-0028 / 测试台账 TA-09、TA-10）：过滤本身是**静默**的 —— `priceInput("-3")` 返回
+    // `"3"`、`phoneInput("abc")` 返回 `""`，调用点拿到一个看不出被改过的字符串，于是"用户打了 -3、
+    // 库里存了 3""填了 abc、存成没有电话"这种事故在界面上不留任何痕迹。下面这组 API **不改过滤规则**
+    // （内部就是 [priceInput] / [phoneInput]），只是把"这次把什么改掉了"说出来：
+    // ⛔ 凡是"输入会被改成别的值再落库"的框，调用点必须看 [InputRewrite.note] 并让用户看见
+    //    （拒绝保存 / 红字），不许静默改数、不许静默丢字。
+
+    /**
+     * 一次输入过滤的结果：`value` = 过滤后**会被保存**的值，`note` = "这次过滤把用户打的字改成了别的"。
+     *
+     * `note == null`（[clean]）表示 `value` 与用户打的那串字**等价**（可能只是全角归一、补了个前导 0、
+     * 或丢掉了千分位逗号），可以放心保存；`note != null` 表示**用户看到的和会存下去的不是同一个东西**，
+     * 必须让用户看见。
+     */
+    data class InputRewrite(val value: String, val note: String?) {
+        /** 没有发生"会改变值"的改写（等价于 [note] == null）。 */
+        val clean: Boolean get() = note == null
+    }
+
+    /**
+     * **单价**输入过滤 ＋ 改写说明（BUG-0028 / TA-09）。
+     *
+     * 用在"可编辑的售价框"（商品的快速改价弹窗）。`value` 与 [priceInput] 逐字相同；
+     * 会给出 `note` 的只有四类**真的改变了值**的输入：
+     * 1. 负号（`-3` → `3`）：符号被丢掉、值变成正数 —— 最容易被忽略的一种，文案要点名；
+     * 2. 字母 / 汉字 / 其它标点（`abc`）：**一个都不许悄悄丢**；
+     * 3. 多余的小数点（`1.2.3` → `1.23`）：值真的被改了；
+     * 4. 位数超限（第 5 位小数、第 9 位整数）：会被 `take()` 截掉。
+     *
+     * **不算改写**（`note == null`）的几种：全角数字 `１.５` → `1.5`、`.5` → `0.5`、`1.` 停在点儿上、
+     * 千分位逗号与空格（`1 000` → `1000`）—— 数字一个没少，不该拿红字烦用户。
+     */
+    fun priceRewrite(raw: String): InputRewrite {
+        val value = priceInput(raw)
+        if (raw.isBlank()) return InputRewrite(value, null)
+        if (raw.any { it == '-' || it == '－' }) {
+            return InputRewrite(value, "售价不能是负数 —— 负号打不进去，照这样存下去会变成正数 $value")
+        }
+        val noise = raw.trim().filter { c ->
+            asciiDigit(c) == null && c != '.' && c != ',' && c != '，' && !c.isWhitespace()
+        }
+        if (noise.isNotEmpty()) {
+            return InputRewrite(value, "售价只能填数字 —— 「${noise.first()}」这类字符打不进去，存下去的数会跟看到的不一样")
+        }
+        if (raw.count { it == '.' } > 1) {
+            return InputRewrite(value, "售价最多一个小数点 —— 多打的「.」被丢掉了，会存成 $value")
+        }
+        val unclipped = moneyInput(raw, maxDecimals = Int.MAX_VALUE, maxWhole = Int.MAX_VALUE)
+        if (unclipped != value) {
+            val dot = unclipped.indexOf('.')
+            val frac = if (dot < 0) "" else unclipped.substring(dot + 1)
+            val note = if (frac.length > PRICE_DECIMALS) {
+                "售价最多 $PRICE_DECIMALS 位小数 —— 多打的会被截掉，会存成 $value"
+            } else {
+                "售价整数位最多 $MONEY_WHOLE_DIGITS 位 —— 多打的会被截掉，会存成 $value"
+            }
+            return InputRewrite(value, note)
+        }
+        return InputRewrite(value, null)
+    }
+
+    /** 电话框里当**分隔符**放行的字符（抄电话时常见）：丢掉它们不算"丢字"。 */
+    private const val PHONE_SEPARATORS = "-()+/"
+
+    /**
+     * **电话**输入过滤 ＋ 改写说明（BUG-0028 / TA-10）。
+     *
+     * `value` 与 [phoneInput] 逐字相同。`-`、空格、括号、`+`、`/` 是抄电话时的分隔符，丢掉它们
+     * **不算改写**（`138-0000-0000` → `13800000000`）；`+86` 前缀的去法也是既有的归一
+     * （`+8613800000000` → `13800000000`）。会给出 `note` 的只有两类：
+     * **字母 / 汉字 / 其它标点被丢掉**（`abc` → `""`：用户以为填了电话，实际存下去的是 NULL）、
+     * **超过 [PHONE_MAX] 位被截掉**。
+     */
+    fun contactPhoneRewrite(raw: String): InputRewrite {
+        val value = phoneInput(raw)
+        if (raw.isBlank()) return InputRewrite(value, null)
+        val noise = raw.trim().filter { c -> asciiDigit(c) == null && c !in PHONE_SEPARATORS && !c.isWhitespace() }
+        if (noise.isNotEmpty()) {
+            return InputRewrite(
+                value,
+                "电话只能填数字 —— 「${noise.first()}」这类字符打不进去；要留空就直接别填（留空 = 没有电话）",
+            )
+        }
+        if (digits(raw, Int.MAX_VALUE).length > PHONE_MAX) {
+            return InputRewrite(value, "电话最多 $PHONE_MAX 位 —— 多打的会被截掉，会存成 $value")
+        }
+        return InputRewrite(value, null)
+    }
+
+    /**
+     * [priceRewrite] 的**一句话版本**：没有"会改变值"的改写时返回 `null`（调用点照旧先调 [priceInput]
+     * 拿要保存的值，再用本函数拿要画给用户看的那句话）。
+     */
+    fun priceRewriteNote(raw: String): String? = priceRewrite(raw).note
+
+    /** [contactPhoneRewrite] 的**一句话版本**：没丢字时返回 `null`。 */
+    fun phoneInputNote(raw: String): String? = contactPhoneRewrite(raw).note
+
     // ------------------------------------------------------------------ 正整数
     // 用在数量 / 库存 / 低库存提醒 / 拆单份数这些地方。
 
