@@ -318,7 +318,7 @@ private fun FreightTemplateCard(
                 "¥" + formatMoney(t.fee),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFFC9855A),
+                color = Color(0xFFBA6F45),
             )
         }
         Spacer(Modifier.height(8.dp))

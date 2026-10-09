@@ -141,9 +141,9 @@ MUTATIONS = [
     (
         "「开销管理」又被加回入口页当第 7 格（用户点名的「整合」被回退）",
         MODULES,
-        'ModuleEntry("收支", Routes.DISPATCH_CASH, Icons.Default.SwapHoriz, color = 0xFF416D99L),',
-        'ModuleEntry("收支", Routes.DISPATCH_CASH, Icons.Default.SwapHoriz, color = 0xFF416D99L),\n'
-        '        ModuleEntry("开销管理", Routes.DISPATCH_EXPENSES, Icons.Default.Receipt, color = 0xFF416D99L),',
+        'ModuleEntry("收支", Routes.DISPATCH_CASH, Icons.Default.SwapHoriz, color = 0xFF537BC6L),',
+        'ModuleEntry("收支", Routes.DISPATCH_CASH, Icons.Default.SwapHoriz, color = 0xFF537BC6L),\n'
+        '        ModuleEntry("开销管理", Routes.DISPATCH_EXPENSES, Icons.Default.Receipt, color = 0xFF537BC6L),',
         "没有第二个「开销管理」格",
     ),
     (

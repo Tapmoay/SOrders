@@ -189,7 +189,7 @@ def main() -> int:
     c.present("收支语义色定义在主题里（唯一一份）", color, r"val CashIn = MgrGreen")
     c.present("支出那一档接着原「开销管理」的蓝", color, r"val CashOut = 0xFF5C7590L")
     c.present("总览页用 CashIn/CashOut", screen, r"Color\(CashIn\)[\s\S]{0,4000}?Color\(CashOut\)")
-    c.absent("总览页里没有第二份硬编码的收支色", screen, r"0xFF5C7590L|0xFF567A5FL")
+    c.absent("总览页里没有第二份硬编码的收支色", screen, r"0xFF5C7590L|0xFF59A570L")
 
     # ---- ⑩ 时间控件与"先盘点再取数"（与账本/开销两页同一条规矩）----
     c.present("时间是顶栏一个紧凑药丸", screen, r"DatePresetPill\(")

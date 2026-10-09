@@ -33,7 +33,7 @@ R4-BOUNDARY-JUSTIFICATION: 这条判据不下沉到任何一层边界。被查�
 后端契约、领域类型、权限模型里都没有「页面底该偏暖还是偏蓝」的位置 —— 它是用户看到的观感口径，
 `Color` 类型表达不出「暖」，所以只能钉在色值、相对关系与接线这几处（`_tools` 里原来一条都没有）。
 
-配套：python `_tools/qa/_reverse_verify_warm_surface_palette.py`（12 种破坏方式全被抓）
+配套：python `_tools/qa/_reverse_verify_warm_surface_palette.py`（11 种破坏方式全被抓）
 
 用法：python _tools/qa/_check_warm_surface_palette.py  （--list 打一份人读清单）
 """

@@ -98,10 +98,10 @@ HARD_MIN, HARD_MAX = 120, 900
 #:    （那一格是暖灰棕，CHG-0101 从 #8D6E63 换成了 #97897F，同一族）。
 SEMANTIC = {
     "ThemeGreen": "0xFF8B4A4A",        # 主操作（确认接单）
-    "MgrGreen": "0xFF567A5F",          # 成功 / 完成（派单作业）
+    "MgrGreen": "0xFF59A570",          # 成功 / 完成 / 代理下单（H 档）
     "WarningAmber": "0xFFC8A56A",      # 提醒 / 重要
-    "ShipperTeal": "0xFF6B8FA6",       # 普通 / 信息
-    "AccountBrown": "0xFF97897F",      # 禁用 / 辅助（暖灰棕）
+    "ShipperTeal": "0xFF529EBF",       # 普通 / 信息 / 地址与联系人（H 档）
+    "AccountBrown": "0xFFA2763D",      # 禁用 / 辅助 / 账户管理（H 档：赭石，⛔ 不再是灰）
 }
 
 #: 主操作色那一族（Primary 四件套）：浅底 / 深字必须同族。
@@ -133,30 +133,30 @@ IDENTITY = {
     "ThemeGreenDeep": "0xFF6E3636",        # 数量块那档深红棕（CHG-0091 起是 #0E7A50）
     "ProductRowTint": "0xFFF0E2DC",        # 商品行浅底
     "OnProductRowTint": "0xFF3A2420",      # 商品行上的字
-    "ProgressYellow": "0xFFC8B270",        # 订单管理 / 派单中
-    "MemberGold": "0xFFC9A15E",            # 批发商管理
-    "ProductPurple": "0xFF8A7BB0",         # 商品管理
-    "InventoryTeal": "0xFF6F9A93",         # 货主管理
-    "MoneyOrange": "0xFFC9855A",           # 账本管理 / 收款
-    "ArrearsTangerine": "0xFFBE5F4A",      # 挂账单位
-    "ReportIndigo": "0xFF7A7CA8",          # 报表中心
-    "MessageRed": "0xFFCA454E",            # 消息中心
-    "DriverLime": "0xFF9AA35F",            # 司机管理
+    "ProgressYellow": "0xFF8D8340",        # 订单管理 / 派单中
+    "MemberGold": "0xFFB98E4A",            # 批发商管理
+    "ProductPurple": "0xFFB084CE",         # 商品管理
+    "InventoryTeal": "0xFF3F8F81",         # 货主管理
+    "MoneyOrange": "0xFFBA6F45",           # 账本管理 / 收款
+    "ArrearsTangerine": "0xFFC26357",      # 挂账单位
+    "ReportIndigo": "0xFF8075C0",          # 报表中心
+    "MessageRed": "0xFFDE7C81",            # 消息中心
+    "DriverLime": "0xFF72863F",            # 司机管理
     "OnDriverLime": "0xFF33380F",          # 橄榄底上的字
     "OnArrearsTangerine": "0xFFFFF3EE",    # 砖红底上的字
     "OriginTeal": "0xFF6BA6AE",            # 线路起点
-    "DestOrange": "0xFFC9A15E",            # 线路终点（与 MemberGold 同值）
+    "DestOrange": "0xFFB98E4A",            # 线路终点（与 MemberGold 同值）
     "CashOut": "0xFF5C7590",               # 支出那档雾蓝
     "QuickPriceGreen": "0xFF678C6E",       # 商品卡「改价」
     "UnitConvRose": "0xFF9C6E8E",          # 单位换算
-    "SuccessGreen": "0xFF567A5F",          # 成功 / 正常
+    "SuccessGreen": "0xFF59A570",          # 成功 / 正常
     "DangerRed": "0xFFB65C4E",             # 危险 / 异常
     "SecondaryContainer": "Color(0xFFE7E3D8)",
     "OnSecondaryContainer": "Color(0xFF33380F)",
-    "Tertiary": "Color(0xFFC9855A)",
+    "Tertiary": "Color(0xFFBA6F45)",
     "ErrorLight": "Color(0xFFB65C4E)",
     "ErrorContainerLight": "Color(0xFFF7E4E0)",
-    "Success": "Color(0xFF567A5F)",
+    "Success": "Color(0xFF59A570)",
     "OnBackgroundLight": "Color(0xFF2B2724)",
     "OnSurfaceVariantLight": "Color(0xFF4A443E)",
     "SurfaceContainerLow": "Color(0xFFEAE7E1)",
@@ -177,9 +177,44 @@ OLD_VALUES = {
     #    （`_tmp/probe_token_diff.py` 只对账 token，所以它们本来不在表里）。反向验证抓出来的
     #    真窟窿：把「车辆管理」改回 `0xFF48F0F0L` 那个亮青，第 2 节一声不响
     #    —— 因为它压根不在黑名单里。模块身份色也是"换掉的颜色"，同样一处都不许回来。
-    "48F0F0",   # 车辆管理（旧的亮青，换成了 #87B7B9）
-    "8EC714",   # 计费规则（旧荧光黄绿，换成了 #8E9463）
-    "3949AB",   # 预订单（旧靛蓝，换成了 #617190）
+    "48F0F0",   # 车辆管理（旧的亮青，换成了 #87B7B9 → #4AA6A8）
+    "8EC714",   # 计费规则（旧荧光黄绿，换成了 #8E9463 → #939F4E）
+    "3949AB",   # 预订单（旧靛蓝，换成了 #617190 → #7A98D8）
+    # ⚠️ 下面这 29 个是 **CHG-0101 那一整套**（2026-10-10 CHG-0102 换掉的那批）。
+    #    它们是"用户看过之后仍然否掉的一半"：用户 2026-10-10 说
+    #    「太灰了一点……我们应该叫做明度。他们并不是完全都是一致的只是在一个区间内」
+    #    —— 那套的毛病是同屏彩度差 7 倍（账户管理 C*=8.1 / 消息中心 C*=58.4）。
+    #    ⛔ 把其中任何一个改回去，都是把这套配色退回"有的灰有的艳"。
+    "567A5F",   # 成功/完成 雾绿 → #59A570
+    "6B8FA6",   # 信息 雾蓝 → #529EBF
+    "C8B270",   # 订单管理 卡其 → #8D8340
+    "9AA35F",   # 司机管理 橄榄 → #72863F
+    "6F9A93",   # 货主管理 雾青 → #3F8F81
+    "C9A15E",   # 批发商管理 浅金 → #B98E4A（线路终点同值）
+    "8A7BB0",   # 商品管理 雾紫 → #B084CE
+    "C9855A",   # 账本管理 焦糖 → #BA6F45
+    "BE5F4A",   # 挂账单位 砖红 → #C26357
+    "7A7CA8",   # 报表中心 雾靛 → #8075C0
+    "CA454E",   # 消息中心 砖红 → #DE7C81
+    "97897F",   # 账户管理 灰棕 → #A2763D（这就是"最灰那一格"，C* 只有 8.1）
+    "617190",   # 预订单 雾靛 → #7A98D8
+    "A16A5F",   # 退货申请 砖红 → #D97C65
+    "A98F76",   # 发票台账 卡其 → #CF8855
+    "6A8F99",   # 库存管理 雾青 → #278A9D
+    "87B7B9",   # 车辆管理 浅青 → #4AA6A8
+    "7A899D",   # 运费模板 雾蓝灰 → #5387B1
+    "8E9463",   # 计费规则 橄榄 → #939F4E
+    "CA8658",   # 账本页 订单账 → #C78A4F
+    "4D7053",   # 账本页 司机账 → #4A8A4E
+    "689780",   # 账本页 货主账 → #5BA592
+    "B8860B",   # 账本页 批发商账 → #8A7339
+    "7B5AA6",   # 账本页 客户收款 → #9C8AD7
+    "416D99",   # 账本页 收支 → #537BC6
+    "AD1457",   # 账本页 供应商/应付 → #CB6587
+    "C7B270",   # 货主端 我的订单 → #8D7A3C
+    "D58539",   # 货主端 我的账本 → #C29750
+    "B7766F",   # 货主端 退货申请 → #BC5A58
+    "885B90",   # 货主端 下游定价 → #A76BAF
 }
 
 #: 例外白名单：`旧值 -> {允许还留在这些文件里}`。
@@ -189,14 +224,15 @@ ALLOW_OLD: dict[str, set[str]] = {}
 
 #: 换色后这些值必须**出现过**（用色处的硬编码已经跟着换了的证据）。
 NEW_MUST_APPEAR = {
-    "567A5F": 20,   # 成功/完成 绿（报表、AI 操作、状态徽标…）
-    "BE5F4A": 10,   # 挂账/欠款 橘红
-    "C9855A": 10,   # 账本/金额 焦糖橙
-    "6B8FA6": 8,    # 信息 雾蓝
+    "59A570": 20,   # 成功/完成 草绿（报表、AI 操作、状态徽标…）
+    "C26357": 10,   # 挂账/欠款 陶土红
+    "BA6F45": 10,   # 账本/金额 焦糖
+    "529EBF": 8,    # 信息 晴蓝
 }
 
 #: 换色后这几个大户**一处都不许留**（它们是最刺眼的几个，也是最容易漏的）。
-NEW_MUST_GONE = ["FF9500", "00B578", "00A2C7", "FFB300", "00BCD4", "00A8A8"]
+NEW_MUST_GONE = ["FF9500", "00B578", "00A2C7", "FFB300", "00BCD4", "00A8A8",
+                 "567A5F", "CA454E", "97897F", "C9855A"]
 
 #: 单测里那个饱和度地板：既拦"发灰"（太低），也不许被抬高（用尺子改设计）。
 SAT_FLOOR = "0.15"
@@ -297,32 +333,32 @@ MODULE_TABLES = {
 #: 用 token 名上色的格子不在这里（它们由 `MODULE_TOKEN_COLORS` 管）。
 MODULE_LITERALS = {
     "dispatcherEntries": {
-        "617190",  # 预订单
-        "A16A5F",  # 退货申请
-        "97897F",  # 账户管理
-        "A98F76",  # 发票台账
-        "6A8F99",  # 库存管理
-        "87B7B9",  # 车辆管理
-        "7A899D",  # 运费模板
-        "8E9463",  # 计费规则
+        "7A98D8",  # 预订单
+        "D97C65",  # 退货申请
+        "A2763D",  # 账户管理
+        "CF8855",  # 发票台账
+        "278A9D",  # 库存管理
+        "4AA6A8",  # 车辆管理
+        "5387B1",  # 运费模板
+        "939F4E",  # 计费规则
     },
     "ledgerHomeEntries": {
-        "CA8658",  # 订单账
-        "4D7053",  # 司机账 · 运费结算
-        "689780",  # 货主账
-        "B8860B",  # 批发商账（用户图二的原值，本单没换）
-        "7B5AA6",  # 客户收款
-        "416D99",  # 收支
-        "AD1457",  # 供应商 / 应付（用户图二的原值，本单没换）
+        "C78A4F",  # 订单账
+        "4A8A4E",  # 司机账 · 运费结算
+        "5BA592",  # 货主账
+        "8A7339",  # 批发商账
+        "9C8AD7",  # 客户收款
+        "537BC6",  # 收支
+        "CB6587",  # 供应商 / 应付
     },
     "shipperEntries": {
-        "C7B270",  # 我的订单
-        "567A5F",  # 下单
-        "6B8FA6",  # 地址与联系人
-        "D58539",  # 我的账本
-        "CA454E",  # 消息中心
-        "B7766F",  # 退货申请
-        "885B90",  # 下游定价
+        "8D7A3C",  # 我的订单
+        "59A570",  # 下单
+        "529EBF",  # 地址与联系人
+        "C29750",  # 我的账本
+        "DE7C81",  # 消息中心
+        "BC5A58",  # 退货申请
+        "A76BAF",  # 下游定价
     },
     "driverEntries": set(),  # 两格都读 token（MgrGreen / MoneyOrange）
 }
@@ -330,19 +366,19 @@ MODULE_LITERALS = {
 #: `Modules.kt` 里用 token 名给格子上色的那几个（其余格子是裸字面量）。
 #: ⚠️ 只有 token 名对不上字面量时才需要人来看 —— 这是本单"身份色落地"的机器判据。
 MODULE_TOKEN_COLORS = {
-    "MgrGreen": "567A5F",
-    "ShipperTeal": "6B8FA6",
-    "ProgressYellow": "C8B270",
-    "DriverLime": "9AA35F",
-    "InventoryTeal": "6F9A93",
-    "MemberGold": "C9A15E",
-    "ProductPurple": "8A7BB0",
-    "MoneyOrange": "C9855A",
-    "ArrearsTangerine": "BE5F4A",
-    "MessageRed": "CA454E",
-    "AccountBrown": "97897F",
-    "ReportIndigo": "7A7CA8",
-    # AI 那一格是**品牌色**，用户点名保留（不属于 CHG-0101 那套低饱和色）。
+    "MgrGreen": "59A570",
+    "ShipperTeal": "529EBF",
+    "ProgressYellow": "8D8340",
+    "DriverLime": "72863F",
+    "InventoryTeal": "3F8F81",
+    "MemberGold": "B98E4A",
+    "ProductPurple": "B084CE",
+    "MoneyOrange": "BA6F45",
+    "ArrearsTangerine": "C26357",
+    "MessageRed": "DE7C81",
+    "AccountBrown": "A2763D",
+    "ReportIndigo": "8075C0",
+    # AI 那一格是**品牌色**，用户点名保留（不属于这两单那套低饱和语义色）。
     "AiBlue": "4285F4",
 }
 

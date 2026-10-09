@@ -36,11 +36,11 @@ NL = chr(10)
 
 CASES: list[tuple[str, str, object, str]] = [
     (
-        "近白家族被改回旧的灰蓝：页面底 #FBFBFA → #F2F3F7",
+        "近白家族被改回旧的灰蓝：页面底 #F7F6F3 → #F2F3F7",
         COLOR,
         lambda s: s.replace("val BackgroundLight = Color(0xFFF7F6F3)",
-                            "val BackgroundLight = Color(0xFFF7F6F3)", 1),
-        "Color.kt：BackgroundLight = #FBFBFA",
+                            "val BackgroundLight = Color(0xFFF2F3F7)", 1),
+        "Color.kt：BackgroundLight = #F7F6F3",
     ),
     (
         "不偏蓝被抹成纯中性灰：SurfaceVariantLight #F3F2EF → #F0F0F0",
@@ -108,16 +108,16 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "设计基线文档没跟上：06_DESIGN_SYSTEM.md 里还写旧值",
         DESIGN,
-        lambda s: s.replace("BackgroundLight=#FBFBFA", "BackgroundLight=#F2F3F7", 1),
+        lambda s: s.replace("BackgroundLight=#F7F6F3", "BackgroundLight=#F2F3F7", 1),
         "设计基线里页面底写的是新值",
     ),
-    (
-        "描边被顺手改：OutlineLight #7A7F8C → #F0F0F0",
-        COLOR,
-        lambda s: s.replace("val OutlineLight = Color(0xFF8A827B)",
-                            "val OutlineLight = Color(0xFFF0F0F0)", 1),
-        "Color.kt：OutlineLight = #7A7F8C",
-    ),
+    # ⚠️ 原来这里有一条「描边被顺手改：OutlineLight #7A7F8C → #F0F0F0」的注入。
+    #    CHG-0101 把 OutlineLight / OutlineVariantLight 从这张表的 `KEEP` 里删掉了
+    #    （旧的 #7A7F8C / #CFD4E0 是冷灰，与暖砂白同屏发脏），改由
+    #    `_tools/qa/_check_low_sat_palette.py` 的 `IDENTITY` 正面钉住新值 ——
+    #    所以这条注入在本脚本里恒为绿（本 checker 已经不认这件事了）。
+    #    ⛔ 不是"抓不住就删"：那条红线现在由
+    #    `_tools/qa/_reverse_verify_low_sat_palette.py` 覆盖（它逐 token 注入、必须报红）。
 ]
 
 

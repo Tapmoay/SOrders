@@ -261,7 +261,7 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "㉙ 删除那颗又写成裸十六进制",
         P_PANEL,
         "tint = Color(MessageRed),",
-        "tint = Color(0xFFCA454E),",
+        "tint = Color(0xFFDE7C81),",
         "删除那颗用 MessageRed（⛔ 不是裸色值）",
     ),
     (
@@ -295,8 +295,8 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "㉞ 账户棕不再是 token",
         P_COLOR,
-        "val AccountBrown = 0xFF97897FL",
-        "val AccountBrownX = 0xFF97897FL",
+        "val AccountBrown = 0xFFA2763D",
+        "val AccountBrownX = 0xFFA2763D",
         "主题 token 里有 AccountBrown（账户管理：棕）",
     ),
     (
@@ -309,7 +309,7 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "㊱ 宫格那一格与 token 不同值了",
         P_MODS,
-        "color = 0xFF97897FL",
+        "color = 0xFFA2763DL",
         "color = 0xFF8D6E64L",
         "工作台宫格那一格与 token 同值（一处定义、一处对账）",
     ),
@@ -351,9 +351,9 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "㊷ 规范 §2 表里账户管理那一行的常量格空了",
         SPEC,
-        "| 账户管理 | 棕 #8D6E63 | AccountBrown |",
-        "| 账户管理 | 棕 #8D6E63 | - |",
-        "规范 §2 表里有账户管理那一行（棕 #8D6E63 / AccountBrown）",
+        "| 账户管理 | 赭石 #A2763D | AccountBrown |",
+        "| 账户管理 | 赭石 #A2763D | - |",
+        "规范 §2 表里有账户管理那一行（赭石 #A2763D / AccountBrown，CHG-0102 换的）",
     ),
     (
         "㊸ 规范里写的抽屉宽度不是 240",

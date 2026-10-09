@@ -360,4 +360,4 @@ fun ShipperOrdersScreen(
  * （`ORDER_TAB_COLORS` 的 `#BF5B00`）是**同一族但不同深浅**的两个色：
  * 那一档是**结果**（这单退掉了），这个是**入口**（我要申请退）。
  */
-private val RETURN_ACCENT = 0xFFA16A5FL
+private val RETURN_ACCENT = 0xFFD97C65L

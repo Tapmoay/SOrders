@@ -129,7 +129,7 @@ private val FallbackNameColor = Color(0xFF5C7590)
 // 库存那三个颜色：**判据的配色跟着判据走**（放在这里，别散回各页面）。
 // 「库存管理」的模块语义色是蓝青 #00BCD4（与 `Modules.kt` 里那一格同色：跨端同功能同色）。
 private val StockOutRed = Color(0xFFE53935)
-private val StockLowYellow = Color(0xFFC8B270)
+private val StockLowYellow = Color(0xFF8D8340)
 private val StockOkCyan = Color(0xFF6BA6AE)
 
 /**
@@ -199,7 +199,7 @@ fun productReservedFact(reserved: Int, unit: String?): ProductFact = ProductFact
 )
 
 /** 占用数量的颜色（挂账单位模块色 `#FF6B2C`）。 */
-private val ReservedOrange = Color(0xFFBE5F4A)
+private val ReservedOrange = Color(0xFFC26357)
 
 /**
  * 库存状态角标的**文案**（`null` = 这个状态不出角标）。

@@ -334,7 +334,7 @@ def main() -> int:
     c.present("「收支」页支出卡底部也有入口（用户说的就是「支出里给供应商付款」）",
               read(ANDROID / "ui/dispatcher/LedgerCashScreen.kt"), r"供应商 / 应付款")
     c.present("入口页那一格的颜色与邻居分得开（深玫红，判据实测 ≥60）",
-              read(MODULES), r'ModuleEntry\("供应商/应付", Routes\.DISPATCH_SUPPLIERS, Icons\.Default\.Factory, color = 0xFFAD1457L\)')
+              read(MODULES), r'ModuleEntry\("供应商/应付", Routes\.DISPATCH_SUPPLIERS, Icons\.Default\.Factory, color = 0xFFCB6587L\)')
 
     # ---- ⑨ 后端测试钉住了"欠款是算出来的、撤销两边一起变" ----
     c.present("测试里钉了分次付款", test, r"def test_分次付款_每次都要看得见")

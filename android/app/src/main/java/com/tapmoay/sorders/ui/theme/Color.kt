@@ -29,16 +29,16 @@ val ThemeGreen = 0xFF8B4A4A         // 主操作 / 派单作业 / 信息：深�
 //    误以为块注释开始了，一路吃到下一个块注释结尾 —— 实测把本文件第 18~110 行整片吃掉，
 //    `_check_ledger_cash.py` 当场找不到 92/93 行的收支色）。写目录名时**不要带通配符**。
 val NavBlue = ThemeGreen
-val MgrGreen = 0xFF567A5F          // 下单 / 已完成：雾绿（用户图三「成功 / 完成」#567A5F）
-val ProgressYellow = 0xFFC8B270    // 进行中 / 我的订单：麦黄（用户图三「提醒 / 重要」#C8A56A）
-val ShipperTeal = 0xFF6B8FA6       // 地址与联系人 / 货主管理：雾蓝（用户图三「普通 / 信息」#6B7F99）
-val MemberGold = 0xFFC9A15E        // 批发商（高级货主）：金棕（贴着 #C8A56A，为与麦黄分开放深一档）
-val ProductPurple = 0xFF8A7BB0     // 商品管理：雾紫（用户图二「商品管理」#9084B3 压深一档）
-val InventoryTeal = 0xFF6F9A93     // 库存管理：灰绿（用户图二「货主管理」#729189 一族）
-val MoneyOrange = 0xFFC9855A       // 账本 / 收款：焦糖（用户图二「账本管理」#CB8B61）
-val ArrearsTangerine = 0xFFBE5F4A  // 挂账单位（欠款警示）：砖红（用户图二「挂账单位」#C0765D 压深）
-val ReportIndigo = 0xFF7A7CA8      // 报表中心：雾蓝紫（用户图二「报表中心」#7D80A8）
-val MessageRed = 0xFFCA454E        // 消息 / 通知：柔红（要能从杂色里跳出来，故比 #C2635C 再亮一档）
+val MgrGreen = 0xFF59A570          // 下单 / 代理下单：草绿（CHG-0102 起按 H 档算：L*61.8 C*41.2 h150.2）
+val ProgressYellow = 0xFF8D8340    // 进行中 / 订单管理：橄榄金（CHG-0102：L*54.2 C*37.4 h98.3）
+val ShipperTeal = 0xFF529EBF       // 地址与联系人：晴蓝（CHG-0102：L*61.8 C*28.0 h239.8）
+val MemberGold = 0xFFB98E4A        // 批发商（高级货主）：金棕（CHG-0102：L*61.8 C*42.9 h78.3）
+val ProductPurple = 0xFFB084CE     // 商品管理：薰衣草紫（CHG-0102：L*61.8 C*44.0 h314.0）
+val InventoryTeal = 0xFF3F8F81     // 货主管理：松绿（CHG-0102：L*54.2 C*28.0 h179.8）
+val MoneyOrange = 0xFFBA6F45       // 账本 / 收款：焦糖（CHG-0102：L*54.2 C*44.0 h53.6）
+val ArrearsTangerine = 0xFFC26357  // 挂账单位（欠款警示）：陶土红（CHG-0102：L*53.0 C*44.0 h33.6）
+val ReportIndigo = 0xFF8075C0      // 报表中心：蓝紫（CHG-0102：L*53.0 C*44.0 h299.8）
+val MessageRed = 0xFFDE7C81        // 消息 / 通知：玫瑰红（CHG-0102：L*63.0 C*40.7 h20.4；仍是最跳的一格）
 
 // ===== 账户管理的棕（2026-10-05，CHG-0023 从工作台宫格提上来）=====
 //
@@ -56,7 +56,7 @@ val MessageRed = 0xFFCA454E        // 消息 / 通知：柔红（要能从杂色
 // ≈ 4.5:1 而且显脏，所以 FAB 用白字 —— 与 [OnDriverLime] / [OnArrearsTangerine] 是同一件事。
 // ⚠️ 2026-10-09 CHG-0101：值跟着整套换（用户图二「账户管理」量测 #968C86 的深一档）。
 //    仍与 `ui/nav/Modules.kt` 那一行的裸字面量**同值**（判据 `_check_roster_cards.py` 对账）。
-val AccountBrown = 0xFF97897F      // 账户管理：灰棕（统一建号：账号 + 密码 + 角色）
+val AccountBrown = 0xFFA2763D      // 账户管理：赭石（CHG-0102：L*53.0 C*39.2 h73.6；⛔ 不再是灰棕）
 val OnAccountBrown = 0xFFFFFFFFL   // 棕底上的字（右下角 FAB）
 
 // ===== 车辆台账（司机管理）的黄绿（2026-10-04，CHG-0016 从 VehicleManageScreen.kt 提上来）=====
@@ -69,7 +69,7 @@ val OnAccountBrown = 0xFFFFFFFFL   // 棕底上的字（右下角 FAB）
 //
 // [OnDriverLime] 是**站在这块黄绿上的字**：黄绿很亮，白字在上面只有 1.4:1（读不出来），
 // 所以 FAB 的文字与选中的车型用的都是这个深橄榄（对黄绿 ≈ 8:1）。
-val DriverLime = 0xFF9AA35FL       // 司机管理 / 车辆台账：橄榄（用户图二「司机管理」#9D9F73）
+val DriverLime = 0xFF72863FL       // 司机管理 / 车辆台账：橄榄绿（CHG-0102：L*53.0 C*40.5 h118.3）
 val OnDriverLime = 0xFF33380FL     // 橄榄底上的字（FAB 文字 / 选中的车型）
 
 // ===== 挂账单位橙红底上那行字（2026-10-04，CHG-0020）=====
@@ -94,7 +94,7 @@ val OnArrearsTangerine = 0xFFFFF3EEL // 砖红底上的字（保存键）
 //     与宫格格子不会同屏出现，所以复用值不冲突。
 // ⛔ 别把这两个 token 借去别处（「进行中」「提醒」之类）：它们只表示**一条线路的起点 / 终点**。
 val OriginTeal = 0xFF6BA6AEL       // 一条线路的「起点」：雾青（用户图二「车辆管理」#87B7B9 一族）
-val DestOrange = 0xFFC9A15E        // 一条线路的「终点」：金棕（与 MemberGold 同值，同 CHG-0014 的做法）
+val DestOrange = 0xFFB98E4A        // 一条线路的「终点」：金棕（与 MemberGold 同值，同 CHG-0014 的做法）
 
 // ===== 收支（账本管理「收支」页，2026-09-22）=====
 //
@@ -151,7 +151,7 @@ val AiBlue = 0xFF4285F4L           // Google 蓝（渐变起点；强调色）
 val AiPurple = 0xFF9B72CBL         // Google 紫（渐变中段）
 val AiPink = 0xFFD96570L           // Google 粉（渐变终点）
 
-val SuccessGreen = 0xFF567A5F      // 成功 / 正常（= 用户图三「成功 / 完成」#567A5F）
+val SuccessGreen = 0xFF59A570      // 成功 / 正常（与 MgrGreen 同值，CHG-0102）
 val WarningAmber = 0xFFC8A56A      // 提醒 / 待处理（= 用户图三「提醒 / 重要」#C8A56A）
 val DangerRed = 0xFFB65C4E         // 危险 / 异常（2026-10-09 CHG-0101：原来的 #FF5252 太亮，压成砖红）
 val InfoBlue = ThemeGreen          // 信息（原 #1E6FFF：跟着主操作色一起换）
@@ -201,7 +201,7 @@ val PrimaryContainer = Color(0xFFF0E2DC)
 val OnPrimaryContainer = Color(0xFF3A2420)
 val SecondaryContainer = Color(0xFFE7E3D8)
 val OnSecondaryContainer = Color(0xFF33380F)
-val Tertiary = Color(0xFFC9855A)
+val Tertiary = Color(0xFFBA6F45)
 val ErrorLight = Color(0xFFB65C4E)
 val ErrorContainerLight = Color(0xFFF7E4E0)
 // ── 暖白家族（台账 L-19 · CHG-0063，2026-10-06）──────────────────────────────
@@ -262,7 +262,7 @@ val SheetSurface = Color(0xFFF0F0F0)
 
 val OutlineLight = Color(0xFF8A827B)
 val OutlineVariantLight = Color(0xFFD5CFC6)
-val Success = Color(0xFF567A5F)          // 成功（CHG-0101：与 SuccessGreen 同值）
+val Success = Color(0xFF59A570)          // 成功（与 SuccessGreen 同值，CHG-0102）
 
 // Dark
 val PrimaryDark = Color(0xFFAAC7FF)

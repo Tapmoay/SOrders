@@ -7,7 +7,7 @@
 1. **判据空转**：清单写的是 `ui/theme/Color.kt`，但那个 token 早被搬走/改名 ——
    `read()` 照样读得到文件、正则照样在别处命中，于是"通过"。本脚本把源码**真的改坏一次**，
    看它到底会不会变红；不会变红，就说明那条判据其实什么也没在检查。
-2. **只认名字不认形状**：写 `c.present("主色是红的", color, r"C9855A")` ——
+2. **只认名字不认形状**：写 `c.present("主色是红的", color, r"BA6F45")` ——
    文件里任何一处（哪怕是一句注释、另一个 token 的注释）带这几个字符都算过。
    所以下面每一条注入都是**语义上真的退化了**（色值退回旧绿 / 21 格里又冒出旧亮青 /
    地板被抬到用户嫌灰的那一档 / 例外白名单里塞进一个死人），而不是改个无关变量名。
@@ -144,20 +144,20 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "成功色退回旧的值",
         COLOR,
-        sub("val MgrGreen = 0xFF567A5F", "val MgrGreen = 0xFF00B578"),
-        "MgrGreen = 0xFF567A5F",
+        sub("val MgrGreen = 0xFF59A570", "val MgrGreen = 0xFF00B578"),
+        "MgrGreen = 0xFF59A570",
     ),
     (
         "客服/货主那格的 token 退回旧色",
         COLOR,
-        sub("val ShipperTeal = 0xFF6B8FA6", "val ShipperTeal = 0xFF00A2C7"),
-        "ShipperTeal = 0xFF6B8FA6",
+        sub("val ShipperTeal = 0xFF529EBF", "val ShipperTeal = 0xFF00A2C7"),
+        "ShipperTeal = 0xFF529EBF",
     ),
     (
         "账本色退回旧橙（判据里那个 40 值黑名单的一员）",
         COLOR,
-        sub("val MoneyOrange = 0xFFC9855A", "val MoneyOrange = 0xFFFF9500"),
-        "MoneyOrange = 0xFFC9855A",
+        sub("val MoneyOrange = 0xFFBA6F45", "val MoneyOrange = 0xFFFF9500"),
+        "MoneyOrange = 0xFFBA6F45",
     ),
     (
         "提醒色退回旧琥珀",
@@ -168,20 +168,20 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "账本入口页卡其那格退回旧黄（那 40 个旧值之一）",
         COLOR,
-        sub("val ProgressYellow = 0xFFC8B270", "val ProgressYellow = 0xFFFFB300"),
-        "ProgressYellow = 0xFFC8B270",
+        sub("val ProgressYellow = 0xFF8D8340", "val ProgressYellow = 0xFFFFB300"),
+        "ProgressYellow = 0xFF8D8340",
     ),
     (
         "消息红退回旧的红",
         COLOR,
-        sub("val MessageRed = 0xFFCA454E", "val MessageRed = 0xFFFF4D4F"),
-        "MessageRed = 0xFFCA454E",
+        sub("val MessageRed = 0xFFDE7C81", "val MessageRed = 0xFFFF4D4F"),
+        "MessageRed = 0xFFDE7C81",
     ),
     (
         "账户管理那格退回旧棕（参考图最灰那格，但那是用户自己画的值）",
         COLOR,
-        sub("val AccountBrown = 0xFF97897F", "val AccountBrown = 0xFF8D6E63"),
-        "AccountBrown = 0xFF97897F",
+        sub("val AccountBrown = 0xFFA2763D", "val AccountBrown = 0xFF8D6E63"),
+        "AccountBrown = 0xFFA2763D",
     ),
     (
         "商品行底色退回 CHG-0091 那个极浅绿",
@@ -216,8 +216,8 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "线路终点退回旧金",
         COLOR,
-        sub("val DestOrange = 0xFFC9A15E", "val DestOrange = 0xFFF5A623"),
-        "DestOrange = 0xFFC9A15E",
+        sub("val DestOrange = 0xFFB98E4A", "val DestOrange = 0xFFF5A623"),
+        "DestOrange = 0xFFB98E4A",
     ),
     (
         "支出那档退回旧蓝",
@@ -253,8 +253,8 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "强调色（账本/收款）退回旧橙",
         COLOR,
-        sub("val Tertiary = Color(0xFFC9855A)", "val Tertiary = Color(0xFFF57F17)"),
-        "Tertiary = Color(0xFFC9855A)",
+        sub("val Tertiary = Color(0xFFBA6F45)", "val Tertiary = Color(0xFFF57F17)"),
+        "Tertiary = Color(0xFFBA6F45)",
     ),
     (
         "错误色退回旧的红",
@@ -278,32 +278,32 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "派单端某一格又冒出旧亮青（那一组不量两两距离，只有「旧值一处不留」能拦住）",
         MODULES,
-        sub('color = 0xFF87B7B9L),', 'color = 0xFF48F0F0L),', expect=1),
+        sub('color = 0xFF4AA6A8L),', 'color = 0xFF48F0F0L),', expect=1),
         "个旧 token 值一处都不许留",
     ),
     (
         "货主端某一格也退回旧亮青",
         MODULES,
-        sub('color = 0xFFB7766FL),', 'color = 0xFF00BCD4L),', expect=1),
+        sub('color = 0xFFBC5A58L),', 'color = 0xFF00BCD4L),', expect=1),
         "个旧 token 值一处都不许留",
     ),
     (
         "账本入口页首格退回旧橙（那 7 格真的量两两距离，旧橙也会一起把距离挤坏）",
         MODULES,
-        sub('color = 0xFFCA8658L),', 'color = 0xFFFF9500L),', expect=1),
+        sub('color = 0xFFC78A4FL),', 'color = 0xFFFF9500L),', expect=1),
         "个旧 token 值一处都不许留",
     ),
     (
         "派单端某一格退回旧黄绿",
         MODULES,
-        sub('color = 0xFF8E9463L),', 'color = 0xFF8EC714L),', expect=1),
+        sub('color = 0xFF939F4EL),', 'color = 0xFF8EC714L),', expect=1),
         "个旧 token 值一处都不许留",
     ),
     (
         "货主端「下单」那格被换成跟主色一样的值（两格撞色，饱和度量不出来）",
         MODULES,
-        sub('color = 0xFF567A5FL),', 'color = 0xFF8B4A4AL),', expect=1),
-        "新值 0xFF567A5F 至少被硬编码",
+        sub('color = 0xFF59A570L),', 'color = 0xFF8B4A4AL),', expect=1),
+        "新值 0xFF59A570 至少被硬编码",
     ),
     # ---- 4. 地板：m02683「不要太灰」那条线的出处与上下界 ----
     (
@@ -313,7 +313,7 @@ CASES: list[tuple[str, str, object, str]] = [
         "SAT_FLOOR = 0.3 落在 0.12~0.2",
     ),
     (
-        "地板被抬到 22%（实测：这一档「账户管理」#97897F 当场判红）",
+        "地板被抬到 22%（实测：这一档「账户管理」#A2763D 当场判红）",
         TEST,
         sub("private val SAT_FLOOR = 0.15", "private val SAT_FLOOR = 0.22"),
         "SAT_FLOOR = 0.22 落在 0.12~0.2",
@@ -428,7 +428,7 @@ CASES: list[tuple[str, str, object, str]] = [
         "设计系统里新主色被整个删掉（那张表还是旧的绿）",
         DESIGN,
         # ⚠️ `06_DESIGN_SYSTEM.md:26` 那一行是**两格一行、且没有反引号**：
-        #    `| 派单作业 / 主操作 | 深红棕 #8B4A4A | NavBlue || 代理下单 / 已完成 | 雾绿 #567A5F | MgrGreen |`
+        #    `| 派单作业 / 主操作 | 深红棕 #8B4A4A | NavBlue || 代理下单 / 已完成 | 雾绿 #59A570 | MgrGreen |`
         sub("| 派单作业 / 主操作 | 深红棕 #8B4A4A |",
             "| 派单作业 / 主操作 | 深绿 #00A870（尚未换） |"),
         "设计系统那张语义色总表已经是新主色 #8B4A4A",

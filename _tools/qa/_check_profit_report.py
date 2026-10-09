@@ -339,7 +339,7 @@ def main() -> int:
              tab, r"money\([^()]*[-+][^()]*\)")
     c.present("营业利润最大那格按正负上色（赚绿亏红）", tab, r"StatBig\(\"营业利润\", money\(data\.operatingProfit\), opColor\)")
     c.present("税金那一行在（今天恒 0，但必须看得见）", tab, r'"− 税金及附加"')
-    c.present("配送成本用橙（与营业纵览同一个颜色，⛔ 不许换色）", tab, r'"− 配送成本\(司机应得\)", money\(data\.deliveryCost\), Color\(0xFFC9855A\)')
+    c.present("配送成本用橙（与营业纵览同一个颜色，⛔ 不许换色）", tab, r'"− 配送成本\(司机应得\)", money\(data\.deliveryCost\), Color\(0xFFBA6F45\)')
     c.present("未覆盖收入单列一张卡", tab, r'"算不出成本的收入"')
     c.present("利润构成是一条能自己算通的链（营业额 − 算不出成本 = 参与毛利 − 商品成本 = 商品毛利）",
               tab, r'"营业收入\(应收\)"[\s\S]{0,900}?"− 算不出成本的收入"[\s\S]{0,900}?"= 参与毛利的收入"[\s\S]{0,900}?"− 商品成本"[\s\S]{0,900}?"= 商品毛利"')

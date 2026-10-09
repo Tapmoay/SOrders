@@ -103,7 +103,7 @@ fun PriceMatrixScreen(
                                     "另有 " + vm.hiddenInactive + " 个已停用或已删除的批发商没有列出" +
                                         "（给他们设价不会生效）。",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFFBE5F4A),
+                                    color = Color(0xFFC26357),
                                 )
                             }
                             // ⚠️ 截断位放在条件**最前面**：`_check_page_truncation_wiring.py`

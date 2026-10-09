@@ -479,9 +479,9 @@ private fun TemplateCard(
             }
             val receiver = (t.receiverName + " " + t.receiverPhone).trim()
             if (receiver.isNotBlank()) {
-                TemplateFactRow(Icons.Default.Badge, "收货人", receiver, Color(0xFF567A5F))
+                TemplateFactRow(Icons.Default.Badge, "收货人", receiver, Color(0xFF59A570))
             }
-            TemplateFactRow(Icons.Default.Inventory2, "商品", goodsText(t), Color(0xFF8A7BB0))
+            TemplateFactRow(Icons.Default.Inventory2, "商品", goodsText(t), Color(0xFFB084CE))
             TemplateFactRow(
                 Icons.Default.Payments, "参考运费",
                 if (t.freightFee == null) "不预设" else "¥" + formatMoney(t.freightFee),
@@ -601,7 +601,7 @@ private fun goodsText(t: OrderTemplateDto): String {
 private const val GOODS_SHOWN = 3
 
 /**
- * 「预订单」的语义色：**雾靛蓝**（CHG-0101 按用户图二量测的 `#617190`）。
+ * 「预订单」的语义色：**雾靛蓝**（CHG-0101 按用户图二量测的 `#7A98D8`）。
  *
  * ⚠️ CHG-0101 起跟 `ui/nav/Modules.kt` 里「预订单」那一格**同值**（原来是 `#3949AB`）。
  * 换色的口径是"整套低饱和"：那个靛蓝在 21 格里是最扎眼的几个之一，
@@ -609,4 +609,4 @@ private const val GOODS_SHOWN = 3
  * ⛔ 别改成接近 `ProductPurple`（雾紫）或 `ProgressYellow`（订单管理的卡其）——
  * 前者是商品、后者是订单流转，两个都会让人认错格子。
  */
-internal const val TemplateBlue = 0xFF617190L
+internal const val TemplateBlue = 0xFF7A98D8L

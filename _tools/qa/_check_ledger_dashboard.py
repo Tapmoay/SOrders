@@ -384,11 +384,16 @@ def main() -> int:
         #    留着它会让用户新画的色**成片判红** —— 那是拿旧尺子量新设计。
         #    所以这轮把带子改成"不许比新色板自己更深/更飘"：
         #    下限 44、上限 84，把实测那 18 格整个包进来，只拦**新加**的越界色。
+        # ⚠️ 2026-10-10（CHG-0102）用户看过取色页面后选了 H 档（相对彩度 0.62 /
+        #    明度带 58±5 / 彩度夹 28~44），那一套里最亮两格 max(R,G,B) 到 85.1%
+        #    （预订单 #7A98D8 84.7%、退货申请 #D97C65 85.1%）。上界抬到 88。
+        #    注意：**被用户否过的是"太深/太沉"＝下界**，上界 84 从来只是
+        #    "把当时实测的 18 格包进来"的描述值 —— 抬它不等于放宽用户否过的那条。
         bad_band = []
         for hexs in re.findall(r"color = 0xFF([0-9A-Fa-f]{6})L?", g):
             r_, g_, b_ = int(hexs[0:2], 16), int(hexs[2:4], 16), int(hexs[4:6], 16)
             v = max(r_, g_, b_) / 255 * 100
-            if not (44 <= v <= 84):
+            if not (44 <= v <= 88):
                 bad_band.append("#" + hexs)
         stray_band = sorted(set(bad_band) - set(BAND_EXEMPT))
         c.ok(f"没有新增「太深/太沉」的格子（既有例外 {len(BAND_EXEMPT)} 个，新增越界 {len(stray_band)} 个）",
@@ -441,11 +446,11 @@ def main() -> int:
             f"{icons}",
         )
         # 同屏不许撞色：7 格两两 RGB 欧氏距离 ≥60
-        # ⚠️ `MoneyOrange` 这个 token 的值在 CHG-0101 里从 #FF9500 换成了 #C9855A，
+        # ⚠️ `MoneyOrange` 这个 token 的值在 CHG-0101 里从 #FF9500 换成了 #BA6F45，
         #    所以**不能再把它硬编码成 FF9500** —— 改成从 `Color.kt` 现场读它的值，
         #    往后换色时这条判据不会再变成"读了旧值还判红"。
         mo = re.search(r"^val MoneyOrange = (?:Color\()?0xFF([0-9A-Fa-f]{6})", read(COLOR), re.M)
-        mo_hex = mo.group(1) if mo else "C9855A"
+        mo_hex = mo.group(1) if mo else "BA6F45"
         cols = [(m[0], m[1]) for m in re.findall(r'ModuleEntry\("([^"]+)"[\s\S]{0,200}?color = (MoneyOrange|0xFF[0-9A-Fa-f]{6})L?', body)]
         hexes = []
         for name, tok in cols:

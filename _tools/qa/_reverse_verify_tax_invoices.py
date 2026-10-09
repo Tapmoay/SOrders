@@ -391,7 +391,7 @@ CASES: list[tuple[str, Path, object]] = [
     (
         "入口页第 10 格删掉（税账这一页从入口进不去）",
         HOME_KT,
-        sub('EntryCard("9", "税账", Icons.Default.Receipt, Color(0xFFA98F76)),' + NL, ""),
+        sub('EntryCard("9", "税账", Icons.Default.Receipt, Color(0xFFCF8855)),' + NL, ""),
     ),
     (
         "导出 kind(9) 改回 audit（第 10 页导出的是异常与审计那张表）",

@@ -1044,7 +1044,7 @@ private fun DetailBody(
                         Icon(
                             Icons.Default.Call,
                             contentDescription = null,
-                            tint = androidx.compose.ui.graphics.Color(0xFF567A5F),
+                            tint = androidx.compose.ui.graphics.Color(0xFF59A570),
                             modifier = Modifier.size(22.dp),
                         )
                         Spacer(Modifier.width(8.dp))
@@ -1080,7 +1080,7 @@ private fun DetailBody(
                         Icon(
                             Icons.Default.Person,
                             contentDescription = null,
-                            tint = androidx.compose.ui.graphics.Color(0xFF567A5F),
+                            tint = androidx.compose.ui.graphics.Color(0xFF59A570),
                             modifier = Modifier.size(22.dp),
                         )
                         Spacer(Modifier.width(8.dp))
@@ -1097,7 +1097,7 @@ private fun DetailBody(
                             "下单人 " + bossText,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                            color = if (bossWho != null) androidx.compose.ui.graphics.Color(0xFF567A5F)
+                            color = if (bossWho != null) androidx.compose.ui.graphics.Color(0xFF59A570)
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         if (canEditInfo) EditHint(onClick = { edit.startEdit(OrderEditField.BOSS) })
@@ -1265,7 +1265,7 @@ private fun DetailBody(
                             // 量列宽与渲染用**同一个函数**（不同的话右对齐当场错位）。
                             "×" + qtyWithUnitConverted(netQty(line), line.unit, conversions),
                             style = qtyStyle,
-                            color = androidx.compose.ui.graphics.Color(0xFF8A7BB0),
+                            color = androidx.compose.ui.graphics.Color(0xFFB084CE),
                             textAlign = TextAlign.End,
                             modifier = Modifier.width(qtyW),
                         )
@@ -1354,7 +1354,7 @@ private fun DetailBody(
                             netTotal,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                            color = androidx.compose.ui.graphics.Color(0xFFC9855A),
+                            color = androidx.compose.ui.graphics.Color(0xFFBA6F45),
                         )
                     }
                 }
@@ -1706,7 +1706,7 @@ private fun DetailBody(
                         enabled = !acting,
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = androidx.compose.ui.graphics.Color(0xFF567A5F),
+                            containerColor = androidx.compose.ui.graphics.Color(0xFF59A570),
                             contentColor = androidx.compose.ui.graphics.Color.White,
                         ),
                     ) {
@@ -1989,7 +1989,7 @@ private fun NavigationBlock(
             Icon(
                 Icons.Default.MyLocation,
                 contentDescription = null,
-                tint = Color(0xFF567A5F),
+                tint = Color(0xFF59A570),
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(6.dp))
@@ -2028,7 +2028,7 @@ private fun NavigationBlock(
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = onFillClick,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6B8FA6), contentColor = Color.White),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF529EBF), contentColor = Color.White),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Default.AddLocationAlt, contentDescription = null, modifier = Modifier.size(18.dp))

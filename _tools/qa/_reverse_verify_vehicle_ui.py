@@ -4,7 +4,7 @@ r"""反向验证「车辆管理页按规范重做（列表与卡片）」这条�
 ## 为什么这条要反向验证
 本批判据查的四件事，每一件都有自己典型的失效方式，而且**都不影响编译**：
 
-1. **黄绿只有一个定义**（跨文件性质）：谁都能在任意一个文件里再写一遍 0xFF9AA35F ——
+1. **黄绿只有一个定义**（跨文件性质）：谁都能在任意一个文件里再写一遍 0xFF72863F ——
    界面照样好看、编译照样过，只有下一个人改色时才发现少改了一处。本脚本把色值塞回三个不同的文件，
    逼判据把它们都认出来。
 2. **卡片动作的形态与位置**（规范 §4.2c）：把圈底动作换回裸 IconButton、把 label 拿掉、
@@ -82,7 +82,7 @@ CASES: list[tuple[str, str, object, str]] = [
         VEHICLE,
         lambda s: s.replace(
             "internal val VehicleAccent = Color(DriverLime)",
-            "internal val VehicleAccent = Color(0xFF9AA35F)",
+            "internal val VehicleAccent = Color(0xFF72863F)",
             1,
         ),
         "还手写着",
@@ -90,25 +90,25 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "② Color.kt 里的 DriverLime 定义被删（token 凭空消失）",
         COLOR,
-        lambda s: drop_line(s, "val DriverLime = 0xFF9AA35FL"),
+        lambda s: drop_line(s, "val DriverLime = 0xFF72863FL"),
         "Color.kt 里定义了 val DriverLime",
     ),
     (
         "③ Color.kt 里的 OnDriverLime（黄绿底上那个字色）被删",
         COLOR,
-        lambda s: drop_line(s, "val OnDriverLime = 0xFF3A3F00L"),
+        lambda s: drop_line(s, "val OnDriverLime = 0xFF33380FL"),
         "OnDriverLime",
     ),
     (
         "④ 规范 §2 模块色表那一格退回「-」（表与代码又对不上了）",
         DESIGN,
-        lambda s: s.replace("| 司机管理 | 黄绿 #CDDC39 | DriverLime |", "| 司机管理 | 黄绿 #CDDC39 | - |", 1),
+        lambda s: s.replace("| 司机管理 | 苔绿 #72863F | DriverLime |", "| 司机管理 | 黄绿 #CDDC39 | - |", 1),
         "那一格写的是 DriverLime",
     ),
     (
         "⑤ 模块网格里的司机格子退回手写色（跨到第三个文件也得被抓）",
         MODULES,
-        lambda s: s.replace("Icons.Default.Groups, color = DriverLime)", "Icons.Default.Groups, color = 0xFF9AA35FL)", 1),
+        lambda s: s.replace("Icons.Default.Groups, color = DriverLime)", "Icons.Default.Groups, color = 0xFF72863FL)", 1),
         "还手写着",
     ),
     (
@@ -176,7 +176,7 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "⑮ 司机管理页退回手写黄绿（同一个色在第二页各写一遍）",
         USERS,
-        lambda s: s.replace("Color(DriverLime)", "Color(0xFF9AA35F)"),
+        lambda s: s.replace("Color(DriverLime)", "Color(0xFF72863F)"),
         "司机管理页不再手写黄绿",
     ),
     (

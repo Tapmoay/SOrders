@@ -36,9 +36,9 @@ import androidx.compose.ui.unit.dp
  */
 val ORDER_TAB_COLORS = listOf(
     Color(ThemeGreen),  // 全部 · 主色绿（CHG-0091 前是蓝 #1E6FFF）
-    Color(0xFFC8B270),  // 派单中 · 黄
-    Color(0xFF6B8FA6),  // 已接单 · 湖蓝
-    Color(0xFF567A5F),  // 已送达 · 绿
+    Color(0xFF8D8340),  // 派单中 · 黄
+    Color(0xFF529EBF),  // 已接单 · 湖蓝
+    Color(0xFF59A570),  // 已送达 · 绿
     Color(0xFF8A8A8E),  // 已撤销 · 灰
     Color(0xFFBF5B00),  // 已退货 · 棕橙
     Color(0xFF7C4DFF),  // 已派单 · 紫（2026-09-24 加：DISPATCHED 之前一个档位都没有）

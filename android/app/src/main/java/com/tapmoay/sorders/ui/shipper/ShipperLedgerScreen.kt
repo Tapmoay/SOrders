@@ -1128,7 +1128,7 @@ private fun LedgerCard(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.End,
-                color = Color(0xFFC9855A),
+                color = Color(0xFFBA6F45),
                 modifier = Modifier.widthIn(min = 92.dp),
             )
         }
@@ -1148,7 +1148,7 @@ private fun LedgerCard(
 private val PayableRed = 0xFFD32F2F
 
 /** 别人欠我的钱：橙（与"账本"那一套橙色同源）。 */
-private val ReceivableOrange = 0xFFC9855A
+private val ReceivableOrange = 0xFFBA6F45
 
 /** 货主头像底色：青（与"联系人/客户"一套，别和订单蓝、账本橙撞）。 */
 private val CustomerAvatar = 0xFF00A2A8

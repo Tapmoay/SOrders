@@ -37,7 +37,7 @@ import kotlinx.coroutines.launch
  *    - **恢复**：把回收站里的票放回来（放回时票号若被别人用了，后端如实报冲突，⛔ 不悄悄改号）。
  */
 private val OUTPUT_BLUE = Color(ThemeGreen)
-private val INPUT_GREEN = Color(0xFF567A5F)
+private val INPUT_GREEN = Color(0xFF59A570)
 private val VOID_RED = Color(0xFFE53935)
 
 /** 方向筛选的三档：`null` = 全部（后端那边不筛）。 */
@@ -385,7 +385,7 @@ private fun InvoiceCard(
             )
         }
         if (!inv.countsInTax && !inv.isDeleted) {
-            Text("这张票不进税汇", style = MaterialTheme.typography.bodySmall, color = Color(0xFFC9855A))
+            Text("这张票不进税汇", style = MaterialTheme.typography.bodySmall, color = Color(0xFFBA6F45))
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             if (inv.isDeleted) {

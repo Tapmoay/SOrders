@@ -734,7 +734,7 @@ private fun FreightPickSheet(vm: DriverBillingRulesViewModel) {
                                     "¥" + formatMoney(t.fee),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFC9855A),
+                                    color = Color(0xFFBA6F45),
                                 )
                             }
                         }

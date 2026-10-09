@@ -4,7 +4,7 @@
 盯住四件事：
 
 1. **黄绿只有一个定义**：`DriverLime` / `OnDriverLime` 住在 `ui/theme/Color.kt`，规范 §2 模块色表
-   那一格指向它；除定义处外，全库不许再手写 `0xFF9AA35F` / `0xFF33380F`。
+   那一格指向它；除定义处外，全库不许再手写 `0xFF72863F` / `0xFF33380F`。
 2. **卡片动作的形态与位置**（规范 §4.2c）：卡片上的图标动作一律 `CardActionIcon` 圈底图标；
    左＝反向 / 警示（警示放最左）、右＝编辑；⛔ 裸 `IconButton` 不算（用户原话「这个不行」）。
 3. **搜索框按人搜只有一份**（规范 §4.4）：本页三个搜索框全走 `SearchField`；搜车牌那个仍然写
@@ -14,7 +14,7 @@
 
 为什么这些必须由机器盯着：
 
-- 色值的「只许一处」是**跨文件**性质：谁都能在任意文件里再写一遍 `Color(0xFF9AA35F)`，
+- 色值的「只许一处」是**跨文件**性质：谁都能在任意文件里再写一遍 `Color(0xFF72863F)`，
   编译不报错、界面照样好看，只有下一个人改色时才发现少改了一处；
 - 「左＝反向 / 右＝编辑」是个**位置**性质，审代码时最容易被「顺手挪一下」破坏；
 - `SearchField` 与 `SoTextField` 的差别（✕ 一键清空、宽高口径）肉眼分不出来，
@@ -52,7 +52,7 @@ DOC = ROOT / "docs/changes/CHG-0016.md"
 REGISTRY = ROOT / "docs/changes/README.md"
 
 #: 黄绿与它底上那个字：**定义只有一份**（规范 §2「一个概念一个色」）
-RAW_LIME = "0xFF9AA35F"
+RAW_LIME = "0xFF72863F"
 RAW_ON_LIME = "0xFF33380F"
 #: 目录下 .kt 文件数下限（改坏扫描 / 目录改名时不许安静全绿）
 MIN_KT_FILES = 200
@@ -154,13 +154,13 @@ def main() -> int:
     # ── 1. 黄绿只有一个定义 ──────────────────────────────────────────────
     c.section("1. 黄绿只有一个定义（规范 §2「一个概念一个色，定义只有一处」）")
     c.ok("Color.kt 里定义了 val DriverLime（司机管理 / 车辆台账：黄绿）",
-         re.search(r"^val DriverLime = 0xFF9AA35FL", color, re.M) is not None,
+         re.search(r"^val DriverLime = 0xFF72863FL", color, re.M) is not None,
          "色值该住在 ui/theme/Color.kt，而不是各页各写一遍")
     c.ok("Color.kt 里定义了 val OnDriverLime（黄绿底上的字）",
          re.search(r"^val OnDriverLime = 0xFF33380FL", color, re.M) is not None,
          "白字压在黄绿上只有 1.4:1，读不出来")
     raw = raw_lime_outside_color()
-    c.ok("除 Color.kt 外全库没有再手写 0xFF9AA35F / 0xFF33380F", not raw,
+    c.ok("除 Color.kt 外全库没有再手写 0xFF72863F / 0xFF33380F", not raw,
          f"这些文件还手写着：{raw} —— 换成 Color(DriverLime) / Color(OnDriverLime)")
     c.ok("本文件的模块色常量指向 token（VehicleAccent = Color(DriverLime)）",
          "internal val VehicleAccent = Color(DriverLime)" in vehicle)
@@ -306,7 +306,7 @@ if __name__ == "__main__":
     if "--list" in sys.argv:
         print("== 它到底在查什么（车辆管理页列表与卡片 CHG-0016）==")
         print("1. 黄绿只有一个定义：Color.kt 的 DriverLime / OnDriverLime、规范 §2 表那一格指向它、")
-        print("   除定义处外全库不许再手写 0xFF9AA35F / 0xFF33380F（跨文件性质，肉眼审不出来）")
+        print("   除定义处外全库不许再手写 0xFF72863F / 0xFF33380F（跨文件性质，肉眼审不出来）")
         print("2. 卡片动作：三枚 CardActionIcon、都带 label、size/container 同档、")
         print("   位置＝警示最左 / 编辑最右（Spacer(weight) 之后）、裸 IconButton 归零")
         print("3. 搜索框：三个全走 SearchField、搜车牌那个仍写自己的话、按人搜那个不写（默认 UserSearch.HINT）")

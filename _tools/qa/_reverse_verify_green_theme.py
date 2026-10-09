@@ -63,14 +63,14 @@ CASES: list[tuple[str, str, object, str]] = [
         "商品块的浅绿底退回近白：ProductRowTint #E6F7EE → #F3F2EF",
         COLOR,
         lambda s: s.replace("val ProductRowTint = 0xFFF0E2DCL", "val ProductRowTint = 0xFFF1EFEAL", 1),
-        "ProductRowTint = 0xFFF0E2DCL",
+        "ProductRowTint = 0xFFF0E2DC",
     ),
     (
         "深红棕数量块的底被提亮：ThemeGreenDeep #6E3636 → #8B4A4A",
         COLOR,
         lambda s: s.replace("val ThemeGreenDeep = 0xFF6E3636L",
                             "val ThemeGreenDeep = 0xFF8B4A4AL", 1),
-        "ThemeGreenDeep = 0xFF6E3636L",
+        "ThemeGreenDeep = 0xFF6E3636",
     ),
     (
         "页面顶那条绿渐变被偷偷加回来（用户当天就撤了它）",
@@ -201,14 +201,14 @@ CASES: list[tuple[str, str, object, str]] = [
         "灰蓝又回到页面底：BackgroundLight #FBFBFA → #F2F3F7（旧值必须一处不剩）",
         COLOR,
         lambda s: s.replace("val BackgroundLight = Color(0xFFF7F6F3)",
-                            "val BackgroundLight = Color(0xFFF7F6F3)", 1),
+                            "val BackgroundLight = Color(0xFFF2F3F7)", 1),
         "BackgroundLight = 0xFFF7F6F3",
     ),
 ]
 
 #: 分两步的注入（一次替换做不出来），在 main() 里单独跑。
 LEDGER_OLD = 'tint = Color(if (e.source == "manual") ProductPurple else ThemeGreen),'
-LEDGER_NEW = 'tint = Color(if (e.source == "manual") 0xFF8A7BB0 else 0xFF1E6FFF),'
+LEDGER_NEW = 'tint = Color(if (e.source == "manual") 0xFFB084CE else 0xFF1E6FFF),'
 
 
 def run_check() -> tuple[int, str]:

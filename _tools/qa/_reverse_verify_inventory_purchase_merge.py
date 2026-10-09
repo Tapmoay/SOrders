@@ -51,8 +51,8 @@ MUTATIONS = [
     (
         "工作台那一格加回来（＝没并，只是多了一个入口）",
         MODULES,
-        '        ModuleEntry("库存管理", Routes.INVENTORY, Icons.Default.Warehouse, color = 0xFF6A8F99L),                        // 雾青 · 库存仓储（CHG-0101 按用户图二）\n',
-        '        ModuleEntry("库存管理", Routes.INVENTORY, Icons.Default.Warehouse, color = 0xFF6A8F99L),                        // 雾青 · 库存仓储（CHG-0101 按用户图二）\n        ModuleEntry("采购单", Routes.PURCHASE_ORDERS, Icons.Default.ShoppingCart, color = 0xFF4CAF50L),\n',
+        '        ModuleEntry("库存管理", Routes.INVENTORY, Icons.Default.Warehouse, color = 0xFF278A9DL),                        // 深青 · 库存仓储（CHG-0102 起按 H 档：L*53.0 C*28.0 h219.8）\n',
+        '        ModuleEntry("库存管理", Routes.INVENTORY, Icons.Default.Warehouse, color = 0xFF278A9DL),                        // 深青 · 库存仓储（CHG-0102 起按 H 档：L*53.0 C*28.0 h219.8）\n        ModuleEntry("采购单", Routes.PURCHASE_ORDERS, Icons.Default.ShoppingCart, color = 0xFF4CAF50L),\n',
         "模块清单里没有「采购单」那一格",
     ),
     (

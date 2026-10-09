@@ -397,7 +397,7 @@ fun PurchaseOrderFormScreen(
                             required = true,
                             placeholder = "点这里选一家",
                             icon = Icons.Default.Storefront,
-                            iconTint = Color(0xFF567A5F),
+                            iconTint = Color(0xFF59A570),
                         )
                         FormPickRow(
                             label = "进货日期",

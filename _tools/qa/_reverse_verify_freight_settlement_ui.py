@@ -35,8 +35,8 @@ CASES: list[tuple[str, Path, object]] = [
         "结算页把抽屉**又抄了一份**（同一个形态两个实现，改一处漏一处）",
         SCREEN,
         lambda s: s.replace(
-            "private val Accent = 0xFF567A5FL",
-            "private fun PersonDrawer(x: Int) {}\n\nprivate val Accent = 0xFF567A5FL",
+            "private val Accent = 0xFF59A570L",
+            "private fun PersonDrawer(x: Int) {}\n\nprivate val Accent = 0xFF59A570L",
             1,
         ),
     ),

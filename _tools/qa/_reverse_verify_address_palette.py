@@ -69,9 +69,9 @@ def drop_subsection(text: str, heading: str) -> str:
 CASES: list[tuple[str, str, object, str]] = [
     # ---- 1. 一个概念一个色 ----
     (
-        '① 电话那一行的裸色值回潮（iconTint 又写死 Color(0xFF567A5F)）',
+        '① 电话那一行的裸色值回潮（iconTint 又写死 Color(0xFF59A570)）',
         ADDR,
-        lambda s: s.replace("iconTint = Color(MgrGreen),", "iconTint = Color(0xFF567A5F),", 1),
+        lambda s: s.replace("iconTint = Color(MgrGreen),", "iconTint = Color(0xFF59A570),", 1),
         '本页 Color(0xFF 字面量 == 0',
     ),
     (
@@ -103,7 +103,7 @@ CASES: list[tuple[str, str, object, str]] = [
         ADDR,
         lambda s: s.replace(
             CAT_ANCHOR,
-            CAT_ANCHOR.replace('Color(ShipperTeal)', 'Color(0xFF8A7BB0)'),
+            CAT_ANCHOR.replace('Color(ShipperTeal)', 'Color(0xFFB084CE)'),
             1,
         ),
         '地点「分组」的图标是湖蓝',
@@ -136,7 +136,7 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         '⑪ 三档色被写死成裸值（不再走 token）',
         ADDR,
-        lambda s: s.replace(TAB_LINE, 'private val ADDRESS_TAB_COLORS = listOf(Color(0xFF6BA6AE), Color(0xFF6B8FA6), Color(0xFFC9855A))', 1),
+        lambda s: s.replace(TAB_LINE, 'private val ADDRESS_TAB_COLORS = listOf(Color(0xFF6BA6AE), Color(0xFF529EBF), Color(0xFFBA6F45))', 1),
         '顶部三档的三个色走命名 token',
     ),
     # ---- 3. 常驻文案 ----
@@ -179,9 +179,9 @@ CASES: list[tuple[str, str, object, str]] = [
     ),
     # ---- 5. 文档 / 登记 ----
     (
-        '⑱ 文档少一节（九节是 _check_dev_spec 与本判据共同的底线）',
+        '⑱ 文档少一节（九节是 _check_dev_spec 与本判据共同的底线）—— ⚠️ 必须把 ⑨ **全部**抹掉：这文档里 ⑨ 出现过两次，只删 `## ⑨` 那一行还剩一处，判据照样绿（这条注入原来是死的）',
         DOC,
-        lambda s: s.replace('## ⑨', '', 1),
+        lambda s: s.replace('⑨', ''),
         '文档九节齐全',
     ),
     (

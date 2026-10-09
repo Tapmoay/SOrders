@@ -361,7 +361,7 @@ private val CATEGORY_ROW_HEIGHT = 88.dp
 
 /**
  * 预订单功能的语义色：**雾靛蓝**（与工作台那一格、预订单页的图标同色；CHG-0101 起是
- * `#617190`，原来是 `#3949AB` —— 换色的口径是"整套低饱和"，那个靛蓝在 21 格里最扎眼）。
+ * `#7A98D8`，原来是 `#3949AB` —— 换色的口径是"整套低饱和"，那个靛蓝在 21 格里最扎眼）。
  * ⛔ 别改用橙色 —— 橙色在这个 App 里是**钱**（账本 / 收款）。
  */
-private const val TemplateIndigo = 0xFF617190L
+private const val TemplateIndigo = 0xFF7A98D8L

@@ -385,7 +385,7 @@ def main() -> int:
     screen = read(AND_SCREEN)
     c.present("路由常量 shipper/prices", routes, r'const val SHIPPER_PRICES = "shipper/prices"')
     c.present("工作台格子（货主那一栏里，插在退货申请之后）",
-              modules, r'ModuleEntry\("下游定价", Routes\.SHIPPER_PRICES, Icons\.Default\.PriceChange, color = 0xFF885B90L\),')
+              modules, r'ModuleEntry\("下游定价", Routes\.SHIPPER_PRICES, Icons\.Default\.PriceChange, color = 0xFFA76BAFL\),')
     c.present("格子的能力表门 = shipper_price:manage（没能力就不出现）",
               modules, r'Routes\.SHIPPER_PRICES to "shipper_price:manage",')
     c.present("导航图里挂上了这一页", nav, r"composable\(Routes\.SHIPPER_PRICES\) \{")

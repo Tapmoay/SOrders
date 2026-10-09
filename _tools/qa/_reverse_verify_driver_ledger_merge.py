@@ -41,14 +41,14 @@ CASES: list[tuple[str, Path, str, str]] = [
     (
         "入口页那格退回「司机账」（= 账本页第 4 档，同一件事又有两个地方）",
         MODULES,
-        'ModuleEntry("司机账 · 运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.LocalShipping, color = 0xFF4D7053L),',
-        'ModuleEntry("司机账", Routes.dispatcherLedger(1), Icons.Default.LocalShipping, color = 0xFF4D7053L),',
+        'ModuleEntry("司机账 · 运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.LocalShipping, color = 0xFF4A8A4EL),',
+        'ModuleEntry("司机账", Routes.dispatcherLedger(1), Icons.Default.LocalShipping, color = 0xFF4A8A4EL),',
     ),
     (
         "批发商账退回第 4 档（越界的 tab 又能从入口进来）",
         MODULES,
-        'ModuleEntry("批发商账", Routes.dispatcherLedger(2), Icons.Default.Storefront, color = 0xFFB8860BL),',
-        'ModuleEntry("批发商账", Routes.dispatcherLedger(3), Icons.Default.Storefront, color = 0xFFB8860BL),',
+        'ModuleEntry("批发商账", Routes.dispatcherLedger(2), Icons.Default.Storefront, color = 0xFF8A7339L),',
+        'ModuleEntry("批发商账", Routes.dispatcherLedger(3), Icons.Default.Storefront, color = 0xFF8A7339L),',
     ),
     (
         "越界的 deep link 不再落回订单账（标题写订单账、页面走账户汇总）",

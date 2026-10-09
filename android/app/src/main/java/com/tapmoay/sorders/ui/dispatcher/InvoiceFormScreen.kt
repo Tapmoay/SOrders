@@ -294,10 +294,10 @@ class InvoiceFormViewModel(private val container: AppContainer, private val invo
 
 // ------------------------------------------------------------ 这一页自己的几个色与小块
 
-private val TAX_BROWN = Color(0xFFA98F76)   // 与工作台那一格 / 报表第 10 格同色（#795548 太深，宫格亮度带判据否过）
+private val TAX_BROWN = Color(0xFFCF8855)   // 与工作台那一格 / 报表第 10 格同色（#795548 太深，宫格亮度带判据否过）
 private val FORM_BLUE = Color(ThemeGreen)
-private val FORM_GREEN = Color(0xFF567A5F)
-private val FORM_ORANGE = Color(0xFFC9855A)
+private val FORM_GREEN = Color(0xFF59A570)
+private val FORM_ORANGE = Color(0xFFBA6F45)
 
 /**
  * 登记 / 改一张发票（FEAT-0014 第四期 税账）。
