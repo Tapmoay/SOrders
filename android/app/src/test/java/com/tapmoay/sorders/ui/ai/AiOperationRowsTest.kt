@@ -1,5 +1,7 @@
 package com.tapmoay.sorders.ui.ai
 
+import com.tapmoay.sorders.ai.AiReadCatalog
+import com.tapmoay.sorders.ai.AiTools
 import com.tapmoay.sorders.ai.AiWrites
 import com.tapmoay.sorders.data.remote.dto.AiOperationDto
 import com.tapmoay.sorders.util.formatDateTime
@@ -13,13 +15,18 @@ import java.time.ZoneId
 /**
  * 「AI 操作流水」那一行字怎么念（台账 L-52 / CHG-0082）。
  *
- * ## 为什么一个"格式化"值得 9 个用例
+ * ## 为什么一个"格式化"值得 14 个用例
  * 这一页是**审计页**：用户读它不是为了好看，是为了回答"AI 到底动过什么"。
  * 三句话写错就等于**答错**：
  * - 认不出的动作名 → 编一个中文名（用户会以为 AI 干了别的事）；
  * - `user_name` 缺失 → 留空（那一行看起来"没人做过"）；
  * - 失败但没有原因 → 留空（403 越权 / 400 参数错 / 500 后端炸了被糊成一片空白）。
  * 所以这里逐条钉死，包括三种兜底。
+ *
+ * ⚠️ 动作名认不出**不等于**可以只写英文 id（台账 L-58 / BUG-0020）：流水的 `action` 有三种
+ * 来源，写动作在 `AiWrites`、读动作在 `AiReadCatalog`、工具本身在 `AiTools` 的短名表里。
+ * 三张表都查过还是认不出，才轮到"如实写 id"。所以下面每一条来源各有用例，
+ * 且中文名一律**从表里取**（⛔ 不许在用例里抄一个中文名 —— 抄了就变成钉住抄错的那份）。
  *
  * ⚠️ 时间那一条**不许写死"几点"**：`formatDateTime` 是设备时区相关的
  * （见 `util/TimeFmt.kt` 顶部那段"所有时间早 8 小时"的教训）。这里改成
@@ -69,6 +76,39 @@ class AiOperationRowsTest {
     fun `认得出的动作写中文名_括号里带动作 id`() {
         val known = AiWrites.ALL.first { it.title != it.id }
         assertEquals(known.title + "（" + known.id + "）", AiOperationRows.actionLabel(row(action = known.id)))
+    }
+
+    @Test
+    fun `读动作认得出_写读目录那张表的中文名`() {
+        // 2026-10-09（CHG-0089）起读动作也带头：`invoices.list_invoices` 这种规范名
+        // 不在写动作表里，靠读目录的 cn 认（台账 L-58 记的就是它只有 id 的那一版）
+        val read = AiReadCatalog.ACTIONS.first { it.cn.contains("（") }
+        assertEquals(AiOperationRows.readTitle(read.cn) + "（" + read.action + "）", AiOperationRows.actionLabel(row(action = read.action)))
+    }
+
+    @Test
+    fun `读动作说明没有括号时_整句当表名`() {
+        val read = AiReadCatalog.ACTIONS.first { !it.cn.contains("（") && !it.cn.contains("(") }
+        assertEquals(read.cn + "（" + read.action + "）", AiOperationRows.actionLabel(row(action = read.action)))
+    }
+
+    @Test
+    fun `工具驱动的动作认得出_写设置页那张短名表`() {
+        // 工具 id（`inventory_alerts` 这类）既不在写动作表、也不是读目录规范名，靠 AiTools 认
+        val tool = AiTools.ALL.first { AiTools.titleOf(it) != it }
+        assertEquals(AiTools.titleOf(tool) + "（" + tool + "）", AiOperationRows.actionLabel(row(action = tool)))
+    }
+
+    @Test
+    fun `读目录短名_只取第一个括号之前_剥不空`() {
+        assertEquals("商品", AiOperationRows.readTitle("商品（某段时间的卖法、单价、卖出多少）"))
+        // 半角括号同样要剥（生成器只保证「（」，但别把半角漏成整句）
+        assertEquals("库存", AiOperationRows.readTitle("库存(只读)"))
+        // 本来就没括号的（那批一句话表名）原样用整句
+        assertEquals("客户列表", AiOperationRows.readTitle("客户列表"))
+        // ⛔ 兜底：剥出来是空的就退回整句 —— 这一列绝不许空白
+        assertEquals("（全括号）", AiOperationRows.readTitle("（全括号）"))
+        assertEquals("", AiOperationRows.readTitle(""))
     }
 
     @Test

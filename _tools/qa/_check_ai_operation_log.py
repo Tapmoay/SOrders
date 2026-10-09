@@ -45,7 +45,8 @@ ai/AiWriteService.commit 才去调真实接口），所以**没有任何一个"A
 5. 端点（权限沿用 OPERATION_LOG_READ / 三把筛子 / limit+1 / finish_page / user_name）
 6. Android 发出端（写：只有确认执行那一步带头、预览不带头；读：每一次网络调用都带头，
    工具分发点也带头 —— CHG-0089 那句「读动作也要走 AI 流水账」；动作名一律用目录里的规范名）
-7. Android 读端（服务端过滤 / skip 游标 / id 去重 / 认不出不编名字）
+7. Android 读端（服务端过滤 / skip 游标 / id 去重 / 动作名三张表依次认：写动作 → 读目录
+   规范名 → 工具短名，三张都认不出才如实写 id —— 台账 L-58 / BUG-0020）
 8. 单测与入口存在
 9. 防静默空转
 
@@ -89,6 +90,25 @@ VM = AND / "ui/ai/AiOperationsViewModel.kt"
 SCREEN = AND / "ui/ai/AiOperationsScreen.kt"
 SETTINGS = AND / "ui/ai/AiSettingsScreen.kt"
 ROWS_TEST = ROOT / "android/app/src/test/java/com/tapmoay/sorders/ui/ai/AiOperationRowsTest.kt"
+
+#: BUG-0020（台账 L-58）的文书与登记：代码改了、文书没跟上，等于这件事没做完。
+BUG_DOC = ROOT / "docs/changes/BUG-0020.md"
+CHANGES_README = ROOT / "docs/changes/README.md"
+CLAIM = ROOT / "docs/AI_WORK_CLAIM.md"
+REVERSE = ROOT / "_tools/qa/_reverse_verify_ai_operation_log.py"
+
+#: 变更单九节的标题（逐字照 docs/changes/_TEMPLATE.md）。
+SECTIONS = [
+    "## ① 六问",
+    "## ② Must Change / Must Not Change",
+    "## ③ Boundary（Core / Extension / Infrastructure / Presentation）",
+    "## ④ Behavior Contract",
+    "## ⑤ Data Contract",
+    "## ⑥ CHG 专章",
+    "## ⑦ 测试（四件事都要，缺一件就不算完整）",
+    "## ⑧ 证据",
+    "## ⑨ 关闭（六格）",
+]
 
 REQUIRED_FILES = [
     CORE, ORIGIN, MAIN, API, MODEL, SCHEMA, MIGRATION, BTEST,
@@ -334,11 +354,33 @@ def main() -> int:
               r"fun aiOperationsPage[\s\S]{0,900}?\.pageRows\(\)")
     c.present("「只看失败」走服务端（本地过滤会与分页打架）", repo,
               r"ok = if \(onlyFailed\) false else null")
-    rows = read(ROWS)
-    c.present("动作名认得出 → 中文名（动作 id）", rows, r'return if \(title == id\) id else title \+ "（" \+ id \+ "）"')
-    c.present("认不出 → 原样写 id（⛔ 不许编一个中文名）", rows, r"val title = AiWrites\.titleOf\(id\)")
+    # ⚠️ 必须 code_only：注释掉的那一行不算数（本判据 2026-10-09 才改过来 —— 之前用 raw，
+    #    把"把断言那一行注释掉"这种破坏放过去了）。
+    rows = code_only(read(ROWS))
+    c.present("动作名三张表依次认：写动作 → 读目录 → 工具短名", rows,
+              r"val write = AiWrites\.titleOf\(id\)[\s\S]{0,200}?AiReadCatalog\.find\(id\)\?\.let \{ return readTitle\(it\.cn\) \}"
+              r"[\s\S]{0,60}?return AiTools\.titleOf\(id\)")
+    c.present("读目录那条是一整句话，只取第一个括号之前的短名", rows,
+              r'cn\.substringBefore\("（"\)\.substringBefore\("\("\)\.trim\(\)')
+    c.present("短名剥空了退回整句（⛔ 这一列不许空白）", rows, r"return short\.ifEmpty \{ cn\.trim\(\) \}")
+    c.present("认得出 → 中文名（动作 id）", rows, r'return if \(title == id\) id else title \+ "（" \+ id \+ "）"')
+    c.present("三张都认不出 → 原样写 id（⛔ 不许编一个中文名）", rows,
+              r'val id = row\.action\?\.takeIf \{ it\.isNotBlank\(\) \} \?: return "未标动作（只读查询）"')
+    c.absent("⛔ 不许在流水页抄一份读动作中文名表（中文名只有读目录一份）", rows,
+             r'"invoices\.list_invoices"\s*to|"ledger\.list_entries"\s*to')
     c.present("没有动作名的如实说「未标动作（只读查询）」", rows, r"未标动作（只读查询）")
     c.present("失败原因缺失时如实说没有", rows, r"后端没有留下原因（看状态码）")
+    # 工具那张短名表：ALL 里每个工具都要有中文名 —— 少一条，流水页上那个工具就只剩英文 id
+    # （正是 L-58 的形状：认不出来时"如实写 id"是对的，但不该认不出来）。
+    all_m = re.search(r"val ALL = listOf\(([\s\S]*?)\n\s*\)", tool_svc)
+    title_m = re.search(r"private val TITLES = mapOf\(([\s\S]*?)\n\s*\)", tool_svc)
+    if all_m and title_m:
+        tool_ids = re.findall(r"^\s*([A-Z][A-Z0-9_]+),", all_m.group(1), re.M)
+        titled = set(re.findall(r"^\s*([A-Z][A-Z0-9_]+) to ", title_m.group(1), re.M))
+        no_cn = [t for t in tool_ids if t not in titled]
+        c.ok(f"AI 工具 {len(tool_ids)} 个在短名表里都有中文名", len(tool_ids) >= 8 and not no_cn, "；".join(no_cn))
+    else:
+        c.ok("能解析 AiTools 的 ALL 与 TITLES（解析挂了 = 判据空转）", False, "正则失配")
     c.present("谁：昵称 → 用户 #id → 未登录请求（不许留空）", rows, r"未登录请求")
     c.present("耗时用 Locale.US 格式化（别跟着机器区域变小数点）", rows,
               r'String\.format\(Locale\.US, "%\.1f s", ms / 1000\.0\)')
@@ -373,6 +415,39 @@ def main() -> int:
     c.ok(f"扫到的 .kt 数量 {len(kts)} >= {MIN_KT}", len(kts) >= MIN_KT, "目录被搬走了？")
     missing = [str(p.relative_to(ROOT)) for p in REQUIRED_FILES if not p.exists()]
     c.ok(f"{len(REQUIRED_FILES)} 个关键文件都在", not missing, "；".join(missing))
+
+    print("\n== 9. 文书与登记（BUG-0020 / 台账 L-58） ==")
+    doc_exists = BUG_DOC.exists()
+    c.ok("变更单 docs/changes/BUG-0020.md 在", doc_exists, str(BUG_DOC.relative_to(ROOT)))
+    doc = read(BUG_DOC) if doc_exists else ""
+    for head in SECTIONS:
+        c.present(f"变更单有「{head}」一节", doc, re.escape(head))
+    c.present("变更单写明了出处台账 L-58", doc, r"L-58")
+    c.present("变更单留了改前的真机证据", doc, r"改前的真机证据是 `shots/63_ai_log_read_rows\.png`")
+    c.present("变更单写明 ⛔ 不许手改机器生成的读目录", doc, r"AiReadCatalog\.kt")
+    c.present("执行器里留了本单号（以后能追）", read(ROWS), r"BUG-0020")
+
+    # 登记簿/工作声明都按「先收下含单号的那一行，再优先收下含关键词的那一行」扫 ——
+    # ⛔ 别写成「取第一行含单号的」：别的单的声明里提一句本单号，就会把它顶掉（2026-10-09 踩过）。
+    # 认的是**登记簿表格里那一行**（第一列就是单号）—— 光在别的行里提一句「BUG-0020.md」不算登记。
+    reg = ""
+    for ln in read(CHANGES_README).splitlines():
+        if ln.startswith("| `BUG-0020` |"):
+            reg = ln
+            if "读动作" in ln:
+                break
+    c.present("登记簿表格里记了这条活（含「读动作」）", reg, r"读动作")
+    c.present("登记簿那一行指向变更单", reg, r"\[BUG-0020\.md\]\(BUG-0020\.md\)")
+
+    # 认的是**工作声明的那一块标题行**（`### … **BUG-0020 …**`）—— 别处提一句文件路径不算声明。
+    claim_line = ""
+    for ln in read(CLAIM).splitlines():
+        if ln.startswith("### ") and "**BUG-0020 " in ln:
+            claim_line = ln
+            if "流水" in ln:
+                break
+    c.present("工作声明里记了这条活（含「流水」）", claim_line, r"流水")
+    c.present("反验脚本里留了本单号", read(REVERSE), r"BUG-0020")
 
     print("\n" + "=" * 60)
     if c.fails:

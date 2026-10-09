@@ -1,7 +1,7 @@
 """AI 操作流水（CHG-0082）判据的反向验证：逐条注入「看起来没问题」的坏改法，确认判据真的会红。
 
 ## 为什么必须有这一份
-`_check_ai_operation_log.py` 有 106 项，全部是静态形状判据（读源码、比对字符串）。静态判据最危险
+`_check_ai_operation_log.py` 有 111 项，全部是静态形状判据（读源码、比对字符串）。静态判据最危险
 的失效方式不是「写错」，而是**空转**：正则写宽了、扫描窗口挪了、文件改名了 —— 判据照样打印 [OK]，
 而它其实什么都没查。唯一能证伪「空转」的办法就是**故意做出它要抓的那种错，看它会不会红**。
 
@@ -9,6 +9,10 @@
 每条注入都要求它的原文在该文件里**恰好出现一次**（`count(old) == 1`）：多于一次说明锚点不唯一
 （可能改错地方），零次说明源码已经变了、这条注入**根本没生效**。后者若静默放过，就会出现
 「判据没红、但也没人改过代码」的假绿 —— 所以两种都记 `[SKIP]` 并计入失败。
+
+## 本单（BUG-0020 / 台账 L-58）
+读动作落进「AI 操作流水」页之后只有英文 id：动作名只认写动作表。第 9 节守的是文书与登记，
+所以本脚本最后五条注入（㉜~㊱）专门去动 `docs/changes/BUG-0020.md`、登记簿与工作声明。
 
 ## 为什么不用 CREATIONS / DELETIONS
 本脚本覆盖的判据全都钉在**显式文件路径**上（没有一处清单是 glob 出来的），挪走文件不会让判据变红，
@@ -175,7 +179,7 @@ AI_OPERATION_TABLES = ("ai_operation_logs",)""",
         "android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiOperationRows.kt",
         '        return if (title == id) id else title + "（" + id + "）"',
         '        return "第 " + id + " 次动作"',
-        "动作名认得出",
+        "认得出 → 中文名",
     ),
     # ⑰ 函数名撞回属性 setter：Kotlin 编译不过（Platform declaration clash）—— 这条守的是「别人后来改名」
     (
@@ -251,7 +255,97 @@ AI_OPERATION_TABLES = ("ai_operation_logs",)""",
         "            run {\n                when (name) {\n                    SEARCH_SHIPPER -> ClientOrigin.asAi(name) { searchShipper(args) }",
         "套在 when 分发的外面",
     ),
+
+    # ㉖ 读动作那一支被删：读目录的规范名（invoices.list_invoices 这类）又只剩英文 id
+    #    —— 正是台账 L-58 在真机上抓到的那一版（shots/63_ai_log_read_rows.png）
+    (
+        "读目录那一支被删（读动作又只剩英文 id）",
+        "android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiOperationRows.kt",
+        "        AiReadCatalog.find(id)?.let { return readTitle(it.cn) }",
+        "        // AiReadCatalog.find(id)?.let { return readTitle(it.cn) }",
+        "三张表依次认",
+    ),
+    # ㉗ 工具那一支改成直接回 id：工具驱动的行（inventory_alerts 这类）也只剩英文 id
+    (
+        "工具短名那一支被拆掉",
+        "android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiOperationRows.kt",
+        "        return AiTools.titleOf(id)",
+        "        return id",
+        "三张表依次认",
+    ),
+    # ㉘ 短名不剥了：把读目录那一整句话（几十个字）印进流水列，一列挤满、还看不出是什么动作
+    (
+        "读目录说明不剥短名（整句印进流水列）",
+        "android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiOperationRows.kt",
+        '        val short = cn.substringBefore("（").substringBefore("(").trim()',
+        "        val short = cn.trim()",
+        "第一个括号之前的短名",
+    ),
+    # ㉙ 兜底删掉：说明以括号开头时这一列会变成**空白**（比英文 id 更坏 —— 看起来"没有动作"）
+    (
+        "短名剥空了不退回整句",
+        "android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiOperationRows.kt",
+        "        return short.ifEmpty { cn.trim() }",
+        "        return short",
+        "剥空了退回整句",
+    ),
+    # ㉚ 把断言那一行**注释掉**（不是删掉）：判据用 code_only 才抓得住 ——
+    #    这条守的是判据自己（2026-10-09 之前它读的是 raw 文本，注释也算数）
+    (
+        "把「中文名（动作 id）」那一行注释掉",
+        "android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiOperationRows.kt",
+        '        return if (title == id) id else title + "（" + id + "）"',
+        '        // return if (title == id) id else title + "（" + id + "）"',
+        "认得出 → 中文名",
+    ),
+    # ㉛ 工具短名表少一条：那个工具在流水页与设置页都只剩英文 id（其余九条照样有中文名，最容易漏）
+    (
+        "工具短名表少一条（库存报警）",
+        "android/app/src/main/java/com/tapmoay/sorders/ai/AiTools.kt",
+        '            INVENTORY_ALERTS to "库存报警",\n',
+        "",
+        "短名表里都有中文名",
+    ),
+
+    # ㉜~㊱ BUG-0020（台账 L-58）的**文书与登记**那一节（判据第 9 节）：代码改了而文书/登记没跟上，
+    #    等于这件事没做完 —— 这几条守的是「文书那边也有机器在看」。
+    (
+        "登记簿里没有本单号（代码改了、登记没跟上）",
+        "docs/changes/README.md",
+        "| `BUG-0020` | BUG |",
+        "| `BUG-0099` | BUG |",
+        "登记簿表格里记了这条活",
+    ),
+    (
+        "工作声明里没有本单号",
+        "docs/AI_WORK_CLAIM.md",
+        "**BUG-0020 AI 操作流水页的读动作只有英文 id",
+        "**BUG-0099 AI 操作流水页的读动作只有英文 id",
+        "工作声明里记了这条活（含「流水」）",
+    ),
+    (
+        "变更单缺了最后一节（六格没填）",
+        "docs/changes/BUG-0020.md",
+        "## ⑨ 关闭（六格）",
+        "## ⑨ 关闭",
+        "变更单有「## ⑨",
+    ),
+    (
+        "变更单里改前那份真机证据被抹掉",
+        "docs/changes/BUG-0020.md",
+        "> 改前的真机证据是 `shots/63_ai_log_read_rows.png`。",
+        "> 改前的真机证据（略）。",
+        "变更单留了改前的真机证据",
+    ),
+    (
+        "执行器里把本单号抹掉（以后追不回是哪条台账）",
+        "android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiOperationRows.kt",
+        "台账 L-58 / BUG-0020",
+        "台账 L-58",
+        "执行器里留了本单号",
+    ),
 ]
+
 
 
 def read_src(rel: str) -> tuple[str, bool]:
