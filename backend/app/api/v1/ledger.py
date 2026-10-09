@@ -35,6 +35,7 @@ from app.services.ledger_sync import (
     sync_delivered_orders_to_ledger,
     sync_order_product_from_ledger,
 )
+from app.services.money_text import money_text
 from app.services.operation_log_service import write_log
 from app.services.soft_delete import dialable_phone
 from app.core import outbox
@@ -133,10 +134,14 @@ def _reject_if_order_closed(db: Session, row: Ledger, *, wants_detail: bool, wha
         )
 
 
-def _money(value: Decimal) -> str:
-    """金额只用来拼**报错文案**（两位小数）：`Decimal("20.0000")` → `20.00`。"""
-    return f"{Decimal(value):.2f}"
+def _money(value) -> str:
+    """金额只用来拼**报错文案**（给人看：与三端同一个显示口径，去尾零）。
 
+    `Decimal("20.0000")` → `20`；`Decimal("56.70")` → `56.7`；`Decimal("56.77")` → `56.77`。
+    原来这里自己拼了一遍「两位小数」的写法，与用户 2026-09-22 定的「印给人看的金额去掉
+    末尾多余的 0」相冲突（`_tools/qa/_check_money_display.py` 会红，见 BUG-0030）。
+    """
+    return money_text(value)
 
 def resolve_line_total(
     source: LedgerSource,
