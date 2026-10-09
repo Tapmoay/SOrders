@@ -43,7 +43,7 @@
 
 `判据 / 反验`：`python _tools/qa/_check_order_list_ui.py` ⇒ **113/113 全过（exit 0）**；`python _tools/qa/_reverse_verify_order_list_ui.py` ⇒ **32/32 全部报红 ＋ 被碰过的文件逐字节还原**；单测 `OrderEmptyHintTest` **8 档**（全量 `:app:testEmuDebugUnitTest` ⇒ 102 个类 / tests=1444 / failures=0 / errors=0 / skipped=2）；编译 `:app:assembleEmuDebug` ⇒ **BUILD SUCCESSFUL in 1m 1s**。
 
-- 状态：✅ **已完成**（2026-10-09 立项并关闭；变更单 `docs/changes/CHG-0099.md`；台账 **TA-01**；Blast Radius **L1 —— 两个订单列表页的空态文案**；提交 ⟪HASH⟫）。
+- 状态：✅ **已完成**（2026-10-09 立项并关闭；变更单 `docs/changes/CHG-0099.md`；台账 **TA-01**；Blast Radius **L1 —— 两个订单列表页的空态文案**；提交 74a6ade）。
 - 真机：`emulator-5554`（派单员 13800000001，1080×2400）—— 工作台 → 订单管理 → 搜 `SO202610095032003138` ⇒ 空态原文「「派单中」里没搜到 —— 这一页只看「派单中」，点页签「全部」可以搜别的状态」（`shots/78_CHG-0099_空态_派单中里没搜到.png`）；点页签「全部」再搜 ⇒ 卡片立刻出现（`shots/79_CHG-0099_切到全部就搜到了.png`，`TA测试地址-派单池件数校验` / 已派单 / ¥44.1）。
 - 核心改动：**无** —— 为什么：改的 `ui/common/OrderWindowViewModel.kt`、`ui/dispatcher/DispatcherOrdersScreen.kt`、`ui/shipper/ShipperOrdersScreen.kt` 与新建的两个文件都不在 `_tools/qa/_core_files.txt` 里。
 
