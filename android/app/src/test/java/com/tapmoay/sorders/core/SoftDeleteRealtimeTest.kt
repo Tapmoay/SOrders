@@ -3,6 +3,7 @@ package com.tapmoay.sorders.core
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -59,7 +60,10 @@ class SoftDeleteRealtimeTest {
     fun `缺单号时也能认出来但不冒充某一张单`() {
         val ev = NewOrderAlert.eventOf("order.deleted", null)
         assertNotNull("缺单号只该丢掉去重键里的编号，不该整条丢掉", ev)
-        assertEquals(-1L, ev!!.orderId)
+        // 单号缺失时 orderId 保持 null（"不知道是哪一单"，与 assigned / pending 两个分支同一约定），
+        // 只有去重键里的编号退化成哨兵 -1 —— 别把哨兵写进 orderId，那会冒充成"第 -1 单"。
+        assertNull("缺单号时不冒充某一张单", ev!!.orderId)
+        assertEquals("revoked:-1", ev.dedupeKey)
         assertFalse(ev.dedupeKey == NewOrderAlert.eventOf("order.deleted", 9L)!!.dedupeKey)
     }
 
