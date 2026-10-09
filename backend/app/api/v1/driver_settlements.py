@@ -91,6 +91,10 @@ def create_settlement(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     # 建结算单＝把一批「待结」明细锁进一张单子（钱虽未出，但已经不能再被第二张单占用），必须留痕。
+    # 「锁」在建单当刻**真的发生**（2026-10-10 BUG-0024 修的就是这句注释与行为相反）：
+    #   服务层立刻把这几行的 `driver_bills.settled_doc_id` 写成这张单的 id（状态仍 open ——
+    #   钱一分没出，confirm 才翻 settled），于是第二张草稿单取数时**取不到**它们：
+    #   同一笔明细不可能同时挂在两张未作废的结算单上；作废草稿单会把锁放回待结。
     # ⚠️ 先 flush 拿到 id：`write_log` 里要写 `settlement_id`，不 flush 的话 `s.id` 还是 None
     #    （实测踩到：日志写成了 `{"settlement_id": null}`，等于这条痕迹查不回是哪张单）。
     db.flush()
