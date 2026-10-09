@@ -43,7 +43,7 @@
 
 `判据 / 反验`：`python _tools/qa/_check_low_sat_palette.py` ⇒ **105/105 通过**；`python _tools/qa/_reverse_verify_low_sat_palette.py` ⇒ **52/52 条注入都证明这条红线真的在检查**（12 个被注入的文件逐字节还原）。单测：`gradle.bat -p android :app:testEmuDebugUnitTest` ⇒ **104 个类 / 1468 条 / 0 失败 / 0 错误 / 2 跳过**（其中 `ThemePaletteTest` 7 档、`ModulesEntryTest` 全过）。
 
-- 状态：⏳ **进行中**（2026-10-09 立项；变更单 `docs/changes/CHG-0101.md`；台账 **L-64**；Blast Radius **L0 —— 展示层**；提交 ⟪HASH⟫）。
+- 状态：✅ **已完成**（2026-10-09 立项 · 2026-10-10 关闭；变更单 `docs/changes/CHG-0101.md`；台账 **L-64**；Blast Radius **L0 —— 展示层**；提交 `44127ea`）。
 - 真机：`shots/chg0101_01_grid.png`（工作台 19 格）／`shots/chg0101_02_order.png`（待派单池订单卡）／`shots/chg0101_03_ai.png`（AI 助手）；`emulator-5554`（1080×2400，density 440 ⇒ 1dp = 2.75px）
 - 核心改动：**无** —— 为什么：改的 `ui/theme/Color.kt`、`ui/nav/Modules.kt`、`ui/**` 下 27 个用色文件、`android/app/src/test/java/com/tapmoay/sorders/ui/theme/ThemePaletteTest.kt` 与 `_tools/qa/` 那几十份脚本都不在 `_tools/qa/_core_files.txt` 里（本单一个字都没碰那份清单里的任何文件；`Color.kt` 是主题 token，不是核心契约）。
 
