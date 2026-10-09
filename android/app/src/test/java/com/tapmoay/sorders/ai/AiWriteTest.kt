@@ -1525,6 +1525,12 @@ class AiWriteTest {
         // 连点、状态竞争都能绕过界面，绕不过 take()。
         assertTrue("第二次应当被拒，实际是 $second", second is AiWriteOutcome.Rejected)
         assertEquals(1, r.ds.expenses.size)
+        // 拒绝的口气必须说准（BUG-0021）：第一下**真的写进去了**，所以这一句要承认它。
+        // ⛔ 不许说成"什么都没写"——用户会以为钱没记上，转头手工再补一笔。
+        val again = rejected(second)
+        assertTrue("应当承认已经写进去了：${again.reason}", again.alreadyWritten)
+        assertTrue("要说「已经写进去了」：${again.reason}", "已经写进去了" in again.reason)
+        assertFalse("不许说「什么都没写」：${again.reason}", "什么都没写" in again.reason)
     }
 
     @Test
@@ -1537,8 +1543,12 @@ class AiWriteTest {
         val card = ok(svc.preview(AiWrites.EXPENSES_CREATE, expenseParams()))
         clock += 5_001L
 
-        assertTrue(svc.execute(card.token) is AiWriteOutcome.Rejected)
+        val out = rejected(svc.execute(card.token))
         assertEquals(0, ds.expenses.size)
+        // 没写进去的那一支必须**明说"什么都没写"**（BUG-0021）：用户看到「没写成」时，
+        // 最想知道的就是"到底动没动我的账"，含糊一句他就得自己去翻账本。
+        assertFalse("过期的卡不许说成写过了：${out.reason}", out.alreadyWritten)
+        assertTrue("应当明说没写：${out.reason}", "什么都没写" in out.reason)
     }
 
     @Test
@@ -1547,8 +1557,10 @@ class AiWriteTest {
         val card = ok(r.svc.preview(AiWrites.EXPENSES_CREATE, expenseParams()))
 
         assertTrue(r.store.cancel(card.token))
-        assertTrue(r.svc.execute(card.token) is AiWriteOutcome.Rejected)
+        val out = rejected(r.svc.execute(card.token))
         assertEquals(0, r.ds.expenses.size)
+        assertFalse("取消过的卡不许说成写过了：${out.reason}", out.alreadyWritten)
+        assertTrue("应当明说没写：${out.reason}", "什么都没写" in out.reason)
     }
 
     @Test
@@ -1926,6 +1938,12 @@ class AiWriteTest {
         // 而不是一个还能再点的按钮——后者会让他在不确定"上次到底写没写"的情况下再点一次。
         assertTrue(again is AiWriteOutcome.Rejected)
         assertEquals(0, r.ds.expenses.size)
+        // ⛔ 这里要**反着说一遍**（BUG-0021）：写失败那一次 token 也被 take 走了，
+        // 但绝不能因此把第二次点击谎报成「已经写进去了」——那是一句更贵的错话
+        // （用户以为钱记上了，而库里两边都没有）。
+        val out = rejected(again)
+        assertFalse("写失败以后不许说已经写进去了：${out.reason}", out.alreadyWritten)
+        assertTrue("应当明说没写：${out.reason}", "什么都没写" in out.reason)
     }
 
     @Test

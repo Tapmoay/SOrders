@@ -284,7 +284,9 @@ class AiChatViewModel(private val ai: AiContainer) : ViewModel() {
      * 用户点了「确认」→ **这里才是真正写业务数据的地方**。
      *
      * [AiWriteService.execute] 里的 `take` 是取走并删除，所以这个函数被连点两次时，
-     * 第二次一定拿不到卡（返回"已经执行过或已过期"），不会写两遍。
+     * 第二次一定拿不到卡，不会写两遍。第二次的回执分两种说法（BUG-0021）：
+     * 第一次**真的写进去了** → 「ℹ️ 这一次已经写进去了…」；其余（过期 / 取消 / 重启）→
+     * 「⚠️ 没写成：…什么都没写…」。⛔ 别把前者也冠上「没写成」——那是在说谎。
      */
     fun confirmWrite(token: String) {
         if (writeBusy != null) return
@@ -305,7 +307,14 @@ class AiChatViewModel(private val ai: AiContainer) : ViewModel() {
                     undoToken = outcome.undoToken,
                     undoLabel = outcome.undoLabel,
                 )
-                is AiWriteOutcome.Rejected -> appendLocal("⚠️ 没写成：" + outcome.reason, isError = true)
+                // 已经写进去过的那种"拒绝"不是失败：它是连点第二下的回执。
+                // 冠上「没写成」会让用户以为钱没记上（BUG-0021），所以换成陈述口气。
+                is AiWriteOutcome.Rejected ->
+                    if (outcome.alreadyWritten) {
+                        appendLocal("ℹ️ " + outcome.reason)
+                    } else {
+                        appendLocal("⚠️ 没写成：" + outcome.reason, isError = true)
+                    }
                 // execute 不该返回 NeedConfirm；真出现了就把它摆回卡片上，别静默吞掉
                 is AiWriteOutcome.NeedConfirm -> refreshPendingWrites()
             }

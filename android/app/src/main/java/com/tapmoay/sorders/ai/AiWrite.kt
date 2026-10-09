@@ -246,6 +246,13 @@ class AiWritePreviewStore(
     private val lock = Any()
     private val items = ArrayList<AiPendingWrite>(2)
 
+    /**
+     * 已经**真的写进去过**的 token（见 [markWritten]）。只用来把回执说准，不做权限判定。
+     *
+     * 只留最近 [DONE_KEEP] 个：连点、来回切对话都是短时间内的动作，8 个够覆盖。
+     */
+    private val doneTokens = LinkedHashSet<String>()
+
     /** 登记一次待确认，返回它（含 token）。超过 [maxPending] 时丢**最旧**的。 */
     fun offer(
         actionId: String,
@@ -351,12 +358,42 @@ class AiWritePreviewStore(
         items.toList()
     }
 
-    /** **取走并删除**。返回 null = token 不存在 / 已用过 / 已过期。 */
+    /**
+     * **取走并删除**。返回 null = token 不存在 / 已用过 / 已过期。
+     *
+     * ⚠️ 这三种原因**必须由调用方分开说**（[hasWritten]）：对一笔钱的写操作，
+     *    "已经写进去了"和"什么都没写"是两句完全不同的话，合成一句就是在骗用户（BUG-0021）。
+     */
     fun take(token: String): AiPendingWrite? = synchronized(lock) {
         pruneLocked()
         val i = items.indexOfFirst { it.token == token }
         if (i < 0) null else items.removeAt(i)
     }
+
+    /**
+     * 记下"这一张卡已经**真的写进去了**"（`AiWriteService.execute` 在 commit 成功后调）。
+     *
+     * ### 为什么要有它（BUG-0021）
+     * [take] 返回 null 有三种原因（token 不存在 / 已经用过 / 已经过期），而 `execute` 原来把它们
+     * **合成一句**「这次操作已经执行过、或者已经过期」，界面上还加了「⚠️ 没写成：」的前缀 ——
+     * 对一笔钱的写操作，用户点完确认读到的是自相矛盾的两半：钱到底记没记上？
+     *
+     * 所以写成功这一刻把 token 记下来，[hasWritten] 只回答"是它吗"；记不下的 token 一律是
+     * **什么都没写**（过期 / 取消 / App 重启 / 新开对话 / 写失败），那句话才说得准。
+     *
+     * ⛔ 只准在**写成功之后**调：写失败（后端 500 / 断网 / 超时）时 token 已经被 [take] 取走了，
+     *    这时记下它，第二次点击会被谎报成"已经写进去了"——比不说还糟（有单测钉着）。
+     */
+    fun markWritten(token: String) {
+        synchronized(lock) {
+            doneTokens.remove(token)
+            doneTokens += token
+            while (doneTokens.size > DONE_KEEP) doneTokens.remove(doneTokens.first())
+        }
+    }
+
+    /** 这个 token 是不是**已经写成功过**（[markWritten] 记的）。false = 什么都没写。 */
+    fun hasWritten(token: String): Boolean = synchronized(lock) { token in doneTokens }
 
     /** 用户点了取消。返回是否真的取消掉了一个（false = 已经没了）。 */
     fun cancel(token: String): Boolean = synchronized(lock) {
@@ -380,6 +417,14 @@ class AiWritePreviewStore(
 
         /** 最多同时挂几张卡片。超过就丢最旧的（正常一次只会有一张）。 */
         const val MAX_PENDING: Int = 4
+
+        /**
+         * 记住多少个"已经写进去了"的 token（见 `AiWritePreviewStore.markWritten`）。
+         *
+         * 这个集合只用来把回执说准（连点第二下时承认"已经写进去了"），8 个足够覆盖
+         * "连点 / 来回切对话"这种真实节奏，又不至于在长会话里一直涨。
+         */
+        const val DONE_KEEP: Int = 8
 
         private val seq = AtomicLong(0)
 
@@ -419,8 +464,14 @@ sealed interface AiWriteOutcome {
      * 没做，而且不该重试。
      *
      * @param candidates 名字对上了多个时的**候选名字**（绝不是编号），让模型去问用户是哪一个。
+     * @param alreadyWritten true = 这一次**其实已经写进去了**（同一张确认卡被点了第二次）。
+     *   界面据此换一种口气说（不再冠「没写成」）——否则用户会以为那笔钱没记上（BUG-0021）。
      */
-    data class Rejected(val reason: String, val candidates: List<String> = emptyList()) : AiWriteOutcome
+    data class Rejected(
+        val reason: String,
+        val candidates: List<String> = emptyList(),
+        val alreadyWritten: Boolean = false,
+    ) : AiWriteOutcome
 }
 
 /**

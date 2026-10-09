@@ -657,6 +657,39 @@ def main() -> int:
     c.present("参数完全相同的重复申请复用同一张卡（消灭重复写入路径）", wr, r"it\.actionId == actionId && it\.payload == payload")
     c.present("确认卡有过期时间", wr, r"const val DEFAULT_TTL_MS")
 
+    # ---- 2d-3b 拿不到卡的时候，两种话必须分开说（BUG-0021）----
+    #
+    # 真机原样（2026-10-10 复现）：用户点确认时卡片已经过期，聊天页回的是
+    # 「⚠️ 没写成：这次操作已经执行过、或者已经过期（确认卡 5 分钟内有效）。请重新发起。」
+    # —— 前缀说"没写"，正文说"也许已经写了"。对一笔钱的写操作，用户只有一个问题
+    #（"我的账到底动没动？"），而这句话把两个答案一起给了他。
+    #
+    # 数据层上三种原因确实是同一件事（`take` 返回 null）：token 不存在 / 已经用过 / 已经过期。
+    # 但**说给用户听的时候必须分开**，而分开的前提是"写成功那一刻把它记下来"。
+    # ⚠️ 这一组全部在**去掉注释**的源码上做（`strip_comments`）：上面那段"为什么"的说明本身
+    #    就写着旧句子的原文，直接扫原文会让"旧话不许回来"那条永远红（假阳性）。
+    wsvc_code = strip_comments(wsvc)
+    c.present(
+        "写成功之后记下 token（这是分得开「已经写进去了」与「什么都没写」的唯一依据）",
+        wr,
+        r"fun markWritten\(token: String\)",
+    )
+    c.present("并且能问「这个 token 写过没有」", wr, r"fun hasWritten\(token: String\): Boolean")
+    c.present("拒绝回执带了「是不是已经写进去了」这一位", wr, r"val alreadyWritten: Boolean = false")
+    c.present(
+        "记的时机在 commit **之后**（写失败那一支不许记，否则第二次点击会被谎报成写过了）",
+        wsvc_code,
+        r'handler\.commit\(p\.payload, "ai-" \+ token\) \}\n\s*store\.markWritten\(token\)',
+    )
+    c.present("连点第二下时承认「已经写进去了」", wsvc_code, r"这一次已经写进去了")
+    c.present("过期 / 取消 / 重启那一支明说「什么都没写」", wsvc_code, r"这一次什么都没写")
+    c.absent("⛔ 那句两半互相打架的旧话不许回来", wsvc_code, r"这次操作已经执行过、或者已经过期")
+    c.present(
+        "界面按「写过没有」换口气（已经写进去的不许再冠「没写成」）",
+        vm,
+        r"if \(outcome\.alreadyWritten\)",
+    )
+
     # ---- 2d-4 token 与 payload：模型碰不到 ----
     c.present("token 由 App 生成", wr, r"private fun randomToken\(\): String")
     c.present(

@@ -1227,12 +1227,28 @@ class AiWriteService(
      * [AiWritePreviewStore.take] 是**取走并删除**，所以同一个 token 调第二次一定拿不到
      * （返回 Rejected），不可能写两遍。这是"连点两下确认"的防线——
      * 靠界面禁用按钮是不够的（连点、状态竞争都能绕过去），必须由数据层保证。
+     *
+     * ⚠️ 拿不到卡的时候**必须说准是哪一种**（BUG-0021）：写成功过的
+     *    （[AiWritePreviewStore.hasWritten]，也就是用户连点了两下）说「已经写进去了」；
+     *    其余（过期 / 取消 / App 重启 / 新开对话）一律说「什么都没写」。
+     *    合成一句「已经执行过、或者已经过期」是在让用户猜钱记没记上。
      */
     suspend fun execute(token: String): AiWriteOutcome {
         val p = store.take(token)
-            ?: return AiWriteOutcome.Rejected(
-                "这次操作已经执行过、或者已经过期（确认卡 ${AiWritePreviewStore.DEFAULT_TTL_MS / 60000} 分钟内有效）。请重新发起。",
+        if (p == null) {
+            // 连点第二下的那一支：第一下真的写进去了，这一下不能再写，也不该说"没写成"。
+            if (store.hasWritten(token)) {
+                return AiWriteOutcome.Rejected(
+                    "这一次已经写进去了（同一张确认卡只生效一次），没有写第二遍。" +
+                        "要改回来的话，点上面那条「撤回」；没有撤回按钮就是这个动作撤不回来。",
+                    alreadyWritten = true,
+                )
+            }
+            return AiWriteOutcome.Rejected(
+                "这张确认卡已经失效了（有效期 ${AiWritePreviewStore.DEFAULT_TTL_MS / 60000} 分钟，" +
+                    "App 重启或新开对话也会清掉），这一次什么都没写。要办的话请重新发起。",
             )
+        }
         val handler = handlers[p.actionId]
             ?: return AiWriteOutcome.Rejected("操作「${p.title}」没有执行入口。")
         // 预览时查过一次，执行时**再查一次**：角色可能在两次之间变了
@@ -1283,6 +1299,10 @@ class AiWriteService(
             //    后端那本「AI 操作流水」要写得下「AI 干的是哪件事」，而不是只有一个 URL 路径 ——
             //    而动作 id 这一行正好就在手上（`p.actionId`，上面刚用它查出 handler）。
             ClientOrigin.asAi(p.actionId) { handler.commit(p.payload, "ai-" + token) }
+            // 写成功这一刻才记下 token（BUG-0021）：上面这句抛异常时**不能**记，
+            // 否则用户重试同一张卡会被谎报成「已经写进去了」；记下之后，连点第二下
+            // 拿到的那句回执才说得准（见本函数开头）。
+            store.markWritten(token)
             // 批量动作（按表格调价）会在这里补一句**逐行结果**；其余动作返回 null，行为不变。
             // 少了这一句，20 行里失败的 2 行会被"已完成"盖住——那正是最坏的一种反馈。
             val note = handler.commitNote()
