@@ -266,7 +266,7 @@ MUTATIONS = [
     (
         "「下单人」的值不再是绿色（推翻用户 2026-09-22 点名要的那个颜色）",
         DETAIL,
-        "                            color = if (bossWho != null) androidx.compose.ui.graphics.Color(0xFF00B578)\n"
+        "                            color = if (bossWho != null) androidx.compose.ui.graphics.Color(0xFF567A5F)\n"
         "                                else MaterialTheme.colorScheme.onSurfaceVariant,\n"
         "                        )\n"
         "                        if (canEditInfo) EditHint(onClick = { edit.startEdit(OrderEditField.BOSS) })\n",

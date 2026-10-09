@@ -43,16 +43,21 @@ class ProductCardKitTest {
 
     @Test
     fun `到报警线是黄的`() {
-        assertEquals(Color(0xFFFFB300), productStockColor(stock = 5, lowStockAlert = 10))
-        assertEquals(Color(0xFFFFB300), productStockColor(stock = 10, lowStockAlert = 10))
+        // ⚠️ CHG-0101（2026-10-09 用户三张配色图）把这两个色换成低饱和的那套：
+        //    黄 0xFFFFB300 → 0xFFC8B270（＝ ProgressYellow 订单管理那格的卡其）、
+        //    青 0xFF00BCD4 → 0xFF6BA6AE（＝ OriginTeal 起点那个雾青）。
+        //    ⛔ 色值跟着换是对的，但**判据本身一个字没动**：断货红 / 报警黄 / 正常青
+        //    这三档的语义与优先级是这条用例在守的东西（换色不该顺手把它放宽）。
+        assertEquals(Color(0xFFC8B270), productStockColor(stock = 5, lowStockAlert = 10))
+        assertEquals(Color(0xFFC8B270), productStockColor(stock = 10, lowStockAlert = 10))
     }
 
     @Test
     fun `报警线为零表示不报警而不是阈值为零`() {
         // 少了 lowStockAlert > 0 这个前置条件的话，库存 3 件会被判成"到报警线了"（黄），
         // 而 0 表示的是"这个商品不设报警线"
-        assertEquals(Color(0xFF00BCD4), productStockColor(stock = 3, lowStockAlert = 0))
-        assertEquals(Color(0xFFFFB300), productStockColor(stock = 3, lowStockAlert = 10))
+        assertEquals(Color(0xFF6BA6AE), productStockColor(stock = 3, lowStockAlert = 0))
+        assertEquals(Color(0xFFC8B270), productStockColor(stock = 3, lowStockAlert = 10))
     }
 
     @Test

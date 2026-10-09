@@ -112,7 +112,7 @@ fun AlertSettingsScreen(
             if (voiceKind != null) {
                 SwitchRow(
                     icon = Icons.Default.NotificationsActive,
-                    color = Color(0xFFFF4D4F),
+                    color = Color(0xFFCA454E),
                     title = "新单语音提醒",
                     subtitle = if (role == Role.DISPATCHER) {
                         "有订单需要派时大声念「有新订单待派单」"
@@ -152,7 +152,7 @@ fun AlertSettingsScreen(
                         )
                     },
                     leadingContent = {
-                        TintedIcon(Icons.Default.PlayCircle, Color(0xFF00B578), size = 18.dp, container = 34.dp)
+                        TintedIcon(Icons.Default.PlayCircle, Color(0xFF567A5F), size = 18.dp, container = 34.dp)
                     },
                     modifier = Modifier
                         .clickable {
@@ -166,7 +166,7 @@ fun AlertSettingsScreen(
                 HorizontalDivider()
                 SwitchRow(
                     icon = Icons.Default.VolumeUp,
-                    color = Color(0xFFFF9500),
+                    color = Color(0xFFC9855A),
                     title = "响的时候自动提高音量",
                     subtitle = "手机音量太低时临时提到 80%，念完恢复原样",
                     checked = boost,
@@ -222,7 +222,7 @@ fun AlertSettingsScreen(
                             )
                         },
                         leadingContent = {
-                            TintedIcon(Icons.Default.NotificationsActive, Color(0xFF00B578), size = 18.dp, container = 34.dp)
+                            TintedIcon(Icons.Default.NotificationsActive, Color(0xFF567A5F), size = 18.dp, container = 34.dp)
                         },
                     )
                 }
@@ -326,7 +326,7 @@ private fun WarnCard(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            TintedIcon(icon, Color(0xFFFF9500), size = 18.dp, container = 34.dp)
+            TintedIcon(icon, Color(0xFFC9855A), size = 18.dp, container = 34.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)

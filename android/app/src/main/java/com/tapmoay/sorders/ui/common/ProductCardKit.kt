@@ -111,17 +111,26 @@ fun productNameColor(raw: String?): Color = try {
     FallbackNameColor
 }
 
-/** 商品名颜色的兜底值（与后端/老数据一致：物流蓝 `#1565C0`）。 */
-const val DEFAULT_PRODUCT_NAME_COLOR = "#1565C0"
+/**
+ * 商品名颜色的兜底值。
+ *
+ * ⚠️ CHG-0101（2026-10-09，用户三张参考图）把它从物流蓝 `#1565C0` 换成了
+ *    低饱和雾蓝 `#5C7590`（与账本/报表的"流出蓝"`CashOut` 同值）。理由两条：
+ *    ① 用户点名的口径是低饱和、不刺眼，`#1565C0` 是旧的高饱和一族；
+ *    ② `#1565C0` 正是旧 `CashOut` —— 一个色在"设计 token 已换"之后还留在数据兜底里，
+ *       下次有人对着截图找"哪来的旧蓝"会找很久。
+ * ⛔ 这是**兜底值**：后端/老数据自己带 `name_color` 时一律按它渲染（见上面那个 try）。
+ */
+const val DEFAULT_PRODUCT_NAME_COLOR = "#5C7590"
 
 /** [DEFAULT_PRODUCT_NAME_COLOR] 的 `Color` 形态（`const` 里不能调 `toInt()`，所以单列一个）。 */
-private val FallbackNameColor = Color(0xFF1565C0)
+private val FallbackNameColor = Color(0xFF5C7590)
 
 // 库存那三个颜色：**判据的配色跟着判据走**（放在这里，别散回各页面）。
 // 「库存管理」的模块语义色是蓝青 #00BCD4（与 `Modules.kt` 里那一格同色：跨端同功能同色）。
 private val StockOutRed = Color(0xFFE53935)
-private val StockLowYellow = Color(0xFFFFB300)
-private val StockOkCyan = Color(0xFF00BCD4)
+private val StockLowYellow = Color(0xFFC8B270)
+private val StockOkCyan = Color(0xFF6BA6AE)
 
 /**
  * 库存这个数字用什么颜色 —— **它不是装饰，是"这一行要你处理"的信号**
@@ -190,7 +199,7 @@ fun productReservedFact(reserved: Int, unit: String?): ProductFact = ProductFact
 )
 
 /** 占用数量的颜色（挂账单位模块色 `#FF6B2C`）。 */
-private val ReservedOrange = Color(0xFFFF6B2C)
+private val ReservedOrange = Color(0xFFBE5F4A)
 
 /**
  * 库存状态角标的**文案**（`null` = 这个状态不出角标）。

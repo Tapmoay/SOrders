@@ -261,7 +261,7 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "㉙ 删除那颗又写成裸十六进制",
         P_PANEL,
         "tint = Color(MessageRed),",
-        "tint = Color(0xFFFF4D4F),",
+        "tint = Color(0xFFCA454E),",
         "删除那颗用 MessageRed（⛔ 不是裸色值）",
     ),
     (
@@ -295,8 +295,8 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "㉞ 账户棕不再是 token",
         P_COLOR,
-        "val AccountBrown = 0xFF8D6E63L",
-        "val AccountBrownX = 0xFF8D6E63L",
+        "val AccountBrown = 0xFF97897FL",
+        "val AccountBrownX = 0xFF97897FL",
         "主题 token 里有 AccountBrown（账户管理：棕）",
     ),
     (
@@ -309,7 +309,7 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "㊱ 宫格那一格与 token 不同值了",
         P_MODS,
-        "color = 0xFF8D6E63L",
+        "color = 0xFF97897FL",
         "color = 0xFF8D6E64L",
         "工作台宫格那一格与 token 同值（一处定义、一处对账）",
     ),

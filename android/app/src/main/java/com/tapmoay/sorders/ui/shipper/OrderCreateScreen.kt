@@ -214,7 +214,7 @@ fun OrderCreateScreen(
                             else "提交订单 ¥" + formatMoney(vm.totalAmount().toString()),
                             onClick = { vm.submit { onCreated() } },
                             enabled = !vm.submitting,
-                            containerColor = Color(0xFF00A56E),
+                            containerColor = Color(0xFF567A5F),
                             icon = Icons.Default.Send,
                             modifier = Modifier.width(200.dp),
                         )
@@ -474,14 +474,14 @@ fun OrderCreateScreen(
                                     Icon(
                                         Icons.Default.CheckCircle,
                                         contentDescription = null,
-                                        tint = Color(0xFF00B578),
+                                        tint = Color(0xFF567A5F),
                                         modifier = Modifier.size(18.dp),
                                     )
                                     Spacer(Modifier.width(6.dp))
                                     Text(
                                         "已在共享库里",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color(0xFF00B578),
+                                        color = Color(0xFF567A5F),
                                     )
                                 }
                                 // ⚠️ 提示必须放在**用户刚点的那一行下面**，不能塞到页面底部的
@@ -493,7 +493,7 @@ fun OrderCreateScreen(
                                     Text(
                                         it,
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color(0xFF00B578),
+                                        color = Color(0xFF567A5F),
                                     )
                                 }
                             }
@@ -615,7 +615,7 @@ fun OrderCreateScreen(
                         placeholder = "请输入手机号",
                         keyboardType = KeyboardType.Phone,
                         icon = Icons.Default.Phone,
-                        iconTint = Color(0xFF00B578),
+                        iconTint = Color(0xFF567A5F),
                     )
                     // P9（2026-10-03 的 E2E 走查）：选线路 / 选地点会**带出**收货人，而带出可能把
                     // 用户刚挑好的那位静默换掉（挑的是人、带出来的是线路/地点上的快照）。
@@ -654,7 +654,7 @@ fun OrderCreateScreen(
                         placeholder = if (vm.proxyMode) "选货主后自动填入" else "选填",
                         keyboardType = KeyboardType.Phone,
                         icon = Icons.Default.Phone,
-                        iconTint = Color(0xFF00B578),
+                        iconTint = Color(0xFF567A5F),
                     )
                     FormTextAreaRow(
                         label = "备注",
@@ -1418,7 +1418,7 @@ private fun SheetRow(
     /** 行尾 `⋮` 里的管理动作（**只有派单员**会给；空 = 不画那个按钮）。 */
     actions: List<RowAction> = emptyList(),
 ) {
-    val headColor = if (isPlace) Color(0xFF00A2C7) else Color(ThemeGreen)
+    val headColor = if (isPlace) Color(0xFF6B8FA6) else Color(ThemeGreen)
     val headIcon = if (isPlace) Icons.Default.Place else Icons.Default.Person
     // ⛔ 2026-09-22 用户：「那个**共享库**…那个**不要用列表的形式**，也使用**卡片**的形式，
     //    就是**类似商品一样**…而且那个共享库那个卡片形式要改一下，**重要的信息要优先显示**」。
@@ -1465,13 +1465,13 @@ private fun SheetRow(
                 )
                 if (!phone.isNullOrBlank()) {
                     Spacer(Modifier.width(8.dp))
-                    Icon(Icons.Default.Call, contentDescription = null, tint = Color(0xFF00B578), modifier = Modifier.size(11.dp))
+                    Icon(Icons.Default.Call, contentDescription = null, tint = Color(0xFF567A5F), modifier = Modifier.size(11.dp))
                     Spacer(Modifier.width(3.dp))
                     Text(phone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
                 if (badge != null) {
                     Spacer(Modifier.width(8.dp))
-                    Text(badge, style = MaterialTheme.typography.labelSmall, color = Color(0xFF8455E6))
+                    Text(badge, style = MaterialTheme.typography.labelSmall, color = Color(0xFF8A7BB0))
                 }
             }
         } else {
@@ -1504,12 +1504,12 @@ private fun SheetRow(
             )
             if (!phone.isNullOrBlank()) {
                 Spacer(Modifier.width(10.dp))
-                Icon(Icons.Default.Call, contentDescription = null, tint = Color(0xFF00B578), modifier = Modifier.size(14.dp))
+                Icon(Icons.Default.Call, contentDescription = null, tint = Color(0xFF567A5F), modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(3.dp))
                 Text(
                     phone,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF00B578),
+                    color = Color(0xFF567A5F),
                     maxLines = 1,
                 )
             }
@@ -1533,7 +1533,7 @@ private fun SheetRow(
             Text(
                 badge,
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF8455E6),
+                color = Color(0xFF8A7BB0),
             )
         }
         }
@@ -1554,7 +1554,7 @@ private fun SheetRowTrailing(hasCoords: Boolean, actions: List<RowAction>) {
         Text(
             "有导航",
             style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFF00B578),
+            color = Color(0xFF567A5F),
             fontWeight = FontWeight.Bold,
         )
     }
@@ -1632,7 +1632,7 @@ fun LineEditDialog(
                     onValueChange = { name = it },
                     placeholder = "商品名",
                     icon = Icons.Default.Inventory2,
-                    iconTint = Color(0xFF8455E6),
+                    iconTint = Color(0xFF8A7BB0),
                 )
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {

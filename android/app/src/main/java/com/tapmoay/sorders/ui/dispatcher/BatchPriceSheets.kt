@@ -102,7 +102,7 @@ fun BatchPriceSheet(
                 Text("批发商", style = MaterialTheme.typography.titleSmall)
                 Surface(
                     shape = MaterialTheme.shapes.small,
-                    color = Color(0xFFF5A623).copy(alpha = 0.12f),
+                    color = Color(0xFFC9A15E).copy(alpha = 0.12f),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Row(

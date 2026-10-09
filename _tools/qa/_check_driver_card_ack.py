@@ -180,8 +180,8 @@ def main() -> int:
               detail, r"modifier = Modifier\.fillMaxWidth\(\)\.height\(56\.dp\)")
     # ⚠️ 详情页那边写的是**全限定名**（那个文件没有 import Color）：两处写法都要认，
     #    否则判据会因为「同一个颜色的两种合法写法」误报。
-    c.present("语义绿 0xFF00B578（详情页那颗；全限定名与 import 两种写法都认）",
-              detail, r"containerColor = (?:androidx\.compose\.ui\.graphics\.)?Color\(0xFF00B578\)")
+    c.present("语义绿 0xFF567A5F（详情页那颗；全限定名与 import 两种写法都认）",
+              detail, r"containerColor = (?:androidx\.compose\.ui\.graphics\.)?Color\(0xFF567A5F\)")
     c.present("状态门还是 ACKABLE",
               detail, r"order\.status in OrderStatusModel\.ACKABLE")
     c.present("图标还是 CheckCircle",
@@ -224,7 +224,7 @@ def main() -> int:
     c.present("整宽 + 56dp（与详情页那颗同高）",
               screen, r"modifier = Modifier\.fillMaxWidth\(\)\.padding\(top = 10\.dp\)\.height\(56\.dp\)")
     c.present("语义绿底 + 白字",
-              screen, r"containerColor = Color\(0xFF00B578\),\s*\n\s*contentColor = Color\.White")
+              screen, r"containerColor = Color\(0xFF567A5F\),\s*\n\s*contentColor = Color\.White")
     c.present("请求在飞时置灰（连点两下 = 后端 400）",
               screen, r"enabled = !locked")
     c.present("在飞的那一张画转圈",

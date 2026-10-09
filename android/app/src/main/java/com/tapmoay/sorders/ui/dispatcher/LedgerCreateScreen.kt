@@ -459,7 +459,7 @@ fun LedgerCreateScreen(container: AppContainer, onBack: () -> Unit, onSaved: () 
                     Modifier.fillMaxWidth().clickable { vm.showShipperPicker = true },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TintedIcon(Icons.Default.Person, Color(0xFF00A2C7), size = 18.dp, container = 36.dp)
+                    TintedIcon(Icons.Default.Person, Color(0xFF6B8FA6), size = 18.dp, container = 36.dp)
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text(

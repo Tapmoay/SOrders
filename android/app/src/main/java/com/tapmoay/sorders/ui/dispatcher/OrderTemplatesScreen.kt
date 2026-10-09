@@ -479,9 +479,9 @@ private fun TemplateCard(
             }
             val receiver = (t.receiverName + " " + t.receiverPhone).trim()
             if (receiver.isNotBlank()) {
-                TemplateFactRow(Icons.Default.Badge, "收货人", receiver, Color(0xFF00B578))
+                TemplateFactRow(Icons.Default.Badge, "收货人", receiver, Color(0xFF567A5F))
             }
-            TemplateFactRow(Icons.Default.Inventory2, "商品", goodsText(t), Color(0xFF8455E6))
+            TemplateFactRow(Icons.Default.Inventory2, "商品", goodsText(t), Color(0xFF8A7BB0))
             TemplateFactRow(
                 Icons.Default.Payments, "参考运费",
                 if (t.freightFee == null) "不预设" else "¥" + formatMoney(t.freightFee),
@@ -601,11 +601,12 @@ private fun goodsText(t: OrderTemplateDto): String {
 private const val GOODS_SHOWN = 3
 
 /**
- * 「预订单」的语义色：**靛蓝**。
+ * 「预订单」的语义色：**雾靛蓝**（CHG-0101 按用户图二量测的 `#617190`）。
  *
- * 与工作台网格里已有的十几个语义色两两 RGB 距离 ≥60（判据在
- * `ui/nav/ModulesEntryTest.kt` 与 `_tools/qa/_check_adaptive_layout.py` 那一线）。
- * ⛔ 别改成接近 `ProductPurple`（紫）或 `ProgressYellow`（订单管理的黄）——
+ * ⚠️ CHG-0101 起跟 `ui/nav/Modules.kt` 里「预订单」那一格**同值**（原来是 `#3949AB`）。
+ * 换色的口径是"整套低饱和"：那个靛蓝在 21 格里是最扎眼的几个之一，
+ * 而这一族的语义是"预设好的订单"，与「代理下单」的雾绿、订单管理的卡其都分得开。
+ * ⛔ 别改成接近 `ProductPurple`（雾紫）或 `ProgressYellow`（订单管理的卡其）——
  * 前者是商品、后者是订单流转，两个都会让人认错格子。
  */
-internal const val TemplateBlue = 0xFF3949ABL
+internal const val TemplateBlue = 0xFF617190L

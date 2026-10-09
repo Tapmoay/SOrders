@@ -39,10 +39,13 @@ NL = chr(10)
 #: 注入：只把**颜色的身份**退回去（换一个同样合法的颜色），类型/编译全都照样通过。
 CASES: list[tuple[str, str, object, str]] = [
     (
-        "主色退回亮蓝：ThemeGreen #00A870 → #1E6FFF",
+        "主色退回亮蓝：ThemeGreen 深红棕 #8B4A4A → #1E6FFF",
         COLOR,
-        lambda s: s.replace("val ThemeGreen = 0xFF00A870L", "val ThemeGreen = 0xFF1E6FFFL", 1),
-        "ThemeGreen = #00A870",
+        # ⚠️ 锚点必须与 `Color.kt` 里**真实写法**逐字一致：这一行**没有** `L` 后缀
+        #    （同一个文件里 ThemeGreenDeep 有、ThemeGreen 没有，历史遗留）。
+        #    写成 `...4AL` 会让这条注入恒 SKIP（锚点判据 `_check_reverse_verify_anchors.py` 会报）。
+        lambda s: s.replace("val ThemeGreen = 0xFF8B4A4A", "val ThemeGreen = 0xFF1E6FFF", 1),
+        "ThemeGreen = #8B4A4A",
     ),
     (
         "NavBlue 的别名断了：全仓 16 处引用不再跟着主色走",
@@ -59,34 +62,35 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "商品块的浅绿底退回近白：ProductRowTint #E6F7EE → #F3F2EF",
         COLOR,
-        lambda s: s.replace("val ProductRowTint = 0xFFE6F7EEL", "val ProductRowTint = 0xFFF3F2EFL", 1),
-        "ProductRowTint = 0xFFE6F7EEL",
+        lambda s: s.replace("val ProductRowTint = 0xFFF0E2DCL", "val ProductRowTint = 0xFFF1EFEAL", 1),
+        "ProductRowTint = 0xFFF0E2DCL",
     ),
     (
-        "深绿数量块的底被提亮：ThemeGreenDeep #0E7A50 → #00A870",
+        "深红棕数量块的底被提亮：ThemeGreenDeep #6E3636 → #8B4A4A",
         COLOR,
-        lambda s: s.replace("val ThemeGreenDeep = 0xFF0E7A50L", "val ThemeGreenDeep = 0xFF00A870L", 1),
-        "ThemeGreenDeep = 0xFF0E7A50L",
+        lambda s: s.replace("val ThemeGreenDeep = 0xFF6E3636L",
+                            "val ThemeGreenDeep = 0xFF8B4A4AL", 1),
+        "ThemeGreenDeep = 0xFF6E3636L",
     ),
     (
         "页面顶那条绿渐变被偷偷加回来（用户当天就撤了它）",
         COLOR,
-        lambda s: s.replace("val ThemeGreenDeep = 0xFF0E7A50L",
-                            "val ThemeGreenDeep = 0xFF0E7A50L\n"
+        lambda s: s.replace("val ThemeGreenDeep = 0xFF6E3636L",
+                            "val ThemeGreenDeep = 0xFF6E3636L\n"
                             "val PageGradientGreen = 0xFF0B6644L", 1),
         "Color.kt 里那个起色 token 已删",
     ),
     (
         "token 被写成 Color(0x…)（同一组变成另一种类型，用色处就编译不过）",
         COLOR,
-        lambda s: s.replace("val ProductRowTint = 0xFFE6F7EEL", "val ProductRowTint = Color(0xFFE6F7EE)", 1),
+        lambda s: s.replace("val ProductRowTint = 0xFFF0E2DCL", "val ProductRowTint = Color(0xFFF0E2DC)", 1),
         "必须是裸 Long",
     ),
     (
         "页面底那一层没跟上：BackgroundLight 近白 → 暖白",
         COLOR,
-        lambda s: s.replace("val BackgroundLight = Color(0xFFFBFBFA)", "val BackgroundLight = Color(0xFFF8F7F4)", 1),
-        "BackgroundLight = 0xFFFBFBFA",
+        lambda s: s.replace("val BackgroundLight = Color(0xFFF7F6F3)", "val BackgroundLight = Color(0xFFF8F7F4)", 1),
+        "BackgroundLight = 0xFFF7F6F3",
     ),
     (
         "品名又穿回紫色（用户定稿原话「商品名称不留紫色」）",
@@ -196,15 +200,15 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "灰蓝又回到页面底：BackgroundLight #FBFBFA → #F2F3F7（旧值必须一处不剩）",
         COLOR,
-        lambda s: s.replace("val BackgroundLight = Color(0xFFFBFBFA)",
-                            "val BackgroundLight = Color(0xFFF2F3F7)", 1),
-        "BackgroundLight = 0xFFFBFBFA",
+        lambda s: s.replace("val BackgroundLight = Color(0xFFF7F6F3)",
+                            "val BackgroundLight = Color(0xFFF7F6F3)", 1),
+        "BackgroundLight = 0xFFF7F6F3",
     ),
 ]
 
 #: 分两步的注入（一次替换做不出来），在 main() 里单独跑。
 LEDGER_OLD = 'tint = Color(if (e.source == "manual") ProductPurple else ThemeGreen),'
-LEDGER_NEW = 'tint = Color(if (e.source == "manual") 0xFF8455E6 else 0xFF1E6FFF),'
+LEDGER_NEW = 'tint = Color(if (e.source == "manual") 0xFF8A7BB0 else 0xFF1E6FFF),'
 
 
 def run_check() -> tuple[int, str]:

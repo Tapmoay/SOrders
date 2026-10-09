@@ -191,7 +191,7 @@ fun DriverFreightScreen(
                                             if (e.freightFee != null) "运费 ¥" + formatMoney(e.freightFee) else "运费 待定价",
                                             style = MaterialTheme.typography.labelSmall,
                                             textAlign = TextAlign.End,
-                                            color = if (e.freightFee != null) MaterialTheme.colorScheme.onSurfaceVariant else androidx.compose.ui.graphics.Color(0xFFFF6B2C),
+                                            color = if (e.freightFee != null) MaterialTheme.colorScheme.onSurfaceVariant else androidx.compose.ui.graphics.Color(0xFFBE5F4A),
                                             modifier = Modifier.widthIn(min = 92.dp),
                                         )
                                     }

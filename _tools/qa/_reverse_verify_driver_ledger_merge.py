@@ -41,8 +41,8 @@ CASES: list[tuple[str, Path, str, str]] = [
     (
         "入口页那格退回「司机账」（= 账本页第 4 档，同一件事又有两个地方）",
         MODULES,
-        'ModuleEntry("司机账 · 运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.LocalShipping, color = 0xFF2E7D32L),',
-        'ModuleEntry("司机账", Routes.dispatcherLedger(1), Icons.Default.LocalShipping, color = 0xFF2E7D32L),',
+        'ModuleEntry("司机账 · 运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.LocalShipping, color = 0xFF4D7053L),',
+        'ModuleEntry("司机账", Routes.dispatcherLedger(1), Icons.Default.LocalShipping, color = 0xFF4D7053L),',
     ),
     (
         "批发商账退回第 4 档（越界的 tab 又能从入口进来）",

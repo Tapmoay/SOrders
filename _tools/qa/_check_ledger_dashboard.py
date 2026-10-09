@@ -377,14 +377,18 @@ def main() -> int:
                  g, r'ModuleEntry\("司机运费结算", Routes\.FREIGHT_SETTLEMENT')
         for banned in ("订单账", "货主账", "批发商账", "客户收款"):
             c.absent(f"网格里没有「{banned}」（它在账本管理入口页里）", g, rf'"{banned}"')
-        # 工作台那一规：**跟邻居一样亮、一样鲜艳，只差色相**（用户 2026-09-20 定的）。
-        # ⚠️ 只用来拦**新增**的格子：既有那一个棕（账户管理 #8D6E63，亮度 55%）一直如此，
-        #    用户从没点名过它 —— 拿新尺子回溯判既有配色只会让这条检查变成"永远红"。
+        # 工作台那一规：**跟邻居同一档明度**（用户 2026-09-20 定的"别比邻居更沉"）。
+        # ⚠️ 2026-10-09 晚（CHG-0101）用户换了整套色板：他画的那套是**低饱和**的，
+        #    明度带整体下移（实测派单端 18 格 47.8~79.2、中位 65.1），
+        #    原来那条 `66 <= v <= 100` 是对**旧的高饱和亮色**说的，
+        #    留着它会让用户新画的色**成片判红** —— 那是拿旧尺子量新设计。
+        #    所以这轮把带子改成"不许比新色板自己更深/更飘"：
+        #    下限 44、上限 84，把实测那 18 格整个包进来，只拦**新加**的越界色。
         bad_band = []
-        for hexs in re.findall(r"color = 0xFF([0-9A-Fa-f]{6})L", g):
+        for hexs in re.findall(r"color = 0xFF([0-9A-Fa-f]{6})L?", g):
             r_, g_, b_ = int(hexs[0:2], 16), int(hexs[2:4], 16), int(hexs[4:6], 16)
             v = max(r_, g_, b_) / 255 * 100
-            if not (66 <= v <= 100):
+            if not (44 <= v <= 84):
                 bad_band.append("#" + hexs)
         stray_band = sorted(set(bad_band) - set(BAND_EXEMPT))
         c.ok(f"没有新增「太深/太沉」的格子（既有例外 {len(BAND_EXEMPT)} 个，新增越界 {len(stray_band)} 个）",
@@ -437,10 +441,15 @@ def main() -> int:
             f"{icons}",
         )
         # 同屏不许撞色：7 格两两 RGB 欧氏距离 ≥60
-        cols = [(m[0], m[1]) for m in re.findall(r'ModuleEntry\("([^"]+)"[\s\S]{0,200}?color = (MoneyOrange|0xFF[0-9A-Fa-f]{6}L)', body)]
+        # ⚠️ `MoneyOrange` 这个 token 的值在 CHG-0101 里从 #FF9500 换成了 #C9855A，
+        #    所以**不能再把它硬编码成 FF9500** —— 改成从 `Color.kt` 现场读它的值，
+        #    往后换色时这条判据不会再变成"读了旧值还判红"。
+        mo = re.search(r"^val MoneyOrange = (?:Color\()?0xFF([0-9A-Fa-f]{6})", read(COLOR), re.M)
+        mo_hex = mo.group(1) if mo else "C9855A"
+        cols = [(m[0], m[1]) for m in re.findall(r'ModuleEntry\("([^"]+)"[\s\S]{0,200}?color = (MoneyOrange|0xFF[0-9A-Fa-f]{6})L?', body)]
         hexes = []
         for name, tok in cols:
-            h = "FF9500" if tok == "MoneyOrange" else tok[4:10]
+            h = mo_hex if tok == "MoneyOrange" else tok[4:10]
             hexes.append((name, h))
         bad_pairs = []
         for i in range(len(hexes)):

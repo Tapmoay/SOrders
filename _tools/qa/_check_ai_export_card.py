@@ -317,11 +317,13 @@ def main() -> int:
         len(row_code) > 400,
         "只切到 %d 个字符" % len(row_code),
     )
-    # 语义色在 ui/theme/Color.kt 里是 **Long**（0xFFFF9500L），用的时候必须包成 Color(...)。
+    # 语义色在 ui/theme/Color.kt 里是**裸的 ARGB 值**（用的时候必须包成 Color(...)）。
+    # ⚠️ 2026-10-09 晚（CHG-0101 换色）起这些 token 写的是 `0xFFC9855A`，
+    #    不再带 `L` 后缀 —— 所以这里匹配到 `{8}` 位十六进制就够，别去钉那个后缀。
     # 这条前置判据是给下一个人看的：哪天它变成 Color 了，本节的 Color(...) 判据要跟着改。
     c.ok(
-        "前置：MoneyOrange / ThemeGreen 在主题里仍是 Long（所以下面必须写 Color(...)）",
-        re.search(r"val MoneyOrange = 0x[0-9A-Fa-f]{8}L", read(COLOR_KT)) is not None,
+        "前置：MoneyOrange / ThemeGreen 在主题里仍是裸 ARGB（所以下面必须写 Color(...)）",
+        re.search(r"val MoneyOrange = 0x[0-9A-Fa-f]{8}\b", read(COLOR_KT)) is not None,
     )
     c.present(
         "一个 44dp 的方框：圆角 ＋ 底色 ＋ 描边（三样缺一就不是'带框'）",

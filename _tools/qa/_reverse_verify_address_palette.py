@@ -69,9 +69,9 @@ def drop_subsection(text: str, heading: str) -> str:
 CASES: list[tuple[str, str, object, str]] = [
     # ---- 1. 一个概念一个色 ----
     (
-        '① 电话那一行的裸色值回潮（iconTint 又写死 Color(0xFF00B578)）',
+        '① 电话那一行的裸色值回潮（iconTint 又写死 Color(0xFF567A5F)）',
         ADDR,
-        lambda s: s.replace("iconTint = Color(MgrGreen),", "iconTint = Color(0xFF00B578),", 1),
+        lambda s: s.replace("iconTint = Color(MgrGreen),", "iconTint = Color(0xFF567A5F),", 1),
         '本页 Color(0xFF 字面量 == 0',
     ),
     (
@@ -103,7 +103,7 @@ CASES: list[tuple[str, str, object, str]] = [
         ADDR,
         lambda s: s.replace(
             CAT_ANCHOR,
-            CAT_ANCHOR.replace('Color(ShipperTeal)', 'Color(0xFF8455E6)'),
+            CAT_ANCHOR.replace('Color(ShipperTeal)', 'Color(0xFF8A7BB0)'),
             1,
         ),
         '地点「分组」的图标是湖蓝',
@@ -130,13 +130,13 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         '⑩ RouteRail.kt 又自带一份 private val OriginTeal（定义两份）',
         RAIL,
-        lambda s: s + '\n' + 'private val OriginTeal = Color(0xFF00BCD4)' + '\n',
+        lambda s: s + '\n' + 'private val OriginTeal = Color(0xFF6BA6AE)' + '\n',
         '全库只有 Color.kt 定义 OriginTeal',
     ),
     (
         '⑪ 三档色被写死成裸值（不再走 token）',
         ADDR,
-        lambda s: s.replace(TAB_LINE, 'private val ADDRESS_TAB_COLORS = listOf(Color(0xFF00BCD4), Color(0xFF00A2C7), Color(0xFFFF9500))', 1),
+        lambda s: s.replace(TAB_LINE, 'private val ADDRESS_TAB_COLORS = listOf(Color(0xFF6BA6AE), Color(0xFF6B8FA6), Color(0xFFC9855A))', 1),
         '顶部三档的三个色走命名 token',
     ),
     # ---- 3. 常驻文案 ----

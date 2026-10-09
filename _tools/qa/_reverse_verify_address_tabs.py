@@ -149,8 +149,8 @@ CASES: list[tuple[str, str, object, str]] = [
         ADDR,
         lambda s: s.replace(
             COLORS_DECL,
-            'private val ADDRESS_TAB_COLORS = listOf(Color(0xFF00BCD4), Color(0xFF00A2C7),'
-            ' Color(0xFFFF9500))',
+            'private val ADDRESS_TAB_COLORS = listOf(Color(0xFF6BA6AE), Color(0xFF6B8FA6),'
+            ' Color(0xFFC9855A))',
             1,
         ),
         '三档颜色走命名 token',

@@ -15,7 +15,7 @@
    + `PhoneGreen`（青绿）+ 15sp **前景色**（不是灰字），整行长按复制。两条都住
    `ui/common/RosterCard.kt`（一份实现，四个页面共用）。
 
-顺带（同一次复核）：账户管理页拿回自己的棕（`AccountBrown = 0xFF8D6E63`，与工作台宫格那一格
+顺带（同一次复核）：账户管理页拿回自己的棕（`AccountBrown = 0xFF97897F`，与工作台宫格那一格
 同值），司机 / 货主 / 批发商页的胶囊与 FAB 改成按池子取模块色，「管理分类」面板里四颗裸
 `IconButton` 换成 `CardActionIcon`、条数与撤销条装在纯白卡上。
 
@@ -211,10 +211,15 @@ def main() -> int:
     color = read(COLOR)
     mods = read(MODULES)
     c.section('7. 账户管理页拿回自己的棕')
-    c.ok('主题 token 里有 AccountBrown（账户管理：棕）', 'val AccountBrown = 0xFF8D6E63L' in color)
+    # ⚠️ 值随 CHG-0101（台账 L-64）整套换色而变；这条判据要看的性质没变：
+    #    这个棕在主题里**只有一处定义**，宫格那一格与它同值。
+    #    `L?` 是因为 `Color.kt` 里这一行**没写** `L` 后缀（`Modules.kt` 那行写了）——
+    #    写死任一种都会让另一边永远对不上。
+    c.ok('主题 token 里有 AccountBrown（账户管理：棕）',
+         re.search(r'val AccountBrown = 0xFF97897FL?\b', color) is not None)
     c.ok('棕底上的字也有 token（OnAccountBrown）', 'val OnAccountBrown = 0xFFFFFFFFL' in color)
     c.ok('工作台宫格那一格与 token 同值（一处定义、一处对账）',
-         'color = 0xFF8D6E63L' in mods,
+         'color = 0xFF97897FL' in mods,
          '宫格那行故意保留裸字面量：_check_ledger_dashboard.py 的 BAND_EXEMPT 按裸值扫')
     c.ok('账户页的胶囊 / 名称圈底图标 / FAB 都用这个棕（⛔ 不再借地址页的湖蓝）',
          acct.count('Color(AccountBrown)') >= 3 and 'ShipperTeal' not in acct)
@@ -245,8 +250,8 @@ def main() -> int:
     c.section('9. 规范写死了这两件事')
     c.ok('规范 §4.24 在（名册卡两条事实 + 抽屉半展开）',
          re.search(r'^### 4\.24 ', spec, re.M) is not None)
-    c.ok('规范 §2 表里有账户管理那一行（棕 #8D6E63 / AccountBrown）',
-         re.search(r'\| 账户管理 \| 棕 #8D6E63 \| AccountBrown \|', spec) is not None)
+    c.ok('规范 §2 表里有账户管理那一行（灰棕 #97897F / AccountBrown，CHG-0101 换的）',
+         re.search(r'\| 账户管理 \| 灰棕 #97897F \| AccountBrown \|', spec) is not None)
     c.ok('规范里写着抽屉宽度 240dp、为什么是它、以及哪三个抽屉不收窄',
          'CategoryDrawerWidth = 240.dp' in spec and '选人' in spec
          and ('PersonDrawer' in spec or 'CustomerDrawer' in spec))

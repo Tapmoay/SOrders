@@ -51,8 +51,16 @@ MUTATIONS = [
         LIST,
         "    var quickPriceFor by remember { mutableStateOf<ProductDto?>(null) }",
         '    var quickPriceFor by remember { mutableStateOf<ProductDto?>(null) }\n'
-        '    val LeakedNameColorFallback = "#1565C0"',
+        '    val LeakedNameColorFallback = "#5C7590"',
         "兜底色",
+    ),
+    (
+        "有人把换色前的旧兜底色 #1565C0 又写回某个界面（CHG-0101 刚清掉的那一个）",
+        LIST,
+        "    var quickPriceFor by remember { mutableStateOf<ProductDto?>(null) }",
+        '    var quickPriceFor by remember { mutableStateOf<ProductDto?>(null) }\n'
+        '    val LeakedNameColorFallback = "#1565C0"',
+        "旧兜底色",
     ),
     (
         "把 productNameColor 的 try/catch 拆掉（库里一个脏颜色值就让整页崩）",
@@ -75,7 +83,7 @@ MUTATIONS = [
         "@Composable\nprivate fun ProductsBottomBar(",
         "private fun leakedStockColor(stock: Int, lowStockAlert: Int) = when {\n"
         "    stock <= 0 -> Color(0xFFE53935)\n"
-        "    else -> Color(0xFF00BCD4)\n"
+        "    else -> Color(0xFF6BA6AE)\n"
         "}\n\n"
         "@Composable\nprivate fun ProductsBottomBar(",
         "不再自己判库存颜色",

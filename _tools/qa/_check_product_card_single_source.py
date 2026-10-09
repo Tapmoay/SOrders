@@ -199,11 +199,20 @@ def main() -> int:
     )
 
     # ---- 1. 商品名颜色：兜底值只有一份、且是"不抛异常"的那一份 ----
-    holders = [p.name for p in ui_files if '"#1565C0"' in code(p)]
+    # ⚠️ CHG-0101（2026-10-09）把这个兜底值从 `#1565C0` 换成了 `#5C7590`（低饱和雾蓝，
+    #    与 `CashOut` 同值）—— 口径是「低饱和、不刺眼」，同时把旧 `CashOut` 的残留清掉。
+    #    判据的**意思没变**：这个值仍然只许在 ProductCardKit.kt 里出现一次。
+    holders = [p.name for p in ui_files if '"#5C7590"' in code(p)]
     c.ok(
-        '"#1565C0"（商品名兜底色）只在 ProductCardKit.kt 里出现',
+        '"#5C7590"（商品名兜底色）只在 ProductCardKit.kt 里出现',
         holders == ["ProductCardKit.kt"],
         f"实际出现在：{holders}",
+    )
+    already_gone = [p.name for p in ui_files if '"#1565C0"' in code(p)]
+    c.ok(
+        '"#1565C0"（换色前那个旧兜底值）全库一处都不许再留',
+        already_gone == [],
+        f"实际还出现在：{already_gone}",
     )
     c.ok(
         "productNameColor 的兜底在 try/catch 里（脏颜色值不许让整页崩）",

@@ -189,11 +189,11 @@ def main() -> int:
     c.ok("页脚是两键一行：取消（描边）+ 保存（实心），两枚等宽 48dp",
          'Text("取消")' in sheet and 'Text("保存")' in sheet
          and sheet.count("Modifier.weight(1f).height(48.dp)") == 2)
-    c.ok("保存键用的是本页的模块色 + 深棕字（白字压橙红只有 2.84:1，不过 AA）",
+    c.ok("保存键用的是本页的模块色 + 那个专用字色（CHG-0101 起砖红底压暖白字 ≈ 4.0:1）",
          "containerColor = Color(ArrearsTangerine)," in sheet
          and "contentColor = Color(OnArrearsTangerine)," in sheet)
-    c.ok("橙红底上那个字色是 Color.kt 里的 token（不是就地手写 0xFF）",
-         "val OnArrearsTangerine = 0xFF2B1200L" in color and "0xFF" not in screen)
+    c.ok("砖红底上那个字色是 Color.kt 里的 token（不是就地手写 0xFF）",
+         "val OnArrearsTangerine = 0xFFFFF3EEL" in color and "0xFF" not in screen)
     c.ok("没有退回页面级主操作键（PrimaryActionButton 归零）", "PrimaryActionButton(" not in screen)
     c.ok("提交途中两枚键都禁用（acting 时点不动，防重复提交）", sheet.count("enabled = !vm.acting,") == 2)
 

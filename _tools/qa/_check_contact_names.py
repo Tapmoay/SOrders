@@ -323,7 +323,7 @@ def main() -> int:
     c.ok(f"详情页两行的字号与字重一致（{rows}）",
          len(rows) == 2 and rows[0][1] == rows[1][1], f"实际抓到 {rows}")
     c.present("「下单人」的值仍然是绿色（用户 2026-09-22 点名要的颜色）", detail,
-              r'"下单人 " \+ [\s\S]{0,400}?0xFF00B578')
+              r'"下单人 " \+ [\s\S]{0,400}?0xFF567A5F')
 
     # ---- ⑦ 用词统一：旧词「东家电话 / 老板电话」在任何界面与 AI 目录里都不许再出现 ----
     for name, text in (("下单页", screen), ("编辑订单弹窗", disp_screen), ("订单详情", detail),

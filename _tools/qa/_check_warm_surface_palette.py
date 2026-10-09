@@ -59,26 +59,38 @@ README = ROOT / "docs" / "changes" / "README.md"
 CLAIM = ROOT / "docs" / "AI_WORK_CLAIM.md"
 
 #: 亮色这几层：页面底 → 周围那几层（越往下越深一档）。
-#: 2026-10-06（台账 L-19）定的是暖白；2026-10-09（CHG-0091）随绿主题改成**中性近白**。
+#: 2026-10-06（台账 L-19）定的是暖白；2026-10-09（CHG-0091）随绿主题改成"中性近白"；
+#: 2026-10-09 晚（CHG-0101）随用户第三套整体配色图改成**暖砂白**（#F7F6F3 系）。
 NEAR_WHITE = {
-    "BackgroundLight": 0xFBFBFA,
-    "SurfaceVariantLight": 0xF3F2EF,
-    "SurfaceContainer": 0xEFEEEB,
-    "SurfaceContainerHigh": 0xE9E7E3,
+    "BackgroundLight": 0xF7F6F3,
+    "SurfaceVariantLight": 0xF1EFEA,
+    "SurfaceContainer": 0xEFECE6,
+    "SurfaceContainerHigh": 0xE4E0D9,
 }
 
-#: 那四个 token 的**旧值**（B 比 R 高 = 用户说的「灰蓝」）：亮色区一处都不许剩。
-OLD = ["0xFFF2F3F7", "0xFFECEFF5", "0xFFE6E9F0", "0xFFDDE1EA"]
+#: 那四个 token 的**旧值**：亮色区一处都不许剩。
+#: ⚠️ CHG-0101 换色时踩过一次坑 —— 这里原先第一项写的是 `0xFFF7F6F3`（CHG-0063 那版暖白），
+#:    而用户第三张图给的背景色**正好又是** `#F7F6F3` ⇒ 它从"旧值黑名单"变成了"当前值"，
+#:    这条判据必须跟着改，否则会拿新值当旧值查（真跑出来 6 条红，全是这一处引起的）。
+#: ⚠️ 也别把**新**的那四层（`F7F6F3` / `F1EFEA` / `EFECE6` / `E4E0D9`）写进来 —— 那是
+#:    `NEAR_WHITE` 正面钉的值，写进黑名单就是自己跟自己打架。
+OLD = [
+    # CHG-0063 那版暖白之外的三层冷灰（B 比 R 高 = 用户说的「灰蓝」）
+    "0xFFECEFF5", "0xFFE6E9F0", "0xFFDDE1EA",
+    # CHG-0091 那一版的"中性近白"（偏冷），CHG-0101 起也不许再回来
+    "0xFFFBFBFA", "0xFFF3F2EF", "0xFFEFEEEB", "0xFFE9E7E3",
+]
 
-#: 本事项明确不动的那几档：白卡 ＋ 暗色全档 ＋ 两个字描边。
+#: 本事项明确不动的那几档：白卡 ＋ 暗色全档。
+#: ⚠️ 两个字描边（OutlineLight / OutlineVariantLight）在 CHG-0101 里**跟着换了**
+#:    （旧的 #7A7F8C / #CFD4E0 是冷灰，与暖砂白同屏发脏），所以它们不再进这张表 ——
+#:    改由 CHG-0101 的判据正面钉住新值。
 KEEP = {
     "SurfaceLight": 0xFFFFFF,
     "BackgroundDark": 0x0E1014,
     "SurfaceVariantDark": 0x44464F,
     "SurfaceContainerDark": 0x1E1F25,
     "SurfaceContainerHighDark": 0x292A31,
-    "OutlineLight": 0x7A7F8C,
-    "OutlineVariantLight": 0xCFD4E0,
 }
 
 #: 亮色那四层在 Theme.kt 里各自接在哪一格（键 = Theme 里的属性名）。
@@ -198,7 +210,7 @@ def main() -> int:
     c.section("6. 设计基线文档同步 ＋ 描边仍是原来那一份 ＋ 本事项的登记")
     design = read(DESIGN) if DESIGN.exists() else ""
     c.ok("docs/PROJECT_MAP/06_DESIGN_SYSTEM.md 在", DESIGN.exists(), "设计基线文档被搬走/改名了？")
-    c.present("设计基线里页面底写的是新值", design, r"BackgroundLight=#FBFBFA")
+    c.present("设计基线里页面底写的是新值", design, r"BackgroundLight=#F7F6F3")
     c.absent("设计基线里不再写旧值", design, r"BackgroundLight=#F2F3F7")
     c.present("设计基线点了「暖」这条口径（改色的人得看得到为什么）", design, r"暖")
     c.present("描边没动：EntryGrid 那一圈仍是 1dp 的 #ECEFF5", read(ENTRY_GRID),

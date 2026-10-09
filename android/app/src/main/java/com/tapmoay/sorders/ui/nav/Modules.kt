@@ -89,14 +89,14 @@ object Modules {
         // 「预订单」（2026-09-22 用户要求「专门去管理预设的订单」）：预设好的订单 ——
         // 点「用这张下单」把商品与数量带进下单页。它**不生成订单**，所以与「代理下单」是两格。
         // 颜色取靛蓝：与网格里已有的十几个语义色两两距离 ≥60（判据在同名单测里）。
-        ModuleEntry("预订单", Routes.DISPATCH_ORDER_TEMPLATES, Icons.Default.BookmarkAdded, color = 0xFF3949ABL),
+        ModuleEntry("预订单", Routes.DISPATCH_ORDER_TEMPLATES, Icons.Default.BookmarkAdded, color = 0xFF617190L),
         ModuleEntry("地址与联系人", Routes.ADDRESSES, Icons.Default.Place, color = ShipperTeal),                        // 湖蓝 · 地址
         ModuleEntry("订单管理", Routes.DISPATCH_ORDERS, Icons.Default.ReceiptLong, color = ProgressYellow),            // 黄 · 订单流转
         // 退货申请（2026-09-21）：货主（含批发商）在订单上**只能申请**，**这里才是实际执行** ——
         // 点了「办理退货」那一刻库存、账本、退款、订单状态才变（用户原话：「批发商只是一个申请，
         // 派单员才是实际性的操作」）。所以它紧挨着「订单管理」：同一件事的两头。
-        ModuleEntry("退货申请", Routes.DISPATCH_RETURN_REQUESTS, Icons.Default.AssignmentReturn, color = 0xFFB3492FL),  // 棕橙 · 退货这条线
-        ModuleEntry("账户管理", Routes.ACCOUNTS, Icons.Default.AccountBox, color = 0xFF8D6E63L),                     // 棕 · 统一建号（账号+密码+角色）；值 = theme/Color.kt 的 AccountBrown（判据对账）
+        ModuleEntry("退货申请", Routes.DISPATCH_RETURN_REQUESTS, Icons.Default.AssignmentReturn, color = 0xFFA16A5FL),  // 砖红 · 退货这条线（CHG-0101 按用户图二）
+        ModuleEntry("账户管理", Routes.ACCOUNTS, Icons.Default.AccountBox, color = 0xFF97897FL),                     // 灰棕 · 统一建号（账号+密码+角色）；值 = theme/Color.kt 的 AccountBrown（判据对账）
         ModuleEntry("司机管理", Routes.DISPATCH_DRIVERS, Icons.Default.Groups, color = DriverLime),                    // 黄绿 · 司机团队
         ModuleEntry("货主管理", Routes.SHIPPERS_MANAGE, Icons.Default.PeopleAlt, color = InventoryTeal),                // 深青 · 货主
         ModuleEntry("批发商管理", Routes.MEMBERS, Icons.Default.Badge, color = MemberGold),                             // 金 · 批发
@@ -107,8 +107,8 @@ object Modules {
         //    搬的是入口，不是功能：那一页、路由 Routes.PURCHASE_ORDERS、采购单表单
         //    Routes.PURCHASE_ORDER_FORM、五个端点（建单/改单/撤单/恢复/列表）全都照旧；入口长在
         //    库存管理页的顶栏（InventoryScreen(onOpenPurchaseOrders = …)）。
-        ModuleEntry("发票台账", Routes.INVOICES, Icons.Default.Receipt, color = 0xFFC08A4EL),                          // 焦糖棕 · 税账（原 #795548 太深、被宫格亮度带判据否过；票面金额直接进税汇，写要 ledger:edit）
-        ModuleEntry("库存管理", Routes.INVENTORY, Icons.Default.Warehouse, color = 0xFF00BCD4L),                        // 蓝青 · 库存仓储
+        ModuleEntry("发票台账", Routes.INVOICES, Icons.Default.Receipt, color = 0xFFA98F76L),                          // 卡其 · 税账（CHG-0101 按用户图二；票面金额直接进税汇，写要 ledger:edit）
+        ModuleEntry("库存管理", Routes.INVENTORY, Icons.Default.Warehouse, color = 0xFF6A8F99L),                        // 雾青 · 库存仓储（CHG-0101 按用户图二）
         // ⛔ 这里**没有**「单位换算」那一格（2026-10-05 CHG-0038）：用户原话「把这个**单位换算
         //    移到商品管理的那里**」—— 他在商品管理顶栏右上角、紧挨着「排序」的位置画了红框。
         //    ⚠️ 搬的是**入口**，不是功能：那一页、路由 `Routes.UNIT_CONVERSIONS`、商品编辑 →
@@ -120,7 +120,7 @@ object Modules {
         // 颜色沿用「账本 = 橙」这条跨端同色约定（与货主端「我的账本」同色）。
         ModuleEntry("账本管理", Routes.LEDGER_HOME, Icons.Default.AccountBalanceWallet, color = MoneyOrange),           // 橙 · 账本（跨端同色）
         // ⛔ 这里**没有**「开销管理」那一格：它并进上面「账本管理」里了（用户点名要合并）。
-        ModuleEntry("车辆管理", Routes.DISPATCH_VEHICLES, Icons.Default.DirectionsCar, color = 0xFF48F0F0L),            // 亮青 · 车与车况（用户：「车辆管理直接放在桌面上」）
+        ModuleEntry("车辆管理", Routes.DISPATCH_VEHICLES, Icons.Default.DirectionsCar, color = 0xFF87B7B9L),            // 浅青 · 车与车况（CHG-0101 按用户图二）
         // ⛔ 这里**没有**「司机运费结算」那一格了（2026-10-07 CHG-0075）：它与账本管理入口页
         //    那格「司机账」并成了「司机账 · 运费结算」，合并后只剩账本管理入口页那一格
         //    （`Routes.FREIGHT_SETTLEMENT`）—— 留着就等于同一个东西两个入口。
@@ -184,8 +184,8 @@ object Modules {
         //    ⚠️ 唯一**刻意**留在家族带外面的还是「运费模板」的雾蓝 #5F7FBF ——
         //      它两次被点名"太显眼"（深靛太沉、亮靛太跳），用户明确要它"退到后面去"，
         //      这一格的目标跟"跟邻居一样"相反，是**单独一条**规则（见上面那段）。
-        ModuleEntry("运费模板", Routes.FREIGHT_TEMPLATES, Icons.Default.Receipt, color = 0xFF5F7FBFL),                 // 雾蓝 · 订单运费的价目表
-        ModuleEntry("计费规则", Routes.DRIVER_BILLING_RULES, Icons.Default.RequestQuote, color = 0xFF8EC714L),           // 亮黄绿 · 司机怎么算钱
+        ModuleEntry("运费模板", Routes.FREIGHT_TEMPLATES, Icons.Default.Receipt, color = 0xFF7A899DL),                 // 雾蓝灰 · 订单运费的价目表（CHG-0101 按用户图二）
+        ModuleEntry("计费规则", Routes.DRIVER_BILLING_RULES, Icons.Default.RequestQuote, color = 0xFF8E9463L),           // 橄榄 · 司机怎么算钱（CHG-0101 按用户图二）
         ModuleEntry("挂账单位", Routes.ARREARS_UNITS, Icons.Default.Business, color = ArrearsTangerine),                 // 橙红 · 挂账警示（= 原来的色，家族里就是这一档）
         // 报表中心直达营业额报表界面（顶部 4 页签：营业/商品/司机/异常，可切换）
         ModuleEntry(
@@ -226,22 +226,23 @@ object Modules {
      */
     val ledgerHomeEntries: List<ModuleEntry> = listOf(
         // ---- 3 类账（同一页的 3 个档位：0 订单账 / 1 货主账 / 2 批发商账）----
-        ModuleEntry("订单账", Routes.dispatcherLedger(0), Icons.Default.AccountBalanceWallet, color = MoneyOrange),     // 橙 · 账本本体
+        ModuleEntry("订单账", Routes.dispatcherLedger(0), Icons.Default.AccountBalanceWallet, color = 0xFFCA8658L),     // 焦糖 · 账本本体（与工作台「账本管理」同族；CHG-0101 为满足 7 格 ≥60 单独定值）
         // 「司机账 · 运费结算」是**单独一页**（`Routes.FREIGHT_SETTLEMENT`），不是账本页的档位：
         // 2026-10-07 CHG-0075 把原来这里那格「司机账」与工作台那格「司机运费结算」并成了一个。
-        // 颜色沿用原「司机账」的深绿 —— 这一页 7 格配色两两距离 ≥60 的既有事实不变。
-        ModuleEntry("司机账 · 运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.LocalShipping, color = 0xFF2E7D32L),   // 深绿 · 司机该拿多少 + 给他结账
-        ModuleEntry("货主账", Routes.dispatcherLedger(1), Icons.Default.PeopleAlt, color = 0xFF00695CL),               // 深青 · 货主欠多少
+        // 颜色沿用原「司机账」的绿一族 —— 这一页 7 格配色两两距离 ≥60 的既有事实不变
+        // （CHG-0101 换色后仍是 62.4，判据在 `ModulesEntryTest` 与 `_check_ledger_dashboard.py`）。
+        ModuleEntry("司机账 · 运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.LocalShipping, color = 0xFF4D7053L),   // 深雾绿 · 司机该拿多少 + 给他结账
+        ModuleEntry("货主账", Routes.dispatcherLedger(1), Icons.Default.PeopleAlt, color = 0xFF689780L),               // 灰绿 · 货主欠多少
         ModuleEntry("批发商账", Routes.dispatcherLedger(2), Icons.Default.Storefront, color = 0xFFB8860BL),             // 暗金 · 批发账户
         // ---- 2 个工具（各自有页面）----
-        ModuleEntry("客户收款", Routes.DISPATCH_RECEIPTS, Icons.Default.Payments, color = 0xFF512DA8L),                 // 深紫
+        ModuleEntry("客户收款", Routes.DISPATCH_RECEIPTS, Icons.Default.Payments, color = 0xFF7B5AA6L),                 // 紫
         // 「收支」（2026-09-22 用户要求）：**收入按来源、支出按去路**各一路一行。
         // ⚠️ 它顶掉的是原来那一格「开销管理」—— 这不是"删了一个模块"，是用户点名要的**整合**：
         //    「我记得好像有个开销管理吧，干脆把我们两个**整合在一起**」。
         //    开销管理**照旧进得去**（`Routes.DISPATCH_EXPENSES` 还注册着、开销分类管理也在），
         //    入口挪到了「收支 → 支出」那张卡的底部 —— 谁要把它加回这一页，先看这条注释。
-        //    颜色沿用它的蓝（0xFF1565C0）：账本管理里"支出"这一块用户认的就是这个色。
-        ModuleEntry("收支", Routes.DISPATCH_CASH, Icons.Default.SwapHoriz, color = 0xFF1565C0L),                     // 蓝
+        //    颜色沿用它的蓝一族（CHG-0101 换成雾蓝 0xFF416D99）：账本管理里"支出"这一块用户认的就是这个色。
+        ModuleEntry("收支", Routes.DISPATCH_CASH, Icons.Default.SwapHoriz, color = 0xFF416D99L),                     // 雾蓝
         // 「供应商 / 应付款」（2026-09-22 用户要求）：支出那一块的另一半 ——
         // 收支页是**日记账**（一笔一笔的流水），这一格是**往来账**（欠谁多少、分几次付清）。
         // ⚠️ 两个入口都通（这里一格 + 收支页支出卡底部一条），因为用户说的就是
@@ -258,23 +259,23 @@ object Modules {
         // 「我的订单」从默认蓝改成订单黄：它和「下单」是一件事的两头（下单→看单），
         // 黄也**更合规矩**——派单端「订单管理」就是黄，跨端同功能同色
         // （下单绿 / 账本橙 / 消息红 / 地址湖蓝 / 订单黄）。
-        ModuleEntry("我的订单", Routes.SHIPPER_ORDERS, Icons.Default.ListAlt, color = ProgressYellow),
-        ModuleEntry("下单", Routes.ORDER_CREATE, Icons.Default.AddCircleOutline, color = MgrGreen),
-        ModuleEntry("地址与联系人", Routes.ADDRESSES, Icons.Default.Place, color = ShipperTeal),
-        ModuleEntry("我的账本", Routes.SHIPPER_LEDGER, Icons.Default.AccountBalanceWallet, color = MoneyOrange),
-        ModuleEntry("消息中心", Routes.MESSAGES, Icons.Default.Notifications, color = MessageRed),
+        ModuleEntry("我的订单", Routes.SHIPPER_ORDERS, Icons.Default.ListAlt, color = 0xFFC7B270L),
+        ModuleEntry("下单", Routes.ORDER_CREATE, Icons.Default.AddCircleOutline, color = 0xFF567A5FL),
+        ModuleEntry("地址与联系人", Routes.ADDRESSES, Icons.Default.Place, color = 0xFF6B8FA6L),
+        ModuleEntry("我的账本", Routes.SHIPPER_LEDGER, Icons.Default.AccountBalanceWallet, color = 0xFFD58539L),
+        ModuleEntry("消息中心", Routes.MESSAGES, Icons.Default.Notifications, color = 0xFFCA454EL),
         // 退货申请（2026-09-21）：货主在「我的订单」里对**已送达**的单提出申请，进展在这一页看
         // （待派单员处理 / 已办理 / 已驳回，能撤回）。⛔ 货主只能申请，真正退货在派单端。
         // ⚠️ 位置是**唯一可选的那一格**：本文件的两条单测钉着「消息中心」必须在第 4 格
         //    （`shipperEntries[4]`）、「AI 助手」必须在最后一格 —— 所以插在消息中心与 AI 之间。
-        ModuleEntry("退货申请", Routes.SHIPPER_RETURN_REQUESTS, Icons.Default.AssignmentReturn, color = 0xFFB3492FL),
+        ModuleEntry("退货申请", Routes.SHIPPER_RETURN_REQUESTS, Icons.Default.AssignmentReturn, color = 0xFFB7766FL),
         // 下游定价（2026-10-07 CHG-0077 / 台账 L-38）：**批发商给自己名下的商品定价**、
         // 并且能**给不同的人不同的价**（走 `shipper-prices` 那一组端点）。
         // ⛔ 与「我的账本」不是一回事：账本记的是"谁欠我多少"，这一格定的是"我卖他多少"。
         // ⚠️ 能力 `shipper_price:manage` 后端只给了 shipper 角色 —— 普通货主也能看见这一格，
         //    点进去由页面显示后端那句中文说明（"只有批发商（高级货主）需要给下游货主核销…"），
         //    ⛔ 不在这一层按身份藏格子（身份要问一次 `users/me`，工作台是同步画的）。
-        ModuleEntry("下游定价", Routes.SHIPPER_PRICES, Icons.Default.PriceChange, color = 0xFF7B1FA2L),
+        ModuleEntry("下游定价", Routes.SHIPPER_PRICES, Icons.Default.PriceChange, color = 0xFF885B90L),
         // ⛔ 单位换算**已从货主/批发商的工作台移除**（CHG-0001，用户 2026-09-27）：
         //    原话「我们还要改的就是货主也就是批发商和货主啊，他那个**单位换算是不需要有的**，
         //    也不要有啊」。⛔ 这不是"藏起来"：那一格本来就在工作台网格里，删掉它 = 他看不到这个入口。

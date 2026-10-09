@@ -31,6 +31,22 @@
 
 ## 进行中
 
+### [2026-10-10 00:0x → ⏳ CST 进行中] 会话：**CHG-0101 整套配色换成用户画的那套「低饱和红棕 / 雾感」色，但不许整体发灰**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
+
+`用户口径`：ref **m02474**（逐字）「按照它的配色方案进行一下修改以及我给你的那个照片」；ref **m02545**（逐字）「这是新任务吼也就是改我途中给你发的那些样式」；ref **m02547**（逐字）「继续」；ref **m02683**（逐字）「继续继续，但**我不希望整体太过于灰**啊」。三张参考图：`_tmp/ref_palette.png`（7 个语义色规范）／`_tmp/ref_modules.png`（21 格模块身份色，实测量测）／`_tmp/ref_card.png`（订单卡：商品块红棕 `#B5726B` ＋ 确认接单深红棕 `#8B4A4A`）。台账 **L-64**。
+
+`病灶`：全 App 的色还是 CHG-0091 那套**绿主题** —— `ThemeGreen = 0xFF00A870`（主操作/派单作业/信息），白字压在上面只有 **2.9:1**（AA 要 4.5）；21 格模块色里还留着亮青 `#00BCD4`/`#48F0F0`、荧光黄绿 `#8EC714`/`#CDDC39`、荧光橙 `#FF6B2C`/`#FF9500`/`#FFB300`；全仓 **159 处硬编码**（`ui/dispatcher/ReportCenter.kt` 一个文件 75 处）把旧色写死在用色处，只换 token 会一半新一半旧。用户 2026-10-09 给的三张图要求低饱和、护眼、长时间使用舒适。
+
+`改法`：① `ui/theme/Color.kt` **45 个 token 换值**（token 总数 77 → 77，不增不删不改名）：`ThemeGreen`/`Primary` `#00A870` → **`#8B4A4A` 深红棕**（白字对比度 2.9:1 → **6.61:1**）、`MgrGreen`/`SuccessGreen`/`Success`/`InfoBlue` 一系 → `#567A5F` 雾绿、`ProgressYellow` → `#C8B270` 卡其、`ShipperTeal` → `#6B8FA6` 雾蓝、`MemberGold`/`DestOrange` → `#C9A15E`、`ProductPurple` → `#8A7BB0`、`InventoryTeal` → `#6F9A93`、`MoneyOrange`/`Tertiary` → `#C9855A` 焦糖、`ArrearsTangerine` → `#BE5F4A` 砖红、`ReportIndigo` → `#7A7CA8`、`MessageRed` → `#CA454E`、`AccountBrown` → `#97897F`、`DriverLime` → `#9AA35F`、`OriginTeal` → `#6BA6AE`、`CashOut` → `#5C7590`、`DangerRed`/`ErrorLight` → `#B65C4E`、`BackgroundLight` → `#F7F6F3`（用户给的背景色）＋ 四层暖砂白、`ProductRowTint` → `#F0E2DC`、`OnProductRowTint` → `#3A2420`、`ThemeGreenDeep` → `#6E3636`；别名 `NavBlue`/`InfoBlue` 保留。② `ui/nav/Modules.kt` 宫格逐格换：派单端 8 处裸字面量改成图二量测值（预订单 `0xFF617190L`／退货申请 `0xFFA16A5FL`／账户管理 `0xFF97897FL`／发票台账 `0xFFA98F76L`／库存管理 `0xFF6A8F99L`／车辆管理 `0xFF87B7B9L`／运费模板 `0xFF7A899DL`／计费规则 `0xFF8E9463L`）＋ 账本页 3 处 ＋ 货主端 7 处；③ 全仓 **27 个文件 159 处硬编码**按映射表跟着换（`_tmp/apply_hardcode_safe.py`，按预期命中数逐条替换、一条对不上整批中止）；④ 两处漏网旧色：`FreightSettlementScreen.kt:206/209`（`Accent` 珊瑚橙 → `#567A5F`、`MoneyO` → `#C9855A`）、`ProductCardKit.kt:114-118` 兜底色 `#1565C0` → `#5C7590`；⑤ 单测 `android/app/src/test/java/com/tapmoay/sorders/ui/theme/ThemePaletteTest.kt` **7 档**（饱和度地板 `SAT_FLOOR = 0.15`、两两 ≥60、白字对比度 ≥4.5）；⑥ 新判据 `_tools/qa/_check_low_sat_palette.py`（8 节）＋ 反验 `_tools/qa/_reverse_verify_low_sat_palette.py`（**52 条注入**）；⑦ **26 份判据/反验随动**（14 个 `_check_*.py` ＋ 12 个 `_reverse_verify_*.py`）；⑧ 文书四处：设计系统 §2 语义色总表整表换 ＋ §2 报表四色/状态色/订单状态五色 ＋ §4 业务用色 ＋ §6 主题 ＋ 新增 **§4.25g**。
+
+`明确不碰`：`SheetSurface = 0xFFF0F0F0`（用户点名过的抽屉层，一个字没动）；`AiBlue`/`AiPurple`/`AiPink`（Google 品牌渐变）；数量蓝 `#1E6FFF` 与加减按钮淡蓝 `#E8F2FF`（用户点名保留的功能色）；深色模式那一整套；`SeedBlue`/`SeedBlueDark`；**132 处 / 92 种**各处自己成对写的深浅配对（如 `RolePalette`、`StatusBadge` 四色组）与 7 种通用色（`#8A8A8E`/`#E53935`/`#FF8A65`/`#E6A23C`/`#44464F`/`#4CAF50`/`#283593`）；token 名字与数量；后端 / 端点 / 权限 / 数据库 / 历史数据（Blast Radius **L0 —— 展示层**）。
+
+`判据 / 反验`：`python _tools/qa/_check_low_sat_palette.py` ⇒ **105/105 通过**；`python _tools/qa/_reverse_verify_low_sat_palette.py` ⇒ **52/52 条注入都证明这条红线真的在检查**（12 个被注入的文件逐字节还原）。单测：`gradle.bat -p android :app:testEmuDebugUnitTest` ⇒ **104 个类 / 1468 条 / 0 失败 / 0 错误 / 2 跳过**（其中 `ThemePaletteTest` 7 档、`ModulesEntryTest` 全过）。
+
+- 状态：⏳ **进行中**（2026-10-09 立项；变更单 `docs/changes/CHG-0101.md`；台账 **L-64**；Blast Radius **L0 —— 展示层**；提交 ⟪HASH⟫）。
+- 真机：`shots/chg0101_01_grid.png`（工作台 19 格）／`shots/chg0101_02_order.png`（待派单池订单卡）／`shots/chg0101_03_ai.png`（AI 助手）；`emulator-5554`（1080×2400，density 440 ⇒ 1dp = 2.75px）
+- 核心改动：**无** —— 为什么：改的 `ui/theme/Color.kt`、`ui/nav/Modules.kt`、`ui/**` 下 27 个用色文件、`android/app/src/test/java/com/tapmoay/sorders/ui/theme/ThemePaletteTest.kt` 与 `_tools/qa/` 那几十份脚本都不在 `_tools/qa/_core_files.txt` 里（本单一个字都没碰那份清单里的任何文件；`Color.kt` 是主题 token，不是核心契约）。
+
 ### [2026-10-09 23:5x → ⏳ CST 已完成] 会话：**BUG-0020 AI 操作流水页的读动作只有英文 id：动作名只认写动作表，读目录与工具那两张表都没认**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `缺陷出处`：**CHG-0089 的遗留**（`docs/changes/CHG-0089.md:191`：「读动作落进 AI 操作流水页之后只有原始 id、没有中文名」—— 真机走查看出来的，当单只登记不修）＋ 用户台账 **L-58**（2026-10-09 发现，`_tmp/USER_BUG_LEDGER_20261006.md:2992-3000`，改前证据 `shots/63_ai_log_read_rows.png`）；同一条在测试指引里也写了「别重复记」：`docs/TEST_PROMPT_A_ORDER.md:223`、`docs/TEST_PROMPT_B_FINANCE.md:208`。用户 2026-10-09 的指令是**「这些全部修起来」** ⇒ 立项 BUG-0020。

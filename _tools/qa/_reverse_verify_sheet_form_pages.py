@@ -44,7 +44,7 @@ A = "android/app/src/main/java/com/tapmoay/sorders/"
 INJECTIONS: list[tuple[str, str, str, str, str]] = [
     ("① 抽屉底色改回旧的灰蓝 #EDEFF4（用户点名的那件事回来了）",
      A + "ui/theme/Color.kt",
-     "val SheetSurface = Color(0xFFF0F0F0)", "val SheetSurface = Color(0xFFEDEFF4)",
+     "val SheetSurface = Color(0xFFF0F0F0)", "val SheetSurface = Color(0xFFEAE7E1)",
      "SheetSurface 是中性灰"),
     ("② 抽屉刷成纯白（里面的白卡糊在白的面上，「对比」没了）",
      A + "ui/theme/Color.kt",
@@ -84,7 +84,7 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
      A + "ui/dispatcher/AccountManageScreen.kt",
      "            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),",
      "            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),\n"
-     "            containerColor = Color(0xFFEDEFF4),",
+     "            containerColor = Color(0xFFEAE7E1),",
      "ModalBottomSheet 没有自己传 containerColor"),
     # ⚠️ 2026-10-09 复核：下面 ⑩ 与 ⑫ 两条的锚点是在动作行**返工之前**写的（12 空格缩进那版），
     #    返工后左栏整体缩进到 16 空格、右栏注释也续写了几句描述 ⇒ 三条锚点全部失配、
