@@ -40,7 +40,7 @@ R4-BOUNDARY-JUSTIFICATION: 这一条**边界消除不了**。四格都存在 `ve
 类型系统管不了「这个数是怎么摊出来的」，只能靠一条判据把口径、三处列定义、报表、
 成本表与 Android 那一页对起来，并在反向验证里把这几种写法各跑一遍（看判据是否每次都报红）。
 
-配套：`python _tools/qa/_reverse_verify_vehicle_depreciation.py`（21 种破坏方式全被抓）。
+配套：`python _tools/qa/_reverse_verify_vehicle_depreciation.py`（23 种破坏方式全被抓）。
 
 用法：python _tools/qa/_check_vehicle_depreciation.py
      python _tools/qa/_check_vehicle_depreciation.py --list
@@ -346,6 +346,10 @@ def main() -> int:
     cost_notes = notes_block(cost_raw)
     c.ok("车辆成本表口径说明至少 5 条", cost_notes.count(chr(34)) >= 10, "实际 " + str(cost_notes.count(chr(34))) + " 个引号")
     c.ok("车辆成本表口径说明里不许出现 markdown 星号", chr(42) * 2 not in cost_notes, "命中星号")
+    #: ⚠️ 2026-10-09 财务方向测试的 TB-03（CHG-0100）：口径说明第 3 条早就写了「只算挂靠司机」，
+    #:    可「成本合计」那两行没带这个限定 —— 拿它跟利润表的「司机运费」对会差一大截。
+    c.need("车辆成本表口径说明说清了「没挂车的司机去哪了」（TB-03）", cost_notes, (
+        esc("没挂车的司机"), esc("司机运费")))
     c.present("端点 /reports/vehicle-cost 在（response_model 对上）",
               api_r, esc(chr(64) + "router.get(" + chr(34) + "/vehicle-cost" + chr(34) + ", response_model=VehicleCostReportOut)"))
     c.present("只读权限（与其它报表同一个权限）", api_r, esc("require_permission(Permission.ORDER_DISPATCH)"))
@@ -380,6 +384,11 @@ def main() -> int:
               + ".{0,3000}?" + esc(chr(34) + "配送成本（司机应得）" + chr(34)))
     c.absent("车辆成本页自己不做减法（money(...) 里不许出现算术）",
              tab2, esc("money(") + "[^()]*[-+][^()]*" + esc(")"))
+    #: ⚠️ TB-03：这两条只钉「说清楚了」，不钉任何金额 —— 改的是标签那几行字，数一个都没动。
+    c.present("车辆成本页把「配送成本只算挂靠司机」写在成本合计旁边（TB-03）",
+              tab2, esc("配送成本只算挂在这台车上的司机"))
+    c.ok("两处「= 成本合计」都带上了限定（只含挂靠司机）（TB-03）",
+         tab2.count("（只含挂靠司机）") == 2, "实际 " + str(tab2.count("（只含挂靠司机）")) + " 处")
     c.need("车辆管理页四格：四个输入行都在", vscreen, (
         esc("label = " + chr(34) + "购置价(元)" + chr(34) + ","), esc("label = " + chr(34) + "购置日期" + chr(34) + ","),
         esc("label = " + chr(34) + "使用年限(年)" + chr(34) + ","), esc("label = " + chr(34) + "残值率" + chr(34) + ",")))

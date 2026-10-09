@@ -1502,6 +1502,16 @@ private fun VehicleCostTab(vm: ReportCenterViewModel) {
         } else {
             item {
                 StatBig("车辆成本合计", money(data.totalCost), Color(0xFFE53935))
+                Spacer(Modifier.height(4.dp))
+                // TB-03（2026-10-09 财务方向测试）：这一格 = 折旧 + 这台车的开销 + 挂靠司机的配送成本，
+                // 而"配送成本"只算**现在挂在这台车上**的那位司机 —— 没挂车的司机的运费一分钱不在这一格。
+                // 这个限定必须写在数旁边：否则在「车辆成本表」与「利润表」上看到的"费用"对不上，
+                // 会被当成算错了（差的那部分就在利润表的「司机运费」里）。
+                Text(
+                    "配送成本只算挂在这台车上的司机；没挂车的司机在利润表的「司机运费」里，不进这一格。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             item {
                 SectionCard {
@@ -1511,7 +1521,8 @@ private fun VehicleCostTab(vm: ReportCenterViewModel) {
                     StatRow("车辆开销（燃油/维修/保险…）", money(data.expenseTotal), Color(0xFFFF6B2C))
                     StatRow("挂靠司机配送成本", money(data.deliveryCostTotal), Color(0xFFFF9500))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    StatRow("= 成本合计", money(data.totalCost))
+                    // 标签里带上限定（TB-03）：这个"成本合计"不是全店的配送成本，只有挂靠司机那部分。
+                    StatRow("= 成本合计（只含挂靠司机）", money(data.totalCost))
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "覆盖 " + data.coveredCount.toString() + " / " + data.vehicleCount.toString() + " 台车算得出折旧；" +
@@ -1561,7 +1572,8 @@ private fun VehicleCostTab(vm: ReportCenterViewModel) {
                         StatRow("这台车的开销", money(v.expenseTotal), Color(0xFFFF6B2C))
                         StatRow("配送成本（司机应得）", money(v.deliveryCost), Color(0xFFFF9500))
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        StatRow("= 成本合计", money(v.totalCost))
+                        // 同上：逐台车的合计也只含挂靠在这台车上的司机（TB-03）。
+                        StatRow("= 成本合计（只含挂靠司机）", money(v.totalCost))
                         v.expenses.forEach { e ->
                             StatRow("· " + e.category, money(e.amount), Color(0xFF8A8A8E))
                         }

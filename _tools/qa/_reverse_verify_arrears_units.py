@@ -3,7 +3,7 @@
 r"""反向验证：挂账单位页这条红线（_tools/qa/_check_arrears_units.py）真的会红吗？
 
 判据全绿只能证明"现在没问题"，不能证明"出了问题它会喊"。这个脚本把每一种退化
-各注入一次（一共 28 条），每次都单独跑一遍判据，要求它**必须报红**，而且报出来的
+各注入一次（一共 34 条），每次都单独跑一遍判据，要求它**必须报红**，而且报出来的
 那句话必须命中我预先写下的关键词 —— 否则就是"这条红线其实没在查这件事"。
 
 为什么这条红线必须反向验证：
@@ -14,6 +14,9 @@ r"""反向验证：挂账单位页这条红线（_tools/qa/_check_arrears_units.
   全没了"那个被用户骂过的坑复活，而单看代码是看不出问题的；
 - 「撤回」最容易被做成安慰按钮（只把行塞回列表、不调后端 restore）——
   这种假撤回比没有更坏，必须由注入来证明判据真的盯着 repo.restoreArrearsUnit。
+- **2026-10-09 又加了一组（TB-01，CHG-0100）**：卡上那行「现在欠着多少」最容易被改回去 ——
+  整句重新变成页面手拼、余额的错挂到页面级 loadError、把 `unit_name` 那种名字快照也收进来、
+  或者自己减出「超了多少」。这几种改法**都能编译、界面也照样能看**，只有注入才证明判据盯着它。
 
 安全约定：改之前把每个被碰过的文件按**字节**存下来，每条注入跑完都无条件还原，
 跑完再逐字节核对一遍。中途异常也不会留下被改过的源码。
@@ -37,6 +40,7 @@ NL = chr(10)
 #: 被注入的文件（相对仓库根，正斜杠）
 SCREEN = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ArrearsUnitsScreen.kt"
 VM = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ArrearsUnitsViewModel.kt"
+BALANCE = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ArrearsBalanceLine.kt"
 COLOR = "android/app/src/main/java/com/tapmoay/sorders/ui/theme/Color.kt"
 FORMROWS = "android/app/src/main/java/com/tapmoay/sorders/ui/common/FormRows.kt"
 BACKEND = "backend/app/api/v1/arrears.py"
@@ -206,6 +210,28 @@ CASES: list[tuple[str, str, object, str]] = [
     ("㉘ 工作声明页上没有这个事项",
       CLAIM, lambda s: rep(s, "**CHG-0020 挂账单位页按设计规范重做**", "**CHG-XXXX 挂账单位页按设计规范重做**"),
      "工作声明页上有"),
+    # ── 9. 卡上那一行余额（TB-01，2026-10-09 CHG-0100 补）──────────────
+    ("㉙ 卡上那一行余额整块删掉（TB-01）",
+     SCREEN, lambda s: drop_line(s, "val line = arrearsBalanceLine(balance)"),
+     "余额那一行在卡上"),
+    ("㉚ 页面自己拼那句余额（TB-01：不走纯函数）",
+     SCREEN, lambda s: rep(s, "val line = arrearsBalanceLine(balance)",
+                           'val line = ArrearsBalanceLine("已挂账 ¥" + (balance?.creditUsed ?: "0"), false)'),
+     "余额那一行在卡上"),
+    ("㉛ 余额取不到写成了页面级 loadError（TB-01：整页名册会跟着消失）",
+     VM, lambda s: rep(s, "balanceError = toApiException(e).message",
+                       "loadError = toApiException(e).message"),
+     "余额这一路有自己的错"),
+    ("㉜ 名字快照也收进来（TB-01：unit_name 那种行没有额度）",
+     VM, lambda s: rep(s, ".filter { it.kind == UNIT_KIND }", ".filter { true }"),
+     "只认挂着名册单位的那种行"),
+    ("㉝ 超限自己减出差额（TB-01：第二份钱算法）",
+     BALANCE, lambda s: rep(s, 'owed + " · 额度 ¥" + formatMoney(row.limit) + "（已超）"',
+                            'owed + " · 超了 ¥" + formatMoney((used - moneyToDouble(row.limit)).toString())'),
+     "客户端不做 credit_used - limit 那个减法"),
+    ("㉞ 「没欠过」被写成 ¥0（TB-01：把「没有事实」说成「欠了 0 元」）",
+     BALANCE, lambda s: rep(s, '"到目前还没有欠款记录"', '"已挂账 ¥0"'),
+     "四档措辞都在纯函数里"),
 ]
 
 

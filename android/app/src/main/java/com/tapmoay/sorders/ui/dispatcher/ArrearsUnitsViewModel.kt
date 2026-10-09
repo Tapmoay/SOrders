@@ -8,10 +8,15 @@ import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ArrearsUnitCreateRequest
 import com.tapmoay.sorders.data.remote.dto.ArrearsUnitDto
 import com.tapmoay.sorders.data.remote.dto.ArrearsUnitEditRequest
+import com.tapmoay.sorders.data.remote.dto.CustomerBalanceRowDto
 import com.tapmoay.sorders.data.remote.dto.arrearsCreditLimitOf
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.util.trimMoneyZeros
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 /**
  * 刚被删掉的那一条挂账单位（够画「已删除「X」+ 撤销」这一行用）。
@@ -33,6 +38,26 @@ class ArrearsUnitsViewModel(private val container: AppContainer) : ViewModel() {
      * （规范 :458-478）。
      */
     var loadError by mutableStateOf<String?>(null)
+
+    /**
+     * 每个单位「现在欠着多少」（`unit_id` ⇒ 客户欠款表里的那一行）。
+     *
+     * 额度（[ArrearsUnitDto.creditLimit]）是"允许欠多少"，而用户真正要看的是"现在欠着多少"——
+     * 这一格的数据来自 `GET /reports/customer-balances`（与「客户欠款」报表同一份时点账，
+     * 2026-10-09 财务方向测试 TB-01 补的）。⛔ 不许在这儿拿订单/账本自己算余额：那是第二份钱算法。
+     */
+    var balances by mutableStateOf<Map<Long, CustomerBalanceRowDto>>(emptyMap())
+
+    /**
+     * 余额这一路**自己的**错误：只在列表顶上多画一句「余额没取到…+ 重试」。
+     *
+     * ⛔ 绝不许写 [loadError] —— 那会把整页名册换成错误页。单位还在、额度还在，
+     * 只是"欠了多少"这一格没取到，不该让整页消失（与表单错同一条规矩，见 [formError]）。
+     */
+    var balanceError by mutableStateOf<String?>(null)
+
+    /** 余额那一路是不是正在取（只用来禁用「重试」，不参与整页 loading）。 */
+    var balanceLoading by mutableStateOf(false)
     var acting by mutableStateOf(false)
     var actionResult by mutableStateOf<String?>(null)
 
@@ -69,14 +94,62 @@ class ArrearsUnitsViewModel(private val container: AppContainer) : ViewModel() {
     fun load() {
         loading = units.isEmpty()
         loadError = null
+        balanceError = null
         viewModelScope.launch {
-            try {
-                units = container.repo.arrearsUnits()
-            } catch (e: Exception) {
-                loadError = toApiException(e).message
-            } finally {
-                loading = false
+            coroutineScope {
+                // 名册与余额**并发**跑：名册决定整页画什么（它失败才是整页错误），
+                // 余额只是卡上多一行 —— 两条路各自记各自的错，谁都别把对方拖下水。
+                val unitsJob = async { container.repo.arrearsUnits() }
+                val balanceJob = async { fetchBalances() }
+                try {
+                    units = unitsJob.await()
+                } catch (e: Exception) {
+                    loadError = toApiException(e).message
+                } finally {
+                    loading = false
+                }
+                // fetchBalances 自己吞掉异常（写 balanceError），这里只是等它跑完。
+                balanceJob.await()
             }
+        }
+    }
+
+    /** 只重取余额那一路（页面已经画着名册，只是那一行没取到）。 */
+    fun retryBalances() {
+        if (balanceLoading) return
+        balanceError = null
+        viewModelScope.launch { fetchBalances() }
+    }
+
+    /**
+     * 取各单位「现在欠着多少」。
+     *
+     * 客户欠款表是**时点账**（`as_of = min(窗口末, 今天)`，窗口起点不参与余额），
+     * 所以要"现在的余额"就传 `mode = "day"` + 今天；`includeOrders = false` 只要余额那一行、
+     * 不要逐单明细（这一页不画明细）。
+     */
+    private suspend fun fetchBalances() {
+        balanceLoading = true
+        try {
+            val dto = container.repo.customerBalancesReport(
+                mode = "day",
+                date = LocalDate.now().toString(),
+                dateFrom = null,
+                dateTo = null,
+                includeOrders = false,
+            )
+            // 只认挂着名册单位的那种行（`kind == "unit"`）：`unit_name` 是名字快照、没有额度，
+            // 贴到卡上会变成"这个单位欠了钱"的假象（见 Dtos.kt:3053-3056 那段约定）。
+            balances = dto.rows
+                .filter { it.kind == UNIT_KIND }
+                .mapNotNull { r -> r.unitId?.let { id -> id to r } }
+                .toMap()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            balanceError = toApiException(e).message
+        } finally {
+            balanceLoading = false
         }
     }
 
@@ -201,5 +274,10 @@ class ArrearsUnitsViewModel(private val container: AppContainer) : ViewModel() {
                 acting = false
             }
         }
+    }
+
+    companion object {
+        /** 客户欠款表里"挂了名册单位"的那种行。 */
+        private const val UNIT_KIND = "unit"
     }
 }

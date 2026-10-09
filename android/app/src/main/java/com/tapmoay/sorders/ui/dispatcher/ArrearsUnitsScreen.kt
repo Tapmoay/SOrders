@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ArrearsUnitDto
+import com.tapmoay.sorders.data.remote.dto.CustomerBalanceRowDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.ArrearsTangerine
 import com.tapmoay.sorders.ui.theme.MessageRed
@@ -69,6 +70,30 @@ fun ArrearsUnitsScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
+                    // 余额那一路没取到时的**独立**一行（TB-01）：只少一行数，⛔ 不许把整页名册
+                    // 换成错误页 —— 单位还在、额度还在，只是"欠了多少"没取到。给一次重试。
+                    vm.balanceError?.let { msg ->
+                        item(key = "balanceError") {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp),
+                            ) {
+                                Text(
+                                    "余额没取到：" + msg,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(MessageRed),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                // 重试统一用 ErrorView 那一款（OutlinedButton + 「重试」），
+                                // ⛔ 不新增"平铺文字键"：卡片动作仍然只有撤回那一个 TextButton。
+                                OutlinedButton(onClick = { vm.retryBalances() }, enabled = !vm.balanceLoading) {
+                                    Text("重试")
+                                }
+                            }
+                        }
+                    }
                     // 撤回（规范 §4.11：删除一律软删 + **手边**要有撤回）：刚删掉的那一条
                     // 就画在列表头顶上，不用去别处找。后端是真能救回来的（restore 会把名字
                     // 从 xxx_del{id} 改回去），所以这里写「已删除…+撤销」而不是「已通知管理员」。
@@ -100,6 +125,8 @@ fun ArrearsUnitsScreen(
                     items(vm.units, key = { it.id }) { u ->
                         UnitCard(
                             u = u,
+                            // 余额按 unit_id 认领（余额表里没有这个单位 = 到目前没欠过，见 arrearsBalanceLine）。
+                            balance = vm.balances[u.id],
                             onEdit = { vm.openEdit(u) },
                             onDelete = { vm.delete(u) },
                         )
@@ -208,6 +235,7 @@ fun ArrearsUnitsScreen(
 @Composable
 private fun UnitCard(
     u: ArrearsUnitDto,
+    balance: CustomerBalanceRowDto?,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -231,6 +259,14 @@ private fun UnitCard(
                     if (u.creditLimit == null) "信用额度：不限额" else "信用额度 ¥" + formatMoney(u.creditLimit),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // 额度是"允许欠多少"，这一行才是"现在欠着多少"（TB-01）。数据来自客户欠款表，
+                // 与「客户欠款」报表同一份口径；超限那一种用警示色（与报表页同色）。
+                val line = arrearsBalanceLine(balance)
+                Text(
+                    line.text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (line.warn) Color(MessageRed) else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

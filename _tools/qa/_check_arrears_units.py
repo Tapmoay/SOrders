@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """挂账单位页（派单员 · 工作台「挂账单位」）按设计规范重做的机器判据 —— CHG-0020。
 
-盯住五件事：
+盯住六件事：
 
 1. **表单不再用居中弹窗**（规范 :1266-1269）：「他不要使用弹窗啊，使用底部抽屉，
    并且**底部抽屉是拉到最上面**」⇒ ModalBottomSheet + rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -14,6 +14,11 @@
    别退回卡头那把 18dp 裸铅笔 / 裸垃圾桶。
 5. **删除一律软删 + 手边要有撤回**（规范 :1328 / :1371）：刚删掉的那条画在列表头顶、
    点「撤销」真调后端 restore。
+6. **卡上要看得见「现在欠着多少」**（2026-10-09 财务方向测试的 TB-01，CHG-0100）：
+   「信用额度」说的是**允许欠多少**，用户要知道的是**现在欠了多少 / 还能赊多少**。
+   这一行必须来自「客户欠款」那份**时点账**（`mode = day` + 今天），与报表页同一份口径；
+   ⛔ 客户端不许自己减 `credit_used - limit` —— 那就是第二份钱算法，两个页面迟早对不上。
+   ⛔ 余额取不到也**不许**写成页面级 `loadError`：那会把整页名册换成错误页（单位与额度都还在）。
 
 为什么必须由机器盯着：
 
@@ -48,6 +53,8 @@ ROOT = Path(__file__).resolve().parents[2]
 AND = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
 SCREEN = AND / "ui/dispatcher/ArrearsUnitsScreen.kt"
 VM = AND / "ui/dispatcher/ArrearsUnitsViewModel.kt"
+BALANCE = AND / "ui/dispatcher/ArrearsBalanceLine.kt"
+TEST_BALANCE = ROOT / "android/app/src/test/java/com/tapmoay/sorders/ui/dispatcher/ArrearsBalanceLineTest.kt"
 FORMROWS = AND / "ui/common/FormRows.kt"
 COMPONENTS = AND / "ui/common/Components.kt"
 COLOR = AND / "ui/theme/Color.kt"
@@ -286,6 +293,35 @@ def main() -> int:
     c.ok("工作声明页上有 CHG-0020 的声明块（整条标题行，不是别处的字样）",
          re.search(r"^### \[[^\]]*\] 会话：\*\*CHG-0020 ", claim, re.M) is not None,
          "没声明就开工了（或者声明块被删了）")
+
+    # ── 9. 卡上那一行余额（TB-01，CHG-0100 补）─────────────────────────
+    c.section("9. 卡上那一行余额：欠多少来自客户欠款表，客户端一个减法都不做（TB-01）")
+    balance = strip_comments(norm(BALANCE)) if BALANCE.exists() else ""
+    c.ok("余额那一行在卡上（额度行之后、两枚动作之前）",
+         "val line = arrearsBalanceLine(balance)" in unit
+         and -1 < unit.find("信用额度") < unit.find("arrearsBalanceLine(balance)") < unit.find("CardActionIcon("),
+         "额度行 / 余额行 / 动作行的相对位置不对")
+    c.ok("这一句整句来自纯函数（页面不自己拼金额、不自己判超限）",
+         "line.text" in unit and "line.warn" in unit and "balance?.creditUsed" not in unit)
+    c.ok("余额取自客户欠款表（时点账：mode = day + 今天；只要余额那一行、不要逐单明细）",
+         "container.repo.customerBalancesReport(" in vm and 'mode = "day",' in vm
+         and "includeOrders = false," in vm)
+    c.ok("只认挂着名册单位的那种行（kind == unit），unit_name 那种名字快照不贴到卡上",
+         'private const val UNIT_KIND = "unit"' in vm and "it.kind == UNIT_KIND" in vm)
+    c.ok("余额这一路有自己的错（balanceError），⛔ 不写页面级 loadError —— 写了整页名册会消失",
+         "balanceError = toApiException(e).message" in vm and vm.count("loadError = ") == 2,
+         "loadError 实际 " + str(vm.count("loadError = ")) + " 处")
+    c.ok("余额取不到时页面给一次重试，且这一行画在列表里（名册还在）",
+         "vm.retryBalances()" in screen and "vm.balanceError?.let" in screen)
+    c.ok("四档措辞都在纯函数里（没欠过 / 不限额 / 还能赊 / 已超）",
+         all(t in balance for t in ("到目前还没有欠款记录", "额度：不限额", "还能赊 ¥", "（已超）")))
+    c.ok("「超了」用后端给的 over_limit，客户端不做 credit_used - limit 那个减法",
+         "row.overLimit" in balance
+         and re.search(r"creditUsed\s*-\s*|-\s*moneyToDouble", balance) is None)
+    c.ok("「还能赊」算不出来时不当成 0（不许出现「还能赊 ¥0」那一档）",
+         "if (available == null)" in balance and "还能赊 ¥0" not in balance)
+    c.ok("这一行有单测（ArrearsBalanceLineTest.kt）", TEST_BALANCE.exists(),
+         "没有单测的纯函数＝没人钉住这四档措辞")
 
     print(NL + "=" * 60)
     if c.fails:
