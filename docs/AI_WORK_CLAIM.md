@@ -31,6 +31,21 @@
 
 ## 进行中
 
+### [2026-10-10 03:12 → 03:3x CST 已完成] 会话：**BUG-0023 开销能挂到不存在的司机/车辆/订单上；挂到不存在车辆的那笔被车辆成本表静默吞掉**（DSH `session-1ad1cd28-67cd-4778-9b93-23f101063a40`）
+
+`用户口径`：修复会话任务书（TB-07，ref **m00001**，逐字）「**标题**：开销能挂到不存在的司机/车辆/订单上；挂到不存在车辆的那笔被车辆成本表静默吞掉」＋三条要修「① 写入/修改开销时校验 driver_id / vehicle_id / order_id 真实存在（且未软删/未停用），不存在就 400 并说清是哪个字段、哪个 id；② 报表口径不许静默吞：车辆成本表要么把这部分单列一行（例如「未挂车的运费/开销」＋笔数），要么在两处口径差异处给出可核对的说明 —— 目标是一个用户拿同一窗口能把两张表对上，或至少看到「另有 N 笔 X 元未挂车」；③ 顺手确认：软删司机/车辆之后，原来挂在它上面的开销会去哪（写进变更单 §⑤ Data Contract）」。
+
+`病灶`：测试会话在 8020 副本库上抓到同一笔钱**两张表一个认一个不认** —— 2026-10 窗口 expenses 9 行合计 5804.87，其中 id=55（7.77 元，driver_id / vehicle_id / order_id **全是 999999**）在 `GET /reports/profit` 的 `operating_expense_total=5804.87` 里，却不在 `GET /reports/vehicle-cost` 的 `expense_total=5598.50` 里（挂车的 5606.27 − 7.77 = 5598.5），而车辆成本表那 6 条口径说明里没有一个字提到被丢掉的部分；开销页那一行的三个名字全是空字符串。根因两条：① `services/accounting_service.py:887 create_expense` 对三个外键**一个都不校验**（`models/expense.py:13-28` 三个关联列还都没有 `ForeignKey`，数据库层也拦不住）；② `services/reports/vehicle_cost_query.py:66-83 _vehicle_expenses` 按 `vehicle_id IS NOT NULL` 聚合，**孤儿 vehicle_id 也进了它返回的字典**，可 `build_vehicle_cost:124-153` 只遍历 `vehicles` 表里的真实车辆 ⇒ 那个桶没有任何行消费它（这就是「静默吞掉」的机制）。两处都不报错。
+
+`改法`：① `services/accounting_service.py::create_expense` 加三格守卫（**核心区文件**，本单唯一的核心改动）：driver_id → `User` 必须存在且 `is_active` 为真、且没带回收站后缀（口径走 `services/soft_delete.has_del_suffix`，与 `api/v1/users.py:497 _is_deleted_account`、`api/v1/user_categories.py:60` 同一处），vehicle_id → `Vehicle` 必须存在且 `is_active` 为真，order_id → `Order` 必须存在且 `deleted_at is None`；失败一律 `raise ValueError`（`api/v1/expenses.py:85-90` 已经把它转成 400 且文案原样给用户），文案写明**字段名 + id + 怎么改**；② `services/reports/vehicle_cost_query.py` 把窗口开销拆三桶（挂到真实车 / 没挂车 / 挂到查无此车），新增 `unlinked_expense_total` / `unlinked_expense_count` / `orphan_expense_total` / `orphan_expense_count` / `expense_window_total` / `expense_window_count` 六个顶层字段（⛔ `expense_total` 语义一个字不变 —— `_tools/seed/_verify_ledger_math.py:895` 拿它对账），`notes` **动态追加**一行含三块笔数与金额的说明（`_NOTES: tuple[str, ...] = (` 的定义形式保持，`_tools/qa/_check_vehicle_depreciation.py:199-200` 靠它抠正文），并写明「三块相加 = 利润表期间费用 + 税金及附加」；③ `schemas/reports.py::VehicleCostReportOut` 同步补这六个字段（`response_model` 会丢未声明字段）；④ 单测 `backend/tests/test_expense_links.py`（五档）＋ 判据 `_tools/finance/_check_expense_links.py` ＋ 反验 `_tools/finance/_reverse_verify_expense_links.py`。
+
+`明确不碰`：`api/v1/expenses.py`（只有 GET/POST，本单一个字节不改；400 由服务层给）；`models/expense.py`（⛔ 本单**不**给三个关联列补 `ForeignKey`、不建迁移 —— 老库里已经存在的孤儿行不许因为加约束变成读不出来）；`services/reports/profit_query.py` 与 `tax_query.py`（利润表口径一个字不改，对账靠新字段）；`android/**`（并行会话正在改配色，本单 Android 一处不改 —— 口径说明在 `ReportCenter.kt:1595 data.notes.forEach` 本来就常显，后端往 notes 追加一行用户就直接看得到）；`_tools/qa/_check_report_boundary.py` 钉的报表只读边界；报表端点路径 / 权限 / 数据库结构 / 历史数据。
+
+`判据 / 反验`：`python -X utf8 _tools/finance/_check_expense_links.py` ⇒ **✅ 全部 33 项通过**（六组：反空转 2 / 写入闸门 8 / 报表三桶 11 / response_model 2 / 单测 6 / 边界 4）；`python -X utf8 _tools/finance/_reverse_verify_expense_links.py` ⇒ **✅ 25/25 都红了**（逐字节还原 ＋ sha256 复验）；单测 `backend/tests/test_expense_links.py` ⇒ **改前 5 failed（红证 `_tmp/test_round3/red1_expense_links.txt`）**，改后 **5 passed**（连同既有 `tests/test_vehicle_cost_report.py` 一起 12 passed，绿证 `_tmp/test_round3/green1_expense_links.txt`）。
+
+- 状态：✅ **已完成**（2026-10-10 立项 · 2026-10-10 关闭；变更单 `docs/changes/BUG-0023.md`；台账 **TB-07**；Blast Radius **L2 —— 契约 / 数据**（写入契约 + 报表出参新增字段；钱的既有口径只读不改）；提交 `512ec98`）。
+- 核心改动：`backend/app/services/accounting_service.py` —— 为什么必须动核心：它是「账本入账与欠款口径」的**唯一写入闸门**（`_tools/qa/_core_files.txt:50`），而本单要的正是「不存在的关联根本不许落库」—— 这条守卫写在接口层（`api/v1/expenses.py`）会漏掉两个种子脚本与 AI 那条写入路径（三处都调 `accounting_service.create_expense`），写在模型层（给三个关联列补 `ForeignKey`）又会把老库里已经存在的孤儿行变成写入失败；所以只能加在这一个函数里，且**只**加三格「存在 + 可用」判定，入账金额 / 现金流水 / 业务类型一个字不动。
+
 ### [2026-10-10 01:2x → ⏳ CST 进行中] 会话：**CHG-0102 工作台配色：低饱和但不发灰 —— 统一的是明度，不是饱和度**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
 
 `用户口径`：ref **m04527**（逐字）「呃我觉得饱和度还是太低了一点不也不说饱和度吧，应该说太灰了一点。整天都饱和度或者说是明度吧，应该叫做明度。**他们并不是完全都是一致的只是在一个区间内**。就像是色彩理论一样啊，我们现在一看好看的话，它所有的呃比如说我们一般评价一个画它比较偏低，饱和但是整体的色调又统一且看的舒适是这样子的这样，它又是怎么做到的呢？我们就以工作台的所有那些功能的图标为例子，你做一份简单的html样式做给我看并且最后呃发送给我网站地址」；随后他从三档里点名（ref **m04677**，逐字）：「算了，算了，还是用这个吧推荐 / **相对彩度 0.62、明度带 58±5、彩度夹 28~44**」。台账 **L-65**（承接 CHG-0101 的 L-64）。

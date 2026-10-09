@@ -31,6 +31,7 @@
 | TB-06 | B | AI 确认卡拿不到的时候，回执把「已经写进去了」和「什么都没写」糊成了一句 | 可见 | **已修复 a87eaca** | 同一张 AI 确认卡被点了第二下、或者卡片过期后再点确认，回执都只有同一句「没写成：这次操作已经执行过、或者已经过期（确认… | android/app/src/main/java/com/tapmoay/sorders… | 改前 _tmp/tb9/tapcard_pre3_after.png ／ 改后… |
 <!-- TESTBUG:ROWS:B -->
 <!-- /TESTBUG:ROWS:B -->
+| TB-07 | B | 开销能挂到不存在的司机/车辆/订单上；挂到不存在车辆的那笔被车辆成本表静默吞掉 | 可疑 | **已修复 512ec98** | POST /api/v1/expenses 不校验 driver_id / vehicle_id / order_id 是… | backend/app/services/accounting_service.py:88… | _tmp/test_round3/evidence_TB07_expense_… |
 
 ---
 
@@ -168,6 +169,18 @@
 **给后续测试会话的环境提醒**：①口令是 123321（docs/PROJECT_MAP/05_TESTING.md:19-21 的 pass12345 是错的，见 TA-02），连错 5 次锁 15 分钟；②**同一个账号在接口层登录会把 App 顶下线**（users.session_revoked_reason「账号在另一台设备登录」）—— 本轮 App 用 15900000009、接口用自建 TB 账号 15900000010（users.id=125，role 要传小写 dispatcher）；③5556 只有 ASCII 输入法，给 AI 提问只能用英文；④报表接口参数名不统一：/cash-flows* 用 date_from/date_to，/driver-bills 只认 month，/reports/export 必须带 date，/freight-settlement 认 month 或 from/to —— FastAPI 会静默忽略未声明的 query 参数，先查 openapi.json 再判定「过滤失效」；⑤AI 页对话变长后输入框会上移，别死记坐标（点输入框提示文字再输），从 AI 页返回上级用左上角「返回」而不是 keyevent 4；⑥截图只能 adb shell screencap -p 到 /sdcard 再 adb pull。
 
 **本轮留下的测试数据**：users.id=125 / 15900000010「TB测试派单员」（本轮自建，可删）；AI 会话记录（派单员 13800000001 的对话）留在设备上；账本行 id=976（TBtest01 1×12.5，2026-10-09，source=MANUAL）是 AI 写路径测试时建的、**已由同一条 AI 撤回删掉**，库里现在没有；数据库备份 _tmp/sorders_backup_20261009_tb.db（做「补进账本」幂等测试之前的那一份）。
+### TB-07 · 开销能挂到不存在的司机/车辆/订单上；挂到不存在车辆的那笔被车辆成本表静默吞掉
+
+- 严重度：可疑　／　状态：已复现　／　记录：2026-10-10 02:57 CST
+- 现象：POST /api/v1/expenses 不校验 driver_id / vehicle_id / order_id 是否存在：三个外键全填 999999 也 200 落库（id=55，7.77 元，现金流水照写 cash_flows id=93 EXPENSE_REPAIR order_id=999999）。开销页把取不到的名字写成空字符串，与「本来就没挂」看不出区别；同一窗口车辆成本表 expense_total=5598.50（= 挂车合计 5606.27 − 孤儿 7.77），利润表期间费用=5804.87（含这 7.77）——两张表差一笔，页面上没有任何说明。
+- 复现：账号 13900000001（派单员，8020 副本库 sorders_a3.db）：1) POST /api/v1/expenses {"exp_date":"2026-10-09","category":"维修","amount":7.77,"driver_id":999999,"vehicle_id":999999,"order_id":999999} → 200 id=55；2) GET /api/v1/expenses?date_from=2026-10-01&date_to=2026-10-31 → 该行 driver_name/order_no/vehicle_name 全是空串、link_kind=vehicle；3) GET /api/v1/reports/vehicle-cost?mode=month&date=2026-10-15 → expense_total=5598.50；4) GET /api/v1/reports/profit?mode=month&date=2026-10-15 → operating_expense_total=5804.87；5) SQL 复算：10 月开销合计 5804.87、挂车 5606.27、挂到不存在车辆 7.77。脚本 _tmp/test_round3/ev_tb07.py（可重跑）。
+- 期望：关联对象不存在时应拒绝（400/422），或至少把该行标成「关联已失效」；车辆成本表若排除孤儿车辆开销，应在口径说明里写明并给出被排除的笔数/金额，不能让同一窗口两张表差一笔而无声。
+- 实际：200 落库，无任何校验与提示；页面只显示空字符串；车辆成本表静默少这 7.77（它不进任何 per_vehicle 行，也不进 expense_total），利润表含它 ⇒ 车辆成本表「成本合计」与利润表「期间费用」永久差这一笔。
+- 证据：_tmp/test_round3/evidence_TB07_expense_orphan.txt（SQL＋接口输出）；_tmp/test_round3/t2_out/t2_log.json
+- 建议改法：create_expense 里校验三个外键（或复用「关联必须存在」的统一守卫）；报表侧对孤儿关联显式归类（未挂车/已失效）并在口径说明里报出笔数与金额。
+- 定位：`backend/app/services/accounting_service.py:887`　`backend/app/api/v1/expenses.py:56-72`　`backend/app/services/reports/vehicle_cost_query.py:69-75`
+- 补充（2026-10-10，已修复）：**提交 `512ec98`（变更单 docs/changes/BUG-0023.md）**。改法：① 唯一写入闸门 `backend/app/services/accounting_service.py::create_expense` 新增 `_require_expense_links`（司机 3 态：不存在 / 已停用 / 已删（走全仓唯一份 `backend/app/services/soft_delete.py::has_del_suffix`）；车辆 2 态：不存在 / 已停用；订单 2 态：不存在 / 在回收站（`deleted_at` 非空），共 7 条 `raise ValueError`，文案写明字段名＋id＋怎么改；HTTP 层原有的 `except ValueError → 400` 一个字节未改）；② `backend/app/services/reports/vehicle_cost_query.py` 把窗口开销拆三桶（挂到真实车辆 / 没挂车 / 查无此车，`_vehicle_expenses` → `_expense_buckets`），新增 `unlinked_expense_total` / `unlinked_expense_count` / `orphan_expense_total` / `orphan_expense_count` / `expense_window_total` / `expense_window_count` 六个顶层字段（`backend/app/schemas/reports.py::VehicleCostReportOut` 同步声明），并在真有挂不上车的钱时往 `notes` 追加一行带笔数与金额的说明（`expense_total` 语义一字未变，仍只算挂到真实车辆的）；③ 单测 `backend/tests/test_expense_links.py` 5 档＋判据 `_tools/finance/_check_expense_links.py` **33 项全过**＋反验 `_tools/finance/_reverse_verify_expense_links.py` **25/25 都红了**。接口证据：8031（改前）三个 999999 的 POST ⇒ **200**、车辆成本表 `expense_total=5521.11` vs 利润表 5727.48（无声差 206.37）；8032（改后）同一请求 ⇒ **400**「司机不存在（driver_id=999999）…」、`orphan_expense_total=7.77` / `unlinked 198.60×2` / `expense_window_total=5738.59` 与利润表 5738.59 **一致**（`_tmp/test_round3/fix_TB07_before.txt` ／ `fix_TB07_after.txt`）。
+
 
 ---
 
