@@ -21,8 +21,11 @@ class LedgerCreate(MoneyInput):
     #:    它被 `api/v1/ledger.py` 的货主账**直接累加**、还会进导出，同时写一条 `LEDGER_CREATE` 审计。
     #:    服务端这一层是**唯一的兜底**（AI 那一侧 `AiWriteArgs.parseMoney` 早就拒负数了，
     #:    所以缺口只在"绕开 App 的客户端"上 —— 而那正是 H5 的形状）。
-    #:    ⚠️ 只加下界，**不动**「total 与 unit_price×quantity 是否必须相等」：那是产品口径
-    #:    （手工记账允许直接给总额），要改得先拍板。
+    #:    ⚠️ 2026-10-10（BUG-0025 / 台账 TB-10）此后**这条也管住了**：`total` 显式给的时候
+    #:    必须等于 `quantity × unit_price` —— 原来"显式给了 total 就照收"的口径会让**同一行
+    #:    有两个答案**（数量 3 × 单价 20 = 60，合计却写成 288，而账本账户按 288 累加）。
+    #:    唯一算法与 400 文案在 `api/v1/ledger.py::resolve_line_total`；订单同步来的行
+    #:    （`source=ORDER`）仍按订单行的金额记账，那一支没变。
     unit_price: Decimal = Field(default=Decimal("0"), ge=0)
     total: Decimal | None = Field(default=None, ge=0)
     order_id: int | None = None

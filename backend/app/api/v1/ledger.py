@@ -133,6 +133,55 @@ def _reject_if_order_closed(db: Session, row: Ledger, *, wants_detail: bool, wha
         )
 
 
+def _money(value: Decimal) -> str:
+    """金额只用来拼**报错文案**（两位小数）：`Decimal("20.0000")` → `20.00`。"""
+    return f"{Decimal(value):.2f}"
+
+
+def resolve_line_total(
+    source: LedgerSource,
+    quantity: int,
+    unit_price: Decimal,
+    given_total: Decimal | None,
+) -> Decimal:
+    """账本行的「合计」**只有这一处算法**（BUG-0025 / 测试台账 TB-10）。
+
+    ## 原来的病
+    `PATCH /ledger/entries/{id}` 写的是"显式给了 total 就用 total"，**不看它与 数量×单价 的关系**：
+    3 × 20.00 = 60.00 的一行可以被改成 `total = 288.00` 并且真的落库 —— 同一行两个答案
+    （数量单价说 60、合计说 288）。账本账户/欠款按 `total` 走、界面按数量×单价看，
+    **两边都不报错**；而用户唯一能走到这条路的是 AI 的「改合计金额」（它只传 total，
+    `AiWriteLedgerHandlers.kt` 的 new_amount → `Change(…, "total", …)`）。
+
+    ## 口径（方案① 严格一致性；为什么这么选写在 docs/changes/BUG-0025.md §⑥）
+    - `source=MANUAL`（人工记账与 AI 记账造出来的行）：**合计 ≡ 数量 × 单价**。显式给的
+      `given_total` 与 数量×单价 不符 → 400，文案把两个数都报出来并给出能照着做的改法。
+      想记"一整笔金额"就写 数量 1 / 单价 = 合计 —— 这个能力没有被消灭（免掉一个逃逸字段，
+      也就免掉了"导出/列表/界面三处都要记得标记"这条迟早会漏的链）。
+    - `source=ORDER`：合计**就是订单行的金额**（`ledger_sync.py` 按 `op.line_total` 入账，
+      可含让价，本来就可以 ≠ 数量×单价），权威在订单那一侧 → 显式给多少就记多少。
+      它另有「已送达/已撤销/已退货」闸（`_reject_if_order_closed`），两条不是一回事。
+    - `given_total is None`：没点名改合计 → 按 数量×单价 算（两个入口的老语义）。
+
+    ⛔ 只此一处：`create_entry`（记一笔）与 `update_entry`（改一行）都调它 ——
+    同一个数两处算法迟早分叉，而这里分叉的代价是"同一行两个答案"。
+    """
+    computed = unit_price * quantity
+    if source == LedgerSource.ORDER:
+        return given_total if given_total is not None else computed
+    if given_total is None or given_total == computed:
+        return computed
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=(
+            f"账本行的「合计」必须等于 数量 × 单价：这一行是 数量 {quantity} × 单价 {_money(unit_price)}"
+            f" = {_money(computed)}，与你给的 合计 {_money(given_total)} 不一致。"
+            f"要改合计，请同时把数量或单价改成乘积等于它的值"
+            f"（例如 数量 1、单价 {_money(given_total)} —— 记一整笔金额就这么写）。"
+        ),
+    )
+
+
 @router.get("/entries", response_model=list[LedgerOut])
 def list_entries(
     current: Annotated[User, Depends(require_any_permission(Permission.LEDGER_READ_OWN, Permission.LEDGER_READ_ALL))],
@@ -309,9 +358,6 @@ def create_entry(
     db: Session = Depends(get_db),
     current: User = Depends(require_permission(Permission.LEDGER_EDIT)),
 ) -> LedgerOut:
-    total = body.total
-    if total is None or total == Decimal("0"):
-        total = body.unit_price * body.quantity
     sid = body.shipper_id
     tname = body.temp_shipper_name if sid is None else None
     # ⛔ `source` **不许由客户端指定**（2026-09-19 审计）：
@@ -331,6 +377,10 @@ def create_entry(
             detail="手工记账只能记为「手动」来源。订单账（ORDER）与红冲（REFUND）由系统在送达/货损时自动写入，"
                    "不能手工造 —— 否则会凭空多出一行账、并顺带改写已送达订单的金额。",
         )
+    # 「合计」只有一处算法：`resolve_line_total`（BUG-0025 / 台账 TB-10）。
+    # 老语义保留：**没给 total（或给了 0）＝按 数量×单价 自动算** —— 界面与 AI 记一笔走的就是这条。
+    given_total = None if (body.total is None or body.total == Decimal("0")) else body.total
+    total = resolve_line_total(body.source, body.quantity, body.unit_price, given_total)
     row = Ledger(
         shipper_id=sid,
         temp_shipper_name=tname,
@@ -461,10 +511,14 @@ def update_entry(
             )
         if "product_id" in raw:
             row.product_id = raw["product_id"]
-        if "total" in raw and raw["total"] is not None:
-            row.total = raw["total"]
-        elif "unit_price" in raw or "quantity" in raw:
-            row.total = row.unit_price * row.quantity
+        # 「合计」只有一处算法：`resolve_line_total`（BUG-0025 / 台账 TB-10）。
+        # ⛔ 原来这里是"显式给了 total 就用 total"，**不看它与 数量×单价 的关系** ——
+        #    3 × 20.00 = 60.00 的一行能被改成 288.00 落库（账户按 total 计、界面按数量×单价看，
+        #    同一行两个答案）。只改备注/摘要（不含这三个数）时一次都不进这里：
+        #    历史行该长什么样就长什么样，不许"顺手治一下"。
+        given_total = raw["total"] if ("total" in raw and raw["total"] is not None) else None
+        if given_total is not None or "unit_price" in raw or "quantity" in raw:
+            row.total = resolve_line_total(row.source, row.quantity, row.unit_price, given_total)
     else:
         before = None
     if body.note is not None:

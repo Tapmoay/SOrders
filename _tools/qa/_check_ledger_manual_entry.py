@@ -214,8 +214,13 @@ def main() -> int:
     c.present("提交**不传 total**（后端用 Decimal 算 unit_price × quantity）",
               create, r"total = null")
     c.absent("客户端没有自己乘出 total 传上去", create, r"total = \(q|total = qty")
+    # ⚠️ 2026-10-10（BUG-0025 / 台账 TB-10）：合计的算法从 create_entry 里搬进了唯一的
+    # `resolve_line_total`（手工行 合计 ≡ 数量×单价；订单行仍按订单行的金额）。
+    # 意图没变——**后端算、客户端不自己算**——所以锚点跟着算法搬到它现在住的那一行。
     c.present("后端仍然是唯一算法（没被这轮改掉）",
-              files["backend"], r"total = body\.unit_price \* body\.quantity")
+              files["backend"], r"computed = unit_price \* quantity")
+    c.present("创建与修改都调那一处（合计不会又长出第二份算法）",
+              files["backend"], r"row\.total = resolve_line_total\(row\.source")
     c.present("后端只收 MANUAL 来源（手工账不许伪装成订单账）",
               files["backend"], r"手工记账只能记为「手动」来源")
     c.present("后端允许 product_id 一起进来（这一轮没加新端点，本来就收）",

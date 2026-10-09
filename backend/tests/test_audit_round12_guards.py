@@ -392,7 +392,9 @@ def test_manual_ledger_row_still_editable_and_deletable(client, token_dispatcher
     db_session.add(row)
     db_session.commit()
 
-    r = client.patch(f"/api/v1/ledger/entries/{row.id}", json={"total": 20}, headers=h)
+    # ⚠️ 改合计要连数量/单价一起给（BUG-0025：手工行的 合计 ≡ 数量×单价；这里 2 × 10.00 = 20.00）。
+    #    这条测的是"手工行不受已送达闸限制"，与合计一致性不是同一条判据。
+    r = client.patch(f"/api/v1/ledger/entries/{row.id}", json={"total": 20, "quantity": 2}, headers=h)
     assert r.status_code == 200, r.text
     assert Decimal(r.json()["total"]) == Decimal("20")
     assert client.delete(f"/api/v1/ledger/entries/{row.id}", headers=h).status_code in (200, 204)
@@ -414,7 +416,8 @@ def test_ledger_edit_log_records_before_and_after(client, token_dispatcher, db_s
     )
     db_session.add(row)
     db_session.commit()
-    r = client.patch(f"/api/v1/ledger/entries/{row.id}", json={"total": 20}, headers=h)
+    # ⚠️ 同上：2 × 10.00 = 20.00（BUG-0025 之后改合计必须与数量×单价一致）。
+    r = client.patch(f"/api/v1/ledger/entries/{row.id}", json={"total": 20, "quantity": 2}, headers=h)
     assert r.status_code == 200, r.text
 
     log = (
