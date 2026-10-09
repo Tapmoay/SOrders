@@ -490,8 +490,23 @@ def main() -> int:
         "exportDownloadLabel(state.error.isNotBlank())" in row
         and "if (hasError) \"再试一次\" else \"下载\"" in read(CARD),
     )
-    c.ok("失败原因照原话说出来", '"⚠ " + state.error' in row)
-    c.ok("存到哪了要说出来（用户得找得到）", '"已保存到：" + saved.path' in row)
+    # ⚠️ 2026-10-09 落脚点搬了（CHG-0097 / 台账 L-62）：失败那一档的「⚠ ＋后端原话」从
+    # `AiChatScreen` 里那个 `when` 搬进了纯函数 `exportStatusLine`（`ai/AiExportCard.kt`）。
+    # ⛔ **不是放松**：还是钉那两件事 —— ① 原话照说、只加一个「⚠ 」前缀（不带感叹号、不重写）；
+    # ② 那一行由纯函数给出，界面侧不许自己拼（`AiChatScreen` 里找得到 `exportStatusLine(`）。
+    c.ok(
+        "失败原因照原话说出来",
+        '"⚠ " + error' in read(CARD) and "exportStatusLine(" in row,
+    )
+    # ⚠️ 2026-10-09 口径变了（CHG-0097 / 台账 L-62）：用户第二次点名「不要那么长的信息啊，
+    # 只表示一保存做个简单的」⇒ 卡片上**不再**显示 `saved.path`。
+    # ⛔ 这一条**不是放松**：从前钉的是"路径必须在卡片上"，现在钉两件事 ——
+    # ① 那句话由纯函数 `exportStatusLine` 给出（不是界面里现拼）；② 卡片上确实不再读 `saved.path`。
+    # 文件位置本身没有丢：它在「下载 / SOrders报表」目录里，Android 10 以下那一档仍写在卡片上。
+    c.ok(
+        "存好之后卡片上写一句短话（不再是「已保存到：＋整条路径」，CHG-0097）",
+        "exportStatusLine(" in row and '"已保存"' in read(CARD) and "saved.path" not in row,
+    )
     c.ok("一个接收方都没有时给一句实话", "没找到能接收文件的 App，文件已经存到「下载 / SOrders报表」。" in row)
     h = hits(A_SHARE_IMPL)
     c.ok(

@@ -179,17 +179,11 @@ CASES: list[tuple[str, str, object, str]] = [
         ),
         "第二行来自纯函数",
     ),
-    (
-        "失败那一行被挪到「已存好」后面：出错之后卡片上只写路径",
-        SCREEN,
-        sub(
-            '                        state.error.isNotBlank() -> "⚠ " + state.error\n'
-            '                        saved != null -> "已保存到：" + saved.path\n',
-            '                        saved != null -> "已保存到：" + saved.path\n'
-            '                        state.error.isNotBlank() -> "⚠ " + state.error\n',
-        ),
-        "第三行的先后是判据",
-    ),
+    # ⚠️ 原本这里还有一条「失败那一行被挪到『已存好』后面」。CHG-0097 / 台账 L-62 把
+    # 「错误 > 已存好 > 正在忙」这三档的先后从 `AiChatScreen` 的 `when` 搬进了
+    # `ai/AiExportCard.kt` 的 `exportStatusLine`，那条注入的落脚点已经不存在了；
+    # 同一件事现在由下面第 31 条（打在同一处新代码上、关键词也对得上）来证 ——
+    # ⛔ 不是把这件风险丢掉，是不留两条重复的注入。
     (
         "失败那一行不再用错误色（看起来一切正常）",
         SCREEN,
@@ -352,6 +346,88 @@ CASES: list[tuple[str, str, object, str]] = [
         # 反验要证明的是"删掉**任何一处**都看得见"，所以两处**都必须改**。
         lambda t: t.replace("左边是有个那个框那是个文件图标", "左边有一个图标"),
         "左边是有个那个框",
+    ),
+    # ---- 8. CHG-0097 / 台账 L-62：用户第二次点名「太长了……只表示一保存做个简单的」 ----
+    (
+        "「已保存」被改回一条长话（用户点名的那个毛病又回来了）",
+        CARD,
+        sub('internal fun exportSavedLabel(): String = "已保存"',
+            'internal fun exportSavedLabel(): String = "已保存到「下载 / SOrders报表」"'),
+        "一处定义",
+    ),
+    (
+        "「错误 > 已存好 > 正在忙」这三档的顺序被调反（失败会被一句「已保存」盖掉）",
+        CARD,
+        sub("""    error.isNotBlank() -> "⚠ " + error
+    saved -> exportSavedLabel()
+    else -> exportProgressNote(busy = busy, saved = false, progress = progress)""",
+            """    saved -> exportSavedLabel()
+    error.isNotBlank() -> "⚠ " + error
+    else -> exportProgressNote(busy = busy, saved = false, progress = progress)"""),
+        "顺序即判据",
+    ),
+    (
+        "卡片又去读 saved.path，把「已保存」换回「已保存到：＋整条路径」",
+        SCREEN,
+        sub("""                    val note = exportStatusLine(
+                        error = state.error,
+                        saved = saved != null,
+                        busy = state.busy,
+                        progress = state.progress,
+                    )""",
+            '''                    val note = if (saved != null) "已保存到：" + saved.path else exportStatusLine(
+                        error = state.error,
+                        saved = saved != null,
+                        busy = state.busy,
+                        progress = state.progress,
+                    )'''),
+        "整行收敛到 exportStatusLine",
+    ),
+    (
+        "状态行又被放开成两行（路径没了，但下一次谁再往这行塞长文本就又会把卡撑高）",
+        SCREEN,
+        sub("""                                note,
+                                // 这一行现在短了（「已保存」三个字），但仍给它显式定宽：
+                                // 失败那一档要写后端的原话，长了就在这里收掉、不许去挤右边那两颗按钮。
+                                modifier = Modifier.weight(1f, fill = false),
+                                fontSize = MetaTextSize,
+                                color = if (state.error.isNotBlank()) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.outline
+                                },
+                                maxLines = 1,""",
+            """                                note,
+                                // 这一行现在短了（「已保存」三个字），但仍给它显式定宽：
+                                // 失败那一档要写后端的原话，长了就在这里收掉、不许去挤右边那两颗按钮。
+                                modifier = Modifier.weight(1f, fill = false),
+                                fontSize = MetaTextSize,
+                                color = if (state.error.isNotBlank()) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.outline
+                                },
+                                maxLines = 2,"""),
+        "那一行不许再给到两行",
+    ),
+    # ---- 9. CHG-0097 的单测 ----
+    (
+        "单测里「存好之后只写已保存」那一档被删掉（这条才是 CHG-0097 的要害）",
+        TEST,
+        sub("    fun `存好之后_卡片上只写已保存_不写路径`() {", "    fun `暂时不测这一档`() {"),
+        "存好之后只写「已保存」",
+    ),
+    (
+        "单测里「不许出现 /storage」那条断言被换掉（路径漏回来就没人拦了）",
+        TEST,
+        sub('line.contains("/storage")', 'line.isEmpty()'),
+        "不许出现路径",
+    ),
+    (
+        "用户第二次点名那句被从 KDoc 里删掉（下一个人只会看到'路径莫名其妙没了'）",
+        SCREEN,
+        sub("不要那么长的信息啊，只表示一保存做个简单的", "文字要短一点"),
+        "只表示一保存做个简单的",
     ),
 ]
 

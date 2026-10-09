@@ -151,8 +151,8 @@ MUTATIONS = [
     (
         "设置页的能力声明退回手写（写窄了用户以为它不会，写宽了用户白试一次）",
         ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiSettingsScreen.kt",
-        "                            AiRolePrompt.settingsSummary(",
-        "                            (\n",
+        "            val capacitySummary = AiRolePrompt.settingsSummary(",
+        "            val capacitySummary = \"\",\n            AiRolePrompt.doesNotExist(\n",
         "设置页的能力声明调用生成函数",
     ),
     (

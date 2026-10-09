@@ -32,7 +32,7 @@ internal data class ExportCardActions(
     val downloadEnabled: Boolean,
     /** 「分享」那颗此刻点得动吗。 */
     val shareEnabled: Boolean,
-    /** 文件已经在手机上了 —— 界面据此在信息区写一句「已下载」并让「下载」退成灰的。 */
+    /** 文件已经在手机上了 —— 界面据此在信息区写一句「已保存」（[exportSavedLabel]）并让「下载」退成灰的。 */
     val downloaded: Boolean,
 )
 
@@ -54,6 +54,50 @@ internal fun exportProgressNote(busy: Boolean, saved: Boolean, progress: String)
 
 /** 「下载」那颗上写什么（失败过就写「再试一次」——用户点它就是为了再试）。 */
 internal fun exportDownloadLabel(hasError: Boolean): String = if (hasError) "再试一次" else "下载"
+
+/**
+ * 文件已经落到手机上时，卡片上写什么（台账 **L-62** / CHG-0097）。
+ *
+ * 用户 2026-10-09 的原话（ref `m01176`，语音转写，逐字）：
+ * 「包括什么已保存到那个什么什么什么？也喜也也省略掉啊，不要那么长的信息啊，只表示一保存做个简单的」
+ *
+ * ⇒ 从前写的是 `"已保存到：" + saved.path`，那句话会把
+ * `/storage/emulated/0/Download/SOrders报表/营业纵览-2026-09-01_2026-09-30.xlsx`
+ * 整条摊在卡片上、占两三行，把卡片撑成一大块（用户截图圈的就是这一块）。
+ * 现在只写两个字，**存到哪儿由右边那颗 [分享] 负责**（要发给谁就直接发），
+ * 真要自己去找文件的，系统「下载」App 里那个 `SOrders报表` 目录一直都在。
+ *
+ * ⛔ 这里**只给这一档**留了函数：失败那一档必须把后端的原话**原样**说出来（`"⚠ " + error`，
+ * 换掉就等于把错误吞了），正在忙那一档是 [exportProgressNote]，都不许从这里过一道手。
+ */
+internal fun exportSavedLabel(): String = "已保存"
+
+/**
+ * 卡片信息区最后那一行写什么（**整行收敛到这一处**，台账 **L-62** / CHG-0097）。
+ *
+ * 三档的先后顺序本身就是判据：**错误 > 已存好 > 正在忙**。
+ * 「说一句实话」永远压过"看起来一切正常" —— 失败之后卡片上不许只写「已保存」。
+ *
+ * ⚠️ 为什么这一行也要抽出来（而不是留在界面里 `when`）：它是**唯一**一处决定
+ * 「卡片对用户说的那句话是什么」的地方，而用户点名要改的就是这句话的长短。
+ * 留在 Composable 里就只能靠正则去钉字符串；抽成纯函数之后，`AiExportCardTest`
+ * 可以直接断言「存好之后卡片上**没有** `/storage/` 这三个字」这种话。
+ *
+ * @param error 后端/网络的失败原话（空＝这一条没失败过）。
+ * @param saved 文件已经在手机上了。
+ * @param busy 此刻正在取件。
+ * @param progress 取件过程中后端报的那句话（账本才会报，如「已等 8 秒」）。
+ */
+internal fun exportStatusLine(
+    error: String,
+    saved: Boolean,
+    busy: Boolean,
+    progress: String,
+): String = when {
+    error.isNotBlank() -> "⚠ " + error
+    saved -> exportSavedLabel()
+    else -> exportProgressNote(busy = busy, saved = false, progress = progress)
+}
 
 /**
  * 卡片信息区第二行（文件名下面那一行）：这张表叫什么 ＋ 统计的是哪一段。

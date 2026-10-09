@@ -6,12 +6,15 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
@@ -19,6 +22,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -40,6 +44,8 @@ import com.tapmoay.sorders.ai.AiRolePrompt
 import com.tapmoay.sorders.ai.AiTools
 import com.tapmoay.sorders.ai.LlmClient
 import com.tapmoay.sorders.ai.ThinkingLevel
+import com.tapmoay.sorders.ai.capabilitySummaryCounts
+import com.tapmoay.sorders.ai.capabilitySummaryLabel
 import com.tapmoay.sorders.ui.common.AppTopBar
 import com.tapmoay.sorders.ui.common.DangerConfirmDialog
 import com.tapmoay.sorders.ui.common.OneShotSnackbar
@@ -110,7 +116,24 @@ fun AiSettingsScreen(
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // ---------------- 隐私说明（用户最关心的一件事，放最上面） ----------------
+            // ---------------- 隐私说明 + 能力清单（用户最关心的一件事，放最上面） ----------------
+            // ⚠️ 这一格是**两件事**拼的（2026-10-09 CHG-0098 / 台账 L-63）：
+            //    ① 上面那句隐私与费用（CHG-0031）：**永远可见**，用户点名要留；
+            //    ② 下面那份能力清单：**默认折起来**，点一下才展开。
+            //    用户原话（m01649）：「顺便把这个做一个折叠和隐藏啊，他那些详情的解释啊，
+            //    不然太长了很占位子。」—— 所以折的是**界面**，那句话本身一个字都没删
+            //    （它同时还是模型的 system prompt，见 `AiRolePrompt.settingsSummary` 的 KDoc）。
+            //
+            // ⚠️ 折叠状态必须进 Composition 的 **saveable** 那一路：这一页是整列
+            //    `verticalScroll`，滚一趟回来（或转屏）展开态就没了 —— `remember` 会丢。
+            //    ⛔ 默认值必须是 `false`：这一格存在的理由就是"太长了很占位子"。
+            val capacitySummary = AiRolePrompt.settingsSummary(
+                // ⚠️ 必须传 **actor**（角色 + 是不是批发商货主）：这段是能力声明，
+                //    而两个货主的能力不一样（批发商多一本自己的账）。
+                actor = ai.currentActor,
+                readModules = vm.readModules.filter { it.enabled }.map { it.module }.toSet(),
+            )
+            var capacityExpanded by rememberSaveable { mutableStateOf(false) }
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.medium,
@@ -127,23 +150,49 @@ fun AiSettingsScreen(
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Spacer(Modifier.height(6.dp))
-                        // ⚠️ 这段是**能力声明**，不是宣传语。写错了的后果是双面的：
+                        // ⚠️ 折的是这一段（**能力声明**，不是宣传语）。写错了的后果是双面的：
                         // 写宽了，用户以为 AI 能下单/派单，试一次就失去信任；
                         // 写窄了（v3.7 之前那句「它不能下单、派单、改价或删数据」就是），
                         // 模型读到会跟着一起否认自己的能力——实测已经踩过一次（见 §19.6）。
                         // 所以它**从代码里生成**（AiRolePrompt.settingsSummary），
                         // 和提示词同源；手写的那一版已经和真实能力走散过一次
                         // （批量调价 v3.21 就上线了，这页却还写着「改价做不了」）。
-                        Text(
-                            AiRolePrompt.settingsSummary(
-                                // ⚠️ 必须传 **actor**（角色 + 是不是批发商货主）：这段是能力声明，
-                                //    而两个货主的能力不一样（批发商多一本自己的账）。
-                                actor = ai.currentActor,
-                                readModules = vm.readModules.filter { it.enabled }.map { it.module }.toSet(),
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        //
+                        // ⚠️ 折起来那一行**必须报数**（`capabilitySummaryLabel`）：它是用户
+                        //    点开之前唯一的线索，"有多少东西"也一起藏了的话他只能盲点。
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(MaterialTheme.shapes.small)
+                                .clickable { capacityExpanded = !capacityExpanded }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                capabilitySummaryLabel(
+                                    counts = capabilitySummaryCounts(capacitySummary),
+                                    expanded = capacityExpanded,
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = accent,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Icon(
+                                if (capacityExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = accent,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                        if (capacityExpanded) {
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                capacitySummary,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }

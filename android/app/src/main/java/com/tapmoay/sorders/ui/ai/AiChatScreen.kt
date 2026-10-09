@@ -93,7 +93,7 @@ import com.tapmoay.sorders.ai.ThinkingLevel
 import com.tapmoay.sorders.ai.exportCardActions
 import com.tapmoay.sorders.ai.exportCardSubtitle
 import com.tapmoay.sorders.ai.exportDownloadLabel
-import com.tapmoay.sorders.ai.exportProgressNote
+import com.tapmoay.sorders.ai.exportStatusLine
 import com.tapmoay.sorders.ui.common.AppTopBar
 import com.tapmoay.sorders.ui.common.DangerConfirmDialog
 import com.tapmoay.sorders.ui.common.OneShotSnackbar
@@ -1573,7 +1573,8 @@ private fun MessageRow(
 }
 
 /**
- * 助手回答下面那行「文件」（v3.34，CHG-0078，台账 L-43；**样式重做** v3.60，CHG-0095，台账 L-61）。
+ * 助手回答下面那行「文件」（v3.34，CHG-0078，台账 L-43；**样式重做** CHG-0095，台账 L-61；
+ * **文字压缩** CHG-0097，台账 L-62）。
  *
  * ### 它为什么长在**回答下面**
  * 用户原话（m01794）：「他首先第一点，他要自己做表格先给我看，然后…他会输出一个下载按钮，
@@ -1584,7 +1585,7 @@ private fun MessageRow(
  * 三块，从左到右：
  * - **左**：一个方框，框里是文件图标（[ExportIconBoxSize]，导出语义色 MoneyOrange）；
  * - **中**：文件信息 —— 文件名（最多 2 行）→ 哪张表/哪一段（[exportCardSubtitle]）→
- *   存到哪儿 或 正在干什么（[exportProgressNote]，错了就写一句实话）；
+ *   一句话说现在怎么了（[exportStatusLine]，错了就写一句实话）；
  * - **右**：**两颗**图标按钮 —— 下载（[Icons.Default.FileDownload]）与分享（[Icons.Default.Share]），
  *   各 [ExportActionButtonSize]，中间隔 [ExportActionGap]。
  *
@@ -1596,10 +1597,14 @@ private fun MessageRow(
  * 旧版是四选一只画一颗（点过 [下载] 之后它就没了，换成 [分享]），后果是用户看完那一眼
  * 就再也说不清"这里到底有一颗还是两颗"；而用户画的那张图里，两颗是并排摆着的。
  *
+ * ⛔ 信息区里**不许再出现文件路径**（用户 2026-10-09 第二次点名，ref `m01176`：
+ * 「不要那么长的信息啊，只表示一保存做个简单的」）。存到哪儿由右边那颗 [分享] 负责；
+ * 真要自己翻文件的，系统「下载」App 里那个 `SOrders报表` 目录一直都在。
+ *
  * ### 三态各有各的样子（都在这三块里）
  * - 还没点：两颗都在，[下载] 亮着、[分享] 灰着；
  * - 点过了：两颗都灰，中间那行写「正在生成…（已等 8 秒）」（连点不会开出两个账本任务）；
- * - 成了：文件名 + 「已保存到 …」+ 一个绿勾，[下载] 退成灰的、[分享] 亮起来；
+ * - 成了：文件名 + 「已保存」+ 一个绿勾，[下载] 退成灰的、[分享] 亮起来；
  * - 失败：一句实话 + [下载] 上写着「再试一次」。
  *
  * ### 分享只对 Android 10+ 开（口径 m01865）
@@ -1673,24 +1678,26 @@ private fun ExportFileRow(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    // 三档的先后顺序是判据：错误 > 已存好 > 正在忙。
-                    // 「说一句实话」永远压过"看起来一切正常" —— 失败之后卡片上不许只写路径。
-                    val note = when {
-                        state.error.isNotBlank() -> "⚠ " + state.error
-                        saved != null -> "已保存到：" + saved.path
-                        else -> exportProgressNote(
-                            busy = state.busy,
-                            saved = false,
-                            progress = state.progress,
-                        )
-                    }
+                    // 三档的先后顺序是判据：错误 > 已存好 > 正在忙。整句话只有一处实现
+                    // （`ai/AiExportCard.kt` 的 `exportStatusLine`）—— 这里照着画，别在这儿再拼一次。
+                    // 用户 2026-10-09 第二次点名（ref `m01176`）：「不要那么长的信息……只表示一保存」：
+                    // ⛔ 从前这里是 `"已保存到：" + saved.path`，把整条
+                    // `/storage/emulated/0/Download/SOrders报表/…` 摊在卡片上，卡就被撑成一大块。
+                    // 存到哪儿不再写在这儿 —— 要发给谁就点右边那颗 [分享]；
+                    // 真要自己翻文件的，系统「下载」App 里那个 `SOrders报表` 目录一直都在。
+                    val note = exportStatusLine(
+                        error = state.error,
+                        saved = saved != null,
+                        busy = state.busy,
+                        progress = state.progress,
+                    )
                     if (note.isNotBlank()) {
                         Spacer(Modifier.height(3.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 note,
-                                // 文件路径很长：让它自己占几行把路径给全，不要挤成一行省略号
-                                // （用户要照着这个路径去「下载 / SOrders报表」里找文件）。
+                                // 这一行现在短了（「已保存」三个字），但仍给它显式定宽：
+                                // 失败那一档要写后端的原话，长了就在这里收掉、不许去挤右边那两颗按钮。
                                 modifier = Modifier.weight(1f, fill = false),
                                 fontSize = MetaTextSize,
                                 color = if (state.error.isNotBlank()) {
@@ -1698,7 +1705,7 @@ private fun ExportFileRow(
                                 } else {
                                     MaterialTheme.colorScheme.outline
                                 },
-                                maxLines = 2,
+                                maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             if (actions.downloaded && !state.busy) {

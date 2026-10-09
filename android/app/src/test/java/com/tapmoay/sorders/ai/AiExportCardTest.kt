@@ -1,10 +1,12 @@
 package com.tapmoay.sorders.ai
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 /**
- * 导出文件卡上那两颗按钮"什么时候点得动"、以及卡片上那两行字写什么（台账 L-61 / CHG-0095）。
+ * 导出文件卡上那两颗按钮"什么时候点得动"、以及卡片上那几行字写什么
+ * （台账 L-61 / CHG-0095；文字压缩见台账 L-62 / CHG-0097）。
  *
  * ## 为什么要钉
  * 用户 2026-10-09 点名的形态是「左边一个文件图标的框 + 中间文件信息 + 右边**两颗**图标按钮
@@ -15,6 +17,10 @@ import org.junit.Test
  * - 手机分享不了（Android 10 以下、没有 `content://`），「分享」却亮着 ⇒ 点下去没反应；
  * - 信息区那行写成「营业纵览 · · 」这种空段 ⇒ 卡片上出现一行谁也看不懂的点。
  * 所以逐档钉死，包括"来源认不出来时宁可什么都不写"。
+ *
+ * 后来（同一天，ref `m01176`）用户又点名「太长了……不要那么长的信息啊，只表示一保存做个简单的」
+ * —— 于是"卡片上那句话"整行收敛进 [exportStatusLine]，连"存好之后不许再出现 `/storage`"
+ * 这件事也变成可以直接断言的，而不是靠正则去 Composable 里找字符串。
  */
 class AiExportCardTest {
 
@@ -159,5 +165,48 @@ class AiExportCardTest {
         // 逐字钉住：这份映射漂了（有人抄第二份），报表页签与文件名就跟着对不上
         assertEquals("营业纵览", AiTools.exportTitle("turnover"))
         assertEquals("异常与审计", AiTools.exportTitle("audit"))
+    }
+
+    // ---------------- 状态行：卡片对用户说的那句话（CHG-0097，台账 L-62） ----------------
+
+    @Test
+    fun `存好之后_卡片上只写已保存_不写路径`() {
+        // 用户 2026-10-09 第二次点名（ref m01176）：「不要那么长的信息啊，只表示一保存做个简单的」
+        val line = exportStatusLine(error = "", saved = true, busy = false, progress = "")
+        assertEquals("已保存", line)
+        // ⛔ 这一条是本档的要害：路径一旦漏回来，卡片立刻又被撑成一大块
+        // （JUnit 的参数顺序是 message 在前；写反了编译期就会红 —— 别改成 assertFalse(条件, 话)）
+        assertFalse("存好之后不该把文件路径摊在卡片上，实际：" + line, line.contains("/storage"))
+        assertFalse("存好之后不该把文件路径摊在卡片上，实际：" + line, line.contains("Download"))
+    }
+
+    @Test
+    fun `失败过_后端那句原话要原样说出来_不能被已保存盖掉`() {
+        // 顺序即判据：错误 > 已存好 > 正在忙。「说一句实话」永远压过"看起来一切正常"
+        val line = exportStatusLine(error = "账本服务没应答", saved = true, busy = false, progress = "")
+        assertEquals("⚠ 账本服务没应答", line)
+    }
+
+    @Test
+    fun `正在忙_走的是进度那句话`() {
+        assertEquals(
+            "正在生成…",
+            exportStatusLine(error = "", saved = false, busy = true, progress = ""),
+        )
+        assertEquals(
+            "已等 8 秒",
+            exportStatusLine(error = "", saved = false, busy = true, progress = "已等 8 秒"),
+        )
+    }
+
+    @Test
+    fun `什么都没发生_状态行是空的_不留一条空行`() {
+        assertEquals("", exportStatusLine(error = "", saved = false, busy = false, progress = ""))
+    }
+
+    @Test
+    fun `存好之后的字数_就是三个字`() {
+        // 「已保存」三个字是上限：这类"卡片上的一句话"每多一个字都要有理由
+        assertEquals("「已保存」就三个字，实际：" + exportSavedLabel(), 3, exportSavedLabel().length)
     }
 }

@@ -33,7 +33,7 @@
 上面这些**没有一条是类型属性**：`enabled = true` 与 `enabled = false` 同型；
 `Spacer(Modifier.width(12.dp))` 删掉之后仍然是一段合法的 Compose 代码；
 "IconButton 有没有被包在 `if` 里"根本不是类型能表达的事。
-可用性那一半已经抽成纯函数并用 `AiExportCardTest` 钉住了（15 档），
+可用性那一半已经抽成纯函数并用 `AiExportCardTest` 钉住了（20 档），
 但"**界面照着画**"这一半（两颗都在、左框在、间距在、尺寸在）只能落在源码结构上，
 再配反向验证 `_reverse_verify_ai_export_card.py`（逐条弄坏一次，看它真的变红）。
 
@@ -41,13 +41,16 @@
 
 ## 判据
 1. `ai/AiExportCard.kt`：`exportCardActions` 三条判据（busy 压过一切 / 存好了下载退灰 /
-   分享要 saved＋shareable），外加 `exportProgressNote`、`exportDownloadLabel`、`exportCardSubtitle`；
+   分享要 saved＋shareable），外加 `exportProgressNote`、`exportDownloadLabel`、
+   `exportCardSubtitle`、`exportSavedLabel`、`exportStatusLine`（后两个是 CHG-0097 加的：
+   用户第二次点名「太长了……只表示一保存做个简单的」）；
 2. `ui/ai/AiChatScreen.kt` 的 `ExportFileRow`：带框文件图标（44dp、MoneyOrange）＋ 文件信息
-   （名字 / 哪张表哪一段 / 存到哪儿）＋ **两颗** IconButton（FileDownload / Share，各 44dp，
-   `exportActionGap` 隔开，enabled 只来自 `exportCardActions`）；
+   （名字 / 哪张表哪一段 / **一句**"现在怎么了"，⛔ 里面不许再出现文件路径）＋ **两颗**
+   IconButton（FileDownload / Share，各 44dp，`exportActionGap` 隔开，enabled 只来自
+   `exportCardActions`）；
 3. ⛔ 界面里不许再出现"自己判 busy/saved 决定画不画按钮"的旧写法（点了就没了的那种）；
-4. 单测 `AiExportCardTest` 钉住各档（含"重下期间两颗都不亮"）；
-5. 设计系统文档 §4.25d ＋ 变更单九节 ＋ 登记簿 ＋ 工作声明齐；
+4. 单测 `AiExportCardTest` 钉住各档（含"重下期间两颗都不亮""存好之后不写路径"）；
+5. 设计系统文档 §4.25d ＋ §4.25e ＋ 变更单九节（CHG-0095 / CHG-0097 两份）＋ 登记簿 ＋ 工作声明齐；
 6. 反验脚本在。
 
 用法：python _tools/qa/_check_ai_export_card.py
@@ -64,6 +67,7 @@ SCREEN = AND / "ui/ai/AiChatScreen.kt"
 CARD = AND / "ai/AiExportCard.kt"
 TEST = ROOT / "android/app/src/test/java/com/tapmoay/sorders/ai/AiExportCardTest.kt"
 DOC = ROOT / "docs/changes/CHG-0095.md"
+DOC2 = ROOT / "docs/changes/CHG-0097.md"
 REG = ROOT / "docs/changes/README.md"
 CLAIM = ROOT / "docs/AI_WORK_CLAIM.md"
 DESIGN = ROOT / "docs/PROJECT_MAP/06_DESIGN_SYSTEM.md"
@@ -261,7 +265,7 @@ def main() -> int:
         card,
         r"shareEnabled = saved && shareable,",
     )
-    c.present("「文件已经在手机上」单独出来给界面用（写'已下载'那一句）", card, r"downloaded = saved,")
+    c.present("「文件已经在手机上」单独出来给界面用（写'已保存'那一句）", card, r"downloaded = saved,")
     c.present(
         "进度那句话：账本报的原样用，没话说要有一句顶上去",
         card,
@@ -281,6 +285,30 @@ def main() -> int:
     c.absent("⛔ 表名不许在卡片里另抄一份映射", card, r'"营业纵览"')
     c.present("KDoc 里留了用户口径的 ref", card, r"ref `m00002`")
     c.present("KDoc 里留了台账编号", card, r"台账 L-61 / CHG-0095")
+    # ---- CHG-0097 / 台账 L-62：用户第二次点名「太长了……只表示一保存做个简单的」 ----
+    c.present("KDoc 里留了第二次点名的 ref（不然下一个人不知道为什么路径没了）", card, r"ref `m01176`")
+    c.present("KDoc 里留了这一次的台账编号", card, r"台账 \*\*L-62\*\* / CHG-0097")
+    c.present(
+        "「已保存」只有一处定义（就是这三个字，不许在界面里再拼一遍）",
+        card,
+        r'internal fun exportSavedLabel\(\): String = "已保存"',
+        uniq=True,
+    )
+    c.present(
+        "整行收敛到 exportStatusLine（错误 > 已存好 > 正在忙，顺序即判据）",
+        card,
+        r"internal fun exportStatusLine\(\s*\n"
+        r"\s*error: String,\s*\n\s*saved: Boolean,\s*\n\s*busy: Boolean,\s*\n\s*progress: String,\s*\n"
+        r"\): String = when \{\s*\n"
+        r'\s*error\.isNotBlank\(\) -> "⚠ " \+ error\s*\n'
+        r"\s*saved -> exportSavedLabel\(\)\s*\n"
+        r"\s*else -> exportProgressNote\(busy = busy, saved = false, progress = progress\)\s*\n\}",
+        uniq=True,
+    )
+    c.absent("⛔ 「已保存到：」这句话不许回来（它后面必然跟着一整条路径）", code_only(card), r"已保存到")
+    # ⚠️ 这一条必须去注释之后再找：KDoc 里为了讲清"为什么不写路径"，
+    # 正文明写着 `saved.path` 这四个字（`code_only` 只判**代码里**有没有）。
+    c.absent("⛔ 卡片上不许再出现「存到哪儿」这档（路径由右边那颗分享负责）", code_only(card), r"saved\.path")
 
     print("\n== 2. 左：带框的文件图标（用户第一句话就是'框'） ==")
     c.present("图标框尺寸常量", screen_code, re.escape(ICON_BOX))
@@ -317,7 +345,7 @@ def main() -> int:
     )
     c.present("框不可点（它只是'这是个文件'的符号，可点的是右边两颗）", screen_code, r"contentAlignment = Alignment\.Center,")
 
-    print("\n== 3. 中：文件信息三行（名字 / 哪张表哪一段 / 存到哪儿） ==")
+    print("\n== 3. 中：文件信息两行（名字 / 哪张表哪一段）＋ 一句「现在怎么了」 ==")
     c.present(
         "文件名最多两行（长文件名不要被切成一个看不出是什么的样子）",
         screen_code,
@@ -326,11 +354,32 @@ def main() -> int:
     )
     c.present("第二行来自纯函数（空就不画，不留一条空行）", screen_code, r"val subtitle = exportCardSubtitle\(recipe\)\s*\n\s*if \(subtitle\.isNotBlank\(\)\) \{")
     c.present(
-        "第三行的先后是判据：错误 > 已存好 > 正在忙",
+        "那一句话整行走纯函数（界面里不许再拼一次「错误 > 已存好 > 正在忙」）",
         screen_code,
-        r'state\.error\.isNotBlank\(\) -> "⚠ " \+ state\.error\s*\n'
-        r'\s*saved != null -> "已保存到：" \+ saved\.path\s*\n'
-        r"\s*else -> exportProgressNote\(",
+        r"val note = exportStatusLine\(\s*\n"
+        r"\s*error = state\.error,\s*\n\s*saved = saved != null,\s*\n\s*busy = state\.busy,\s*\n"
+        r"\s*progress = state\.progress,\s*\n\s*\)",
+        uniq=True,
+    )
+    # ⛔ CHG-0097 / 台账 L-62：用户第二次点名「不要那么长的信息啊，只表示一保存做个简单的」。
+    # 这几条 absent 是这一次改动的要害 —— 路径一旦漏回来，卡片立刻又被撑成一大块。
+    c.absent("⛔ 状态行里不许再拼「已保存到：」＋路径", code_only(screen_code), r'"已保存到："')
+    c.absent("⛔ 卡片上不许再读 saved\.path（界面上没有任何一处该显示完整路径）", row_code, r"saved\.path")
+    c.absent(
+        "⛔ 那一行不许再给到两行（以前是 maxLines = 2，正是它把卡片撑高的）",
+        row_code,
+        # 只用「紧跟在 `note,` 之后」这一段来认，不把注释的逐字写进正则 ——
+        # 判据钉的是形状，钉注释原文的话，改一个字就会变成假红。
+        #
+        # ⚠️ `row_code` 过的是 `code_only()`：行注释被拿掉、**只留一个空行占位**。
+        #    所以中间那几行既可能是注释（原样看），也可能是一片空白（去注释后看），
+        #    两种都得认 —— 只认注释会让这条判据变成死的（反向验证第 32 条就是这么抓出来的）。
+        #
+        # ⚠️ 窗口是 400 而不是"到函数结尾"：这一段到状态行自己的 `maxLines` 隔着约 400 字符，
+        #    而文件名那一行的 `maxLines = 2` **在 `note,` 前面**（偏移更小），所以开多大都不会误伤。
+        #    开太小则注入 `maxLines = 2` 之后仍旧匹配不到 —— 那这条判据就是死的。
+        r"note,\s*\n(?:\s*(?://[^\n]*)?\n)*\s*[^\n]*\n\s*fontSize = MetaTextSize,\s*\n"
+        r"\s*color = [^\n]*\n[\s\S]{0,400}?maxLines = 2,",
     )
     c.present(
         "失败那一行用错误色",
@@ -468,11 +517,25 @@ def main() -> int:
     c.present("信息区第二行：表名 ＋ 区间", test, r'assertEquals\("营业纵览 · 2026-09-01 ~ 2026-09-30", exportCardSubtitle\(r\)\)')
     c.present("空的时候不许写出一串空点", test, r"报表_一个字段都没有_也不许写出一串空点")
     c.present("认不出的表名原样回", test, r"报表_认不出的表名_原样回而不是猜一个")
+    # ---- CHG-0097 / 台账 L-62：状态行那五档 ----
+    c.present("存好之后只写「已保存」（CHG-0097 的要害那一条）", test, r"存好之后_卡片上只写已保存_不写路径")
+    # ⚠️ 不写 `assertFalse(` 开头：JUnit 是 message 在前、条件在后，
+    #    所以真正要钉的是「**有一个** `line.contains("/storage")` 被 assertFalse 管着」。
+    #    用 `[\s\S]{0,200}?` 跨过中间那句话（那句话说白了是给人看的，钉死它反而会假红）。
+    c.present(
+        "存好之后不许出现路径（这一条才是'卡片不再被撑高'的机器判据）",
+        test,
+        r"assertFalse\([\s\S]{0,200}?line\.contains\(\"/storage\"\)",
+    )
+    c.present("失败那句原话压过「已保存」", test, r"失败过_后端那句原话要原样说出来_不能被已保存盖掉")
+    c.present("忙的时候走进度那句话", test, r"正在忙_走的是进度那句话")
+    c.present("什么都没发生就不留一条空行", test, r"什么都没发生_状态行是空的_不留一条空行")
+    c.present("「已保存」的字数上限", test, r"存好之后的字数_就是三个字")
 
     c.ok(
-        "单测档数就是 15（这个数在变更单、登记簿、设计系统、代码定位表里都写着，"
+        "单测档数就是 20（这个数在变更单、登记簿、设计系统、代码定位表里都写着，"
         "少一条那些文书立刻对不上）",
-        len(re.findall(r"@Test\b", test)) == 15,
+        len(re.findall(r"@Test\b", test)) == 20,
         "实际 %d 条" % len(re.findall(r"@Test\b", test)),
     )
 
@@ -480,6 +543,9 @@ def main() -> int:
     c.present("KDoc 里留了那句「这 2 个按钮不要 ****的太近」", screen, r"这 2 个按钮不要 \*\*\*\*的太近")
     c.present("KDoc 里留了「左边是有个那个框那是个文件图标」", screen, r"左边是有个那个框那是个文件图标")
     c.present("KDoc 里留了台账编号 L-61", screen, r"台账 L-61")
+    # ---- CHG-0097：第二次点名也要留档，否则下一个人只会看到"路径莫名其妙没了" ----
+    c.present("KDoc 里留了第二次点名那句「只表示一保存做个简单的」", screen, r"不要那么长的信息啊，只表示一保存做个简单的")
+    c.present("KDoc 里留了台账编号 L-62", screen, r"台账 L-62")
 
     print("\n== 8. 文书与反向验证 ==")
     doc = read(DOC)
@@ -490,6 +556,15 @@ def main() -> int:
     c.present("工作声明里记了这条活", read(CLAIM), r"CHG-0095")
     c.present("设计系统里立了 §4.25d 这一节", read(DESIGN), r"§4\.25d")
     c.ok("反验脚本在：" + REVERSE.name, REVERSE.exists())
+
+    # ---- CHG-0097 / 台账 L-62：这一次改动的文书 ----
+    doc2 = read(DOC2)
+    missing2 = [s for s in SECTIONS if s not in doc2]
+    c.ok("CHG-0097.md 九节齐全", not missing2, "缺：" + " / ".join(missing2))
+    c.present("CHG-0097.md 里写了 Blast Radius L0", doc2, r"Blast Radius\*\*：L0")
+    c.present("登记簿里有 CHG-0097 这一行", read(REG), r"CHG-0097")
+    c.present("工作声明里记了这一次的活", read(CLAIM), r"CHG-0097")
+    c.present("设计系统里立了 §4.25e 这一节（'字少'这件事要有据可依）", read(DESIGN), r"§4\.25e")
 
     print("\n" + "=" * 60)
     if c.fails:
