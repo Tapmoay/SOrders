@@ -24,7 +24,7 @@
 <!-- TESTBUG:ROWS:A -->
 <!-- /TESTBUG:ROWS:A -->
 | TB-01 | B | 挂账单位页看不到任何余额：只有信用额度，点卡片也没反应 | 可见 | **已修复 0bcbf39** | 工作台 → 挂账单位：每张卡片只显示 名称 / 电话 / 账期（月结 30 天）/ 信用额度 + 删除 / 编辑；点卡片主… | android/app/src/main/java/com/tapmoay/sorders… | shots/TB_arrears_list.png、shots/TB_arre… |
-| TB-02 | B | 一多半的开销在现金流水里查不到：53 张开销只有 23 张有钱出去 | 可疑 | 已复现 | 库 backend/sorders.db 的 expenses 共 53 张（合计 44560.51 元），只有 23 张… | backend/app/api/v1/expenses.py:79-106 | 命令输出：expenses 53 张合计 44560.51；有流水的 23 张… |
+| TB-02 | B | 一多半的开销在现金流水里查不到：53 张开销只有 23 张有钱出去 | 可疑 | 已核实（静态代码路径） | 库 backend/sorders.db 的 expenses 共 53 张（合计 44560.51 元），只有 23 张… | backend/app/api/v1/expenses.py:79-106 | 命令输出：expenses 53 张合计 44560.51；有流水的 23 张… |
 | TB-03 | B | 车辆成本表的「成本合计」不等于利润表的「司机运费」：月窗口差 5952 元（8… | 可疑 | **已修复 0bcbf39** | 车辆成本表只累计「现在挂在这台车上的那位司机」的按单应付，没有挂车的司机整块不计入；利润表的司机运费是全量。同一窗口两处数… | backend/app/services/reports/vehicle_cost_que… | shots/TB_vehicle_cost_day.png（顶卡 570.96… |
 | TB-04 | B | AI 对账的结论对，但明细桥与账本侧对不齐（退货红冲笔数/金额，且漏了两张已软… | 可疑 | 已复现 | 让 AI 把 2026-09 的已送达订单和账本对一遍，结论正确（178 单里唯一在 9 月账本找不到的是 10-07 才… | backend/app/services/ledger_sync.py:1 | shots/TB_ai_reconcile4.png（差额说明原文）；_tmp… |
 <!-- TESTBUG:ROWS:B -->
@@ -87,6 +87,7 @@
 - 证据：命令输出：expenses 53 张合计 44560.51；有流水的 23 张 → EXPENSE_* 8720.51；无流水 30 张（exp_date ≤2026-09-12、created_at=2026-09-20 09:58:27.189947）。脚本 _tmp/tb/sweep.py。
 - 建议改法：给历史 30 张开销补写 cash_flows OUT，或在现金流量表/资金收支页的口径说明里写清「某些历史开销没有现金流水所以这里看不到」。
 - 定位：`backend/app/api/v1/expenses.py:79-106`
+- 补充（2026-10-09，静态代码路径核实）：根因已定位 —— 这 30 张没有现金流水的开销**不是记账路径的 bug**，是开发库的播种历史：`backend/scripts/seed_demo_data.py:1167-1171` 直接 `for _ in range(30): et = rng.choice(list(EXPENSE_NOTES)); car = …; db.add(Expense(exp_date=…, category=et, amount=Decimal(rng.choice([…]))))`，绕过了服务层；记账路径本是 `backend/app/api/v1/expenses.py:79-106` 的 `create_expense` → `accounting_service.create_expense`（它会写一条 `cash_flows` OUT），所以播种批次没有流水。与既有事实吻合：30 张的 `created_at` 全是 `2026-09-20 09:58:27.189947`、`exp_date` 全 ≤2026-09-12，2026-10-04 之后新建的 id 41-53 都写了流水（新建这条路是好的）。→ 两种改法（**修 / 不修由用户拍板，本行不预设结论**）：① 给历史 30 张补写 `cash_flows` OUT（一次性补记，之后现金流量表与开销表对齐）；② 不改数据，在现金流量表 / 资金收支页的口径说明里写清「某些历史开销没有现金流水，所以这里看不到」，并把本条标成 `不修（开发库播种历史数据）`。本条状态按台账链由 `已复现` 推进到 `已核实（静态代码路径）`。
 
 ### TB-03 · 车辆成本表的「成本合计」不等于利润表的「司机运费」：月窗口差 5952 元（83%）
 
