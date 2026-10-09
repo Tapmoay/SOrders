@@ -240,10 +240,21 @@ class VehicleCostReportOut(BaseModel):
     #: 算得出折旧的那些车的月折旧合计（⛔ 不是窗口金额）
     depreciation_monthly_total: Decimal = Decimal("0")
     expense_total: Decimal = Decimal("0")
+    #: 窗口内**没挂车**的开销合计与笔数（不算进任何一台车，但必须看得见，BUG-0023）
+    unlinked_expense_total: Decimal = Decimal("0")
+    unlinked_expense_count: int = 0
+    #: 窗口内**挂到查无此车**的开销合计与笔数（改前这批钱被静默吞掉）
+    orphan_expense_total: Decimal = Decimal("0")
+    orphan_expense_count: int = 0
+    #: = expense_total + 上面两块（窗口内全部开销；与利润表「期间费用 + 税金及附加」对齐）
+    expense_window_total: Decimal = Decimal("0")
+    #: 窗口内开销单的行数（三块相加）
+    expense_window_count: int = 0
     delivery_cost_total: Decimal = Decimal("0")
     total_cost: Decimal = Decimal("0")
     per_vehicle: list[VehicleCostItem] = []
-    #: 口径说明（为什么只算成本、哪笔开销进不来、换司机怎么算、折旧未覆盖、折旧不是现金）
+    #: 口径说明（为什么只算成本、哪笔开销进不来、换司机怎么算、折旧未覆盖、折旧不是现金；
+    #: 真有挂不上车的钱时，末尾再追加一行写明笔数与金额）
     notes: list[str] = []
 
 

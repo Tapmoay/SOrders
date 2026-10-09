@@ -24,6 +24,7 @@ from app.models import (
     OrderProduct,
     ShipperReceipt,
     User,
+    Vehicle,
 )
 from app.models.enums import (
     CashFlowBizType,
@@ -42,6 +43,7 @@ from app.schemas.accounting_v2 import (
 )
 from app.services.order_money import line_receivable, money_map
 from app.services.money_text import money_text
+from app.services.soft_delete import has_del_suffix
 
 #: 送达货损自动生成的那笔开销用哪个分类 —— **就是名册里的那个名字**（原来是枚举 `LOSS`）。
 #: 迁移会把老库里的 `loss` 翻成「货损」，所以这里写中文名与名册对得上。
@@ -568,7 +570,13 @@ def create_receipt(db: Session, body: ShipperReceiptCreate, operator_id: int | N
 
 
 def settleable_bills(
-    db: Session, *, driver_id: int, settle_type: DriverBillType, month: str
+    db: Session,
+    *,
+    driver_id: int,
+    settle_type: DriverBillType,
+    month: str,
+    doc_id: int | None = None,
+    include_claimed: bool = False,
 ) -> list[DriverBill]:
     """这个司机、这个月、这类账单里**现在还能结的** —— 只有这一处实现。
 
@@ -591,20 +599,107 @@ def settleable_bills(
        （2026-10-03 BUG-0007 改口径）。孤儿的来历见台账 D2 —— 生产路径里 PIECE 一律带
        `order_id`（`api/v1/driver_bills.py` 的补单、本模块送达时自动生成），
        只有测试 / 历史数据造得出来；而"照收"的代价是它一旦存在就锁死当月结算。
+    ⛔ 「待结」≠「没人锁」（2026-10-10 BUG-0024）：`settled_doc_id` 非空 = 已经被某张
+       **未作废的草稿单**点名了 —— 默认**不返回**（否则同一笔明细会同时挂在两张草稿单上，
+       冲突要拖到确认那一刻才炸）。传 `doc_id` 时把**本单自己锁住的**那几行也算回来
+       （`confirm_settlement` 按 `bill_ids` 逐行核对要靠它）；`include_claimed=True`
+       只给诊断用（如实说出被谁锁着、好让用户去作废那张单），不参与写路径。
     """
-    return list(
-        db.scalars(
-            select(DriverBill)
-            .outerjoin(Order, Order.id == DriverBill.order_id)
-            .where(
-                DriverBill.driver_id == driver_id,
-                DriverBill.bill_type == settle_type,
-                DriverBill.month == month,
-                DriverBill.status == DriverBillStatus.OPEN,
-                or_(DriverBill.order_id.is_(None), Order.deleted_at.is_(None)),
-            )
+    rows = (
+        select(DriverBill)
+        .outerjoin(Order, Order.id == DriverBill.order_id)
+        .where(
+            DriverBill.driver_id == driver_id,
+            DriverBill.bill_type == settle_type,
+            DriverBill.month == month,
+            DriverBill.status == DriverBillStatus.OPEN,
+            or_(DriverBill.order_id.is_(None), Order.deleted_at.is_(None)),
         )
     )
+    if not include_claimed:
+        # 「锁定」就是这一列：建单当刻把 `settled_doc_id` 写成自己的 id ⇒ 别的草稿单取不到。
+        if doc_id is None:
+            rows = rows.where(DriverBill.settled_doc_id.is_(None))
+        else:
+            rows = rows.where(
+                or_(
+                    DriverBill.settled_doc_id.is_(None),
+                    DriverBill.settled_doc_id == doc_id,
+                )
+            )
+    return list(db.scalars(rows))
+
+
+# ---------- ④b 结算单锁定的措辞（2026-10-10 BUG-0024） ----------
+#: 结算单状态 → 人话：报错要告诉用户"是哪张**草稿**锁着"，他才知道去作废哪一张。
+_SETTLEMENT_STATUS_TEXT = {
+    SettlementStatus.DRAFT.value: "草稿",
+    SettlementStatus.CONFIRMED.value: "已确认",
+    SettlementStatus.PAID.value: "已付款",
+    SettlementStatus.CANCELLED.value: "已作废",
+}
+
+
+def _settlement_label(db: Session, doc_id: int) -> str:
+    """「这笔明细被谁锁着」—— 附单号与状态。
+
+    ⚠️ 单据可能已经不在了（历史数据 / 手工改库）：那时如实说查不到这张单，
+       而不是把 `#None` 之类的东西甩给用户看。
+    """
+    doc = db.get(DriverSettlement, doc_id)
+    if doc is None:
+        return f"#{doc_id}（这张单已经不在了，锁是历史数据留下的）"
+    status = getattr(doc.status, "value", doc.status)
+    return f"#{doc_id}（{_SETTLEMENT_STATUS_TEXT.get(status, '状态未知')}）"
+
+
+def _claimed_where(db: Session, rows: list[DriverBill], limit: int = 3) -> str:
+    """把「这几行分别被谁锁着」拼成人话：明细 12 在结算单 #59（草稿）、…"""
+    parts = [
+        f"明细 {b.id} 在结算单 {_settlement_label(db, int(b.settled_doc_id))}"
+        for b in rows[:limit]
+    ]
+    text = "、".join(parts)
+    if len(rows) > limit:
+        text += f" 等 {len(rows)} 笔"
+    return text
+
+
+def _why_gone(db: Session, s: DriverSettlement, gone: list[int]) -> str:
+    """`bill_ids` 里这几行**为什么**取不回来 —— 逐笔给结论（2026-10-10 BUG-0024）。
+
+    三种成因分开说，因为用户要做的下一步完全不同（原来那句「被删除或已被别的结算单占用」
+    把三件事糊成一件，用户只能靠猜）：
+    · 被别的结算单占用 → 去作废那张单（附单号；那单已经不在了也如实说）；
+    · 明细已被删除 → 这笔应付没了，得人工复核；
+    · 状态已不是待结（被保留任务作废 / 已被结掉）→ 作废本单、重新结算。
+    """
+    rows = {int(b.id): b for b in db.scalars(select(DriverBill).where(DriverBill.id.in_(gone)))}
+    occupied: list[DriverBill] = []
+    deleted: list[int] = []
+    stale: list[int] = []
+    for bid in gone:
+        row = rows.get(bid)
+        if row is None:
+            deleted.append(bid)
+        elif row.settled_doc_id is not None and int(row.settled_doc_id) != int(s.id):
+            occupied.append(row)
+        else:
+            stale.append(bid)
+    parts: list[str] = []
+    if occupied:
+        parts.append(f"{len(occupied)} 笔已被别的结算单占用（{_claimed_where(db, occupied)}）")
+    if deleted:
+        ids = "、".join(str(i) for i in deleted[:5])
+        if len(deleted) > 5:
+            ids += f" 等 {len(deleted)} 笔"
+        parts.append(f"{len(deleted)} 笔已被删除（明细 {ids}）")
+    if stale:
+        ids = "、".join(str(i) for i in stale[:5])
+        if len(stale) > 5:
+            ids += f" 等 {len(stale)} 笔"
+        parts.append(f"{len(stale)} 笔已不是待结状态（明细 {ids} —— 可能已被保留任务作废或已被结掉）")
+    return "；".join(parts) if parts else "明细已不可用"
 
 
 # ---------- ⑤ 司机结算单状态机 ----------
@@ -619,6 +714,24 @@ def create_settlement(db: Session, body: DriverSettlementCreate, operator_id: in
         db, driver_id=body.driver_id, settle_type=body.settle_type, month=body.month
     )
     if not bills:
+        # 空手而归有两种（2026-10-10 BUG-0024）：本来就没有待结明细 / 这个月的明细**已经被
+        # 别的草稿单锁住了** —— 后者原来能建出第二张单（冲突拖到确认才炸），现在建单就报。
+        claimed = [
+            b
+            for b in settleable_bills(
+                db,
+                driver_id=body.driver_id,
+                settle_type=body.settle_type,
+                month=body.month,
+                include_claimed=True,
+            )
+            if b.settled_doc_id is not None
+        ]
+        if claimed:
+            raise ValueError(
+                f"{body.month} 的 {len(claimed)} 笔待结明细已经被别的结算单锁住了"
+                f"（{_claimed_where(db, claimed)}）；请先作废那张单再来建单，本单未创建"
+            )
         raise ValueError(f"{body.month} 无待结算明细（请先生成账单）")
     order_ids = [b.order_id for b in bills if b.order_id]
     # ⛔ 「这一单覆盖哪几行」在建单当刻**定死**（`bill_ids`），确认 / 付款只认它：
@@ -655,6 +768,14 @@ def create_settlement(db: Session, body: DriverSettlementCreate, operator_id: in
         note=body.note,
     )
     db.add(s)
+    db.flush()  # 先拿到 id：下面这几行的锁要写它（接口层随后也用它写操作日志）
+    # ⛔ 「建结算单＝把一批待结明细锁进一张单子」在建单当刻**真的发生**（2026-10-10 BUG-0024）：
+    #    这几行的 `settled_doc_id` 立刻指向本单 ⇒ 第二张草稿单取数时取不到它们
+    #    （`settleable_bills` 默认只取没被锁的）。⚠️ 状态**仍是 OPEN** —— 钱一分没出，
+    #    `status` 只在 `confirm_settlement` 那一刻才翻 SETTLED；
+    #    `cancel_settlement` 作废时把锁放回（`settled_doc_id = None`）。
+    for b in bills:
+        b.settled_doc_id = s.id
     return s
 
 
@@ -671,15 +792,21 @@ def confirm_settlement(db: Session, s: DriverSettlement, operator_id: int | None
         current = {
             b.id: b
             for b in settleable_bills(
-                db, driver_id=s.driver_id, settle_type=s.settle_type, month=s.month
+                db,
+                driver_id=s.driver_id,
+                settle_type=s.settle_type,
+                month=s.month,
+                doc_id=s.id,  # 「没被锁的」+「本单自己锁住的」——本单锁的那几行仍是 OPEN
             )
         }
         bills = [current[i] for i in recorded if i in current]
         gone = [i for i in recorded if i not in current]
         if gone:
+            # ⛔ 两种成因**分开说**（2026-10-10 BUG-0024）：原来那句「（被删除或已被别的结算单
+            #    占用）」把"去作废那张单"与"这笔明细没了"糊成一件事，用户照它去查只会更糊涂。
             raise ValueError(
-                f"这张结算单锁定的 {len(recorded)} 笔明细里有 {len(gone)} 笔已经不在了"
-                "（被删除或已被别的结算单占用），请作废后重新结算"
+                f"这张结算单锁定的 {len(recorded)} 笔明细已经不在了："
+                f"{_why_gone(db, s, gone)}。请作废后重新结算"
             )
     elif s.settle_type == DriverBillType.PIECE and s.order_ids:
         bills = list(
@@ -691,6 +818,9 @@ def confirm_settlement(db: Session, s: DriverSettlement, operator_id: int | None
                             DriverBill.driver_id == s.driver_id,
                             DriverBill.bill_type == DriverBillType.PIECE,
                             DriverBill.status == DriverBillStatus.OPEN,
+                            # 老草稿（没有 bill_ids）按单号重取时**也不许**抢别人锁住的明细
+                            # （2026-10-10 BUG-0024）。
+                            DriverBill.settled_doc_id.is_(None),
                         )
                     )
                 )
@@ -704,6 +834,8 @@ def confirm_settlement(db: Session, s: DriverSettlement, operator_id: int | None
                     DriverBill.bill_type == s.settle_type,
                     DriverBill.month == s.month,
                     DriverBill.status == DriverBillStatus.OPEN,
+                    # 同上：老草稿不许抢别人（新草稿）锁住的明细。
+                    DriverBill.settled_doc_id.is_(None),
                 )
             )
         )
@@ -813,12 +945,18 @@ def cancel_settlement(db: Session, s: DriverSettlement, operator_id: int | None)
     #    为空的那类单（孤儿明细 / 月薪单）在 `cancel × confirm` 的历史竞态里留下的
     #    「CANCELLED + 明细已 SETTLED」永远解不开（既不在 OPEN 里、也不可付）。
     #    `settled_doc_id == s.id` 本身就自限（只动这张单锁住的那些行），不必再加类型/单号条件。
-    #    （草稿单正常情况下没有 SETTLED 明细：真正打上标记的是 `confirm_settlement`。）
+    #    ⚠️ 但"锁"从 2026-10-10（BUG-0024）起**在建单当刻就打上了**：草稿单锁住的那几行
+    #    `settled_doc_id == s.id` 而 `status` 还是 OPEN —— 只认 SETTLED 的话这些锁解不开，
+    #    那笔明细就再也结不了。所以两条都要放回；⛔ CANCELLED 不在内（保留任务作废的明细
+    #    不许被复活成待结，那会凭空多出一笔应付）。
     bills = list(
         db.scalars(
             select(DriverBill).where(
                 DriverBill.settled_doc_id == s.id,
-                DriverBill.status == DriverBillStatus.SETTLED,
+                or_(
+                    DriverBill.status == DriverBillStatus.SETTLED,
+                    DriverBill.status == DriverBillStatus.OPEN,
+                ),
             )
         )
     )
@@ -884,6 +1022,67 @@ def write_expense_cash_flow(
     return flow
 
 
+def _require_expense_links(db: Session, body: ExpenseCreate) -> None:
+    """这一笔开销上挂的司机 / 车辆 / 订单必须**真的存在、而且还在用**（BUG-0023 / 台账 TB-07）。
+
+    为什么守在这一个函数里（而不是接口层、也不是数据库约束）：
+
+    1. 写入口不止 HTTP 一个：AI 的「记一笔支出」走同一个 POST，两个种子脚本直接调本函数 ——
+       守 api/v1/expenses.py 会漏掉另外两条路。**唯一的写入闸门就是这个函数。**
+    2. 在 expenses 的三个关联列上补 ForeignKey 拦不住老库：库里已经有孤儿行（实测 id=55
+       挂着 driver_id=vehicle_id=order_id=999999），加约束要先迁移 + 清数据，代价与风险不成比例；
+       而且 SQLite 默认不校验历史行、MySQL 加约束会直接失败。
+    3. ⛔ 只管**新写的这一笔**：主数据被停用 / 软删之后，原来挂在它上面的历史开销一行不动、
+       名字照旧解析得出来（GET /expenses 与车辆成本表读的是同一批行）。
+
+    文案要求（用户能照着改）：点名字段名 + 那个 id + 怎么办。
+    """
+    if body.driver_id is not None:
+        driver = db.get(User, int(body.driver_id))
+        if driver is None:
+            raise ValueError(
+                f"司机不存在（driver_id={body.driver_id}）：请在司机管理里选一位在用的司机，"
+                "或把这一笔改成不挂司机"
+            )
+        if not bool(getattr(driver, "is_active", True)):
+            raise ValueError(
+                f"这位司机账号已停用（driver_id={body.driver_id}）：请先恢复该账号，"
+                "或把这一笔改成不挂司机"
+            )
+        # 「在回收站里」的判据**只有一处**（services/soft_delete.has_del_suffix）：
+        # 删账号把手机号 / 用户名改成了「原值_del{id}」并保留 is_active，
+        # 所以 is_active 分不出「停用」与「已删除」—— 两句话给用户的下一步动作不一样。
+        if has_del_suffix(driver.id, driver.phone, driver.username):
+            raise ValueError(
+                f"这位司机账号已删除（driver_id={body.driver_id}）：请先在回收站里恢复它，"
+                "或把这一笔改成不挂司机"
+            )
+    if body.vehicle_id is not None:
+        vehicle = db.get(Vehicle, int(body.vehicle_id))
+        if vehicle is None:
+            raise ValueError(
+                f"车辆不存在（vehicle_id={body.vehicle_id}）：请在车辆管理里选一辆在用的车，"
+                "或把这一笔改成不挂车"
+            )
+        if not bool(getattr(vehicle, "is_active", True)):
+            raise ValueError(
+                f"这辆车已停用（vehicle_id={body.vehicle_id}）：请先启用这辆车，"
+                "或把这一笔改成不挂车"
+            )
+    if body.order_id is not None:
+        order = db.get(Order, int(body.order_id))
+        if order is None:
+            raise ValueError(
+                f"订单不存在（order_id={body.order_id}）：请按单号重新选一张单，"
+                "或把这一笔改成不挂订单"
+            )
+        if getattr(order, "deleted_at", None) is not None:
+            raise ValueError(
+                f"这张订单在回收站里（order_id={body.order_id}）：请先恢复它，"
+                "或把这一笔改成不挂订单"
+            )
+
+
 def create_expense(db: Session, body: ExpenseCreate, operator_id: int | None) -> Expense:
     # 分类**先补进名册**（不在就补到最后）：否则用户在一个新分类下记的开销，
     # 左侧分类栏里没有它 —— 那条记录只能靠"名册外的分类"兜底显示（排序/改名都轮不到它）。
@@ -896,6 +1095,9 @@ def create_expense(db: Session, body: ExpenseCreate, operator_id: int | None) ->
     if not clean:
         raise ValueError("请选择开销分类")
     ensure_category(db, clean)
+    # 关联必须在落库**之前**核对（BUG-0023）：改前 999999 也能 200 落库 ——
+    # 那一笔钱随后在车辆成本表里查无此车、被静默吞掉（利润表认、车辆成本表不认）。
+    _require_expense_links(db, body)
     e = Expense(
         exp_date=body.exp_date,
         category=clean,

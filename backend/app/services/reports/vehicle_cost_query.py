@@ -18,6 +18,10 @@
     total_cost == depreciation + expense_total + delivery_cost        （逐车）
     totals.total_cost == Σ per_vehicle[*].total_cost                  （合计 == 逐车相加）
 
+⛔ 挂不上车的开销（没挂车 / vehicle_id 查不到车）**不进任何一台车的成本**，但它们会在
+   `unlinked_expense_*` / `orphan_expense_*` 上单列，并在 `expense_window_total` 里与各车相加 ——
+   同一窗口里利润表认、这张表不认的那笔钱必须看得见（BUG-0023 / 台账 TB-07）。
+
 ⛔ **只读**：本包下的模块只允许 SELECT / JOIN / GROUP BY —— 判据 _tools/qa/_check_report_boundary.py
 在 AST 层面禁止落库写法与写服务依赖，而且它是**算出来的**（services/reports/** 由 glob 自动收）。
 """
@@ -34,6 +38,7 @@ from app.models import User, Vehicle
 from app.models.expense import Expense
 from app.services import vehicle_depreciation as vdep
 from app.services.money_contract import has_per_order_pay, pay_for_order
+from app.services.money_text import money_text
 from app.services.reports._common import _span_label, _window
 from app.services.reports.loader import load_delivered
 
@@ -63,24 +68,48 @@ def _driver_names(db: Session, vehicles: list[Vehicle]) -> dict[int, str]:
     return {int(uid): (full_name or phone or "") for uid, full_name, phone in rows}
 
 
-def _vehicle_expenses(db: Session, start: date, end: date) -> dict[int, list[dict[str, Any]]]:
-    """挂到车上的开销，按「车 → 分类」聚合（金额降序、同额按分类名，页面从上往下读）。"""
+def _expense_buckets(
+    db: Session, start: date, end: date, vehicle_ids: set[int]
+) -> dict[str, Any]:
+    """窗口内的开销按「挂到哪儿」分三块：挂到真实车辆的 / 没挂车的 / 挂到查无此车的。
+
+    改前这里只返回第一块，而且 SQL 里带 `vehicle_id IS NOT NULL`：于是 `vehicle_id` 指到
+    一台库里没有的车（开销单改前对关联一个都不校验，id=999999 照样落库）的那几笔，
+    进了字典却**没有任何一行消费它** —— 同一个窗口里利润表认（期间费用），车辆成本表不认，
+    两张表对不上、两边都不报错（BUG-0023 / 台账 TB-07）。
+
+    ⛔ 这里仍然只读、只聚合；三块的分法就是「这一笔能不能算到某台车上」。
+    """
     rows = db.execute(
-        select(Expense.vehicle_id, Expense.category, func.sum(Expense.amount))
-        .where(
-            Expense.exp_date >= start,
-            Expense.exp_date <= end,
-            Expense.vehicle_id.isnot(None),
+        select(
+            Expense.vehicle_id,
+            Expense.category,
+            func.count(Expense.id),
+            func.sum(Expense.amount),
         )
+        .where(Expense.exp_date >= start, Expense.exp_date <= end)
         .group_by(Expense.vehicle_id, Expense.category)
     ).all()
-    out: dict[int, list[dict[str, Any]]] = {}
-    for vehicle_id, category, amount in rows:
+    linked: dict[int, list[dict[str, Any]]] = {}
+    unlinked = {"total": _ZERO, "count": 0}
+    orphan = {"total": _ZERO, "count": 0}
+    window_count = 0
+    for vehicle_id, category, count, amount in rows:
         name = str(category or "").strip() or _UNCATEGORISED
-        out.setdefault(int(vehicle_id), []).append({"category": name, "amount": amount or _ZERO})
-    for items in out.values():
+        money = amount or _ZERO
+        window_count += int(count or 0)
+        if vehicle_id is None:
+            unlinked["total"] += money
+            unlinked["count"] += int(count or 0)
+            continue
+        if int(vehicle_id) not in vehicle_ids:
+            orphan["total"] += money
+            orphan["count"] += int(count or 0)
+            continue
+        linked.setdefault(int(vehicle_id), []).append({"category": name, "amount": money})
+    for items in linked.values():
         items.sort(key=lambda r: (-r["amount"], r["category"]))
-    return out
+    return {"linked": linked, "unlinked": unlinked, "orphan": orphan, "window_count": window_count}
 
 
 def _driver_pay(db: Session, start: date, end: date) -> dict[int, Decimal]:
@@ -117,14 +146,17 @@ def build_vehicle_cost(
     dep = vdep.summarize(vehicles, start, end)
     dep_rows = {int(r["vehicle_id"]): r for r in dep["per_vehicle"]}
 
-    expenses = _vehicle_expenses(db, start, end)
+    # 窗口内的开销分三块取（挂到真实车的 / 没挂车的 / 挂到查无此车的）——
+    # 后两块不进任何一台车的成本，但必须**报出来**（BUG-0023）。
+    expenses = _expense_buckets(db, start, end, {int(v.id) for v in vehicles})
+    linked = expenses["linked"]
     pay = _driver_pay(db, start, end)
     names = _driver_names(db, vehicles)
 
     per_vehicle: list[dict[str, Any]] = []
     for v in vehicles:
         row = dep_rows.get(int(v.id), {})
-        items = expenses.get(int(v.id), [])
+        items = linked.get(int(v.id), [])
         expense_total = sum((r["amount"] for r in items), _ZERO)
         delivery_cost = pay.get(int(v.driver_id), _ZERO) if v.driver_id else _ZERO
         depreciation = Decimal(str(row.get("window_depreciation") or _ZERO))
@@ -155,6 +187,24 @@ def build_vehicle_cost(
     depreciation_total = Decimal(str(dep["total"]))
     expense_total_all = sum((r["expense_total"] for r in per_vehicle), _ZERO)
     delivery_total = sum((r["delivery_cost"] for r in per_vehicle), _ZERO)
+    unlinked = expenses["unlinked"]
+    orphan = expenses["orphan"]
+    off_vehicle_total = unlinked["total"] + orphan["total"]
+    expense_window_total = expense_total_all + off_vehicle_total
+    notes = list(_NOTES)
+    if unlinked["count"] or orphan["count"]:
+        # 动态那一行只在**真有挂不上的钱**时出现：没有就一个字都不多说。
+        # ⛔ 金额一律过 money_text（用户可见的说明文字只许用这一份显示口径）；
+        #    行里不许出现 markdown 星号（手机上会原样显示成两个星号）。
+        notes.append(
+            f"本窗口还有 {unlinked['count'] + orphan['count']} 笔没挂到任何一台车上的开销："
+            f"未挂车的 {unlinked['count']} 笔共 {money_text(unlinked['total'])} 元、"
+            f"挂到查不到车辆的 {orphan['count']} 笔共 {money_text(orphan['total'])} 元。"
+            f"窗口内全部开销 {money_text(expense_window_total)} 元 ＝ 上面各车开销合计 "
+            f"{money_text(expense_total_all)} 元 ＋ 这 {money_text(off_vehicle_total)} 元；"
+            "未挂车的那些仍然在利润表的「期间费用」里 —— 拿本表这一行与利润表的"
+            "「期间费用」＋「税金及附加」两格对同一段时间，钱就对得上。"
+        )
     return {
         "period_label": _span_label(start, end),
         "date_from": start.isoformat(),
@@ -166,8 +216,17 @@ def build_vehicle_cost(
         # 月额合计与窗口无关（页面上的「每月固定」那一格读它）
         "depreciation_monthly_total": Decimal(str(dep["monthly_total"])),
         "expense_total": expense_total_all,
+        # ↓ 挂不上车的开销（BUG-0023）：expense_total 的语义一个字都没变（只有挂到真实车辆的），
+        #   这两块是**另外报出来**的 —— 一个用户拿同一窗口能把两张表对上，或至少看到「另有 N 笔 X 元」。
+        "unlinked_expense_total": unlinked["total"],
+        "unlinked_expense_count": int(unlinked["count"]),
+        "orphan_expense_total": orphan["total"],
+        "orphan_expense_count": int(orphan["count"]),
+        # = expense_total + 上面两块（窗口内全部开销；与利润表「期间费用 + 税金及附加」对齐）
+        "expense_window_total": expense_window_total,
+        "expense_window_count": int(expenses["window_count"]),
         "delivery_cost_total": delivery_total,
         "total_cost": depreciation_total + expense_total_all + delivery_total,
         "per_vehicle": per_vehicle,
-        "notes": list(_NOTES),
+        "notes": notes,
     }
