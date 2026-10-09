@@ -24,9 +24,10 @@
 <!-- TESTBUG:ROWS:A -->
 <!-- /TESTBUG:ROWS:A -->
 | TB-01 | B | 挂账单位页看不到任何余额：只有信用额度，点卡片也没反应 | 可见 | **已修复 0bcbf39** | 工作台 → 挂账单位：每张卡片只显示 名称 / 电话 / 账期（月结 30 天）/ 信用额度 + 删除 / 编辑；点卡片主… | android/app/src/main/java/com/tapmoay/sorders… | shots/TB_arrears_list.png、shots/TB_arre… |
-| TB-02 | B | 一多半的开销在现金流水里查不到：53 张开销只有 23 张有钱出去 | 可疑 | 已核实（静态代码路径） | 库 backend/sorders.db 的 expenses 共 53 张（合计 44560.51 元），只有 23 张… | backend/app/api/v1/expenses.py:79-106 | 命令输出：expenses 53 张合计 44560.51；有流水的 23 张… |
+| TB-02 | B | 一多半的开销在现金流水里查不到：53 张开销只有 23 张有钱出去 | 可疑 | **已修复 de9be4a** | 库 backend/sorders.db 的 expenses 共 53 张（合计 44560.51 元），只有 23 张… | backend/app/api/v1/expenses.py:79-106 | 命令输出：expenses 53 张合计 44560.51；有流水的 23 张… |
 | TB-03 | B | 车辆成本表的「成本合计」不等于利润表的「司机运费」：月窗口差 5952 元（8… | 可疑 | **已修复 0bcbf39** | 车辆成本表只累计「现在挂在这台车上的那位司机」的按单应付，没有挂车的司机整块不计入；利润表的司机运费是全量。同一窗口两处数… | backend/app/services/reports/vehicle_cost_que… | shots/TB_vehicle_cost_day.png（顶卡 570.96… |
-| TB-04 | B | AI 对账的结论对，但明细桥与账本侧对不齐（退货红冲笔数/金额，且漏了两张已软… | 可疑 | 已复现 | 让 AI 把 2026-09 的已送达订单和账本对一遍，结论正确（178 单里唯一在 9 月账本找不到的是 10-07 才… | backend/app/services/ledger_sync.py:1 | shots/TB_ai_reconcile4.png（差额说明原文）；_tmp… |
+| TB-04 | B | AI 对账的结论对，但明细桥与账本侧对不齐（退货红冲笔数/金额，且漏了两张已软… | 可疑 | **已修复 0c66e21** | 让 AI 把 2026-09 的已送达订单和账本对一遍，结论正确（178 单里唯一在 9 月账本找不到的是 10-07 才… | backend/app/services/ledger_sync.py:1 | shots/TB_ai_reconcile4.png（差额说明原文）；_tmp… |
+| TB-05 | B | AI 设置页「跑工作流」开关点开就弹回：默认工具集漏了 run_workflo… | 可见 | **已修复 371d597** | AI 助手 → 设置 →「AI 能用的能力」抬头写「查询 7/8」；把「跑工作流」那条开关点开（checked=true、… | android/app/src/main/java/com/tapmoay/sorders… | 能力开关页 uiautomator dump（checkable=true 的… |
 <!-- TESTBUG:ROWS:B -->
 <!-- /TESTBUG:ROWS:B -->
 
@@ -88,6 +89,7 @@
 - 建议改法：给历史 30 张开销补写 cash_flows OUT，或在现金流量表/资金收支页的口径说明里写清「某些历史开销没有现金流水所以这里看不到」。
 - 定位：`backend/app/api/v1/expenses.py:79-106`
 - 补充（2026-10-09，静态代码路径核实）：根因已定位 —— 这 30 张没有现金流水的开销**不是记账路径的 bug**，是开发库的播种历史：`backend/scripts/seed_demo_data.py:1167-1171` 直接 `for _ in range(30): et = rng.choice(list(EXPENSE_NOTES)); car = …; db.add(Expense(exp_date=…, category=et, amount=Decimal(rng.choice([…]))))`，绕过了服务层；记账路径本是 `backend/app/api/v1/expenses.py:79-106` 的 `create_expense` → `accounting_service.create_expense`（它会写一条 `cash_flows` OUT），所以播种批次没有流水。与既有事实吻合：30 张的 `created_at` 全是 `2026-09-20 09:58:27.189947`、`exp_date` 全 ≤2026-09-12，2026-10-04 之后新建的 id 41-53 都写了流水（新建这条路是好的）。→ 两种改法（**修 / 不修由用户拍板，本行不预设结论**）：① 给历史 30 张补写 `cash_flows` OUT（一次性补记，之后现金流量表与开销表对齐）；② 不改数据，在现金流量表 / 资金收支页的口径说明里写清「某些历史开销没有现金流水，所以这里看不到」，并把本条标成 `不修（开发库播种历史数据）`。本条状态按台账链由 `已复现` 推进到 `已核实（静态代码路径）`。
+- 补充（2026-10-09，已修复）：**提交 `de9be4a`（变更单 docs/changes/BUG-0018.md）**。改法：① 记账口径收成一处 —— `backend/app/services/accounting_service.py:839` 新增模块级 `EXPENSE_BIZ_TYPES`、`:851` `expense_biz_type(category)`、`:860` `write_expense_cash_flow(db, expense, operator_id=None)`，`create_expense`（`:886`）不再在函数体里手写 `CashFlow(...)`；② 播种脚本 `backend/scripts/seed_demo_data.py:1170-1185` 那 30 笔改走 `create_expense(...)`（不再 `db.add(Expense(...))` 绕过记账）；③ 存量补齐 —— 新建一次性脚本 `backend/scripts/backfill_expense_cash_flows.py`（幂等、默认预览、`--yes` 才写）给 30 张各补一条 OUT 流水（本机实跑：预览 30 → 写 30 → 再预览 0）。判据 `_tools/qa/_check_expense_cash_flow.py` **62 项全过** ＋ 反验 `_tools/qa/_reverse_verify_expense_cash_flow.py` **29/29 全部成立** ＋ `backend/tests/test_expense_cash_flow_backfill.py` 4 个用例；全量静检 219/230（11 条不成立与本单无关）。
 
 ### TB-03 · 车辆成本表的「成本合计」不等于利润表的「司机运费」：月窗口差 5952 元（83%）
 
@@ -112,6 +114,19 @@
 - 建议改法：若要对账可复算：对账工作流固定把「账本窗口内逐行明细（含 source=RETURN 红冲与已软删的单）」整理好再交给模型归纳，别让模型自己按单拼明细。
 - 定位：`backend/app/services/ledger_sync.py:1`
 - 补充（2026-10-09）：这一条的定位应算「未定位」—— 那段退货红冲明细是模型在回答里自己拼的，不在某一行代码里；涉及的取数来源是 backend/app/services/ledger_sync.py（source=ORDER / RETURN / REFUND 三种行的写入口径）与 backend/app/api/v1/ledger.py 的读接口（ledger.list）。上面那行只是文件级引用，不要当成缺陷所在行。
+- 补充（2026-10-09，已修复）：**提交 `0c66e21`（变更单 docs/changes/BUG-0019.md）**。改法：对账工作流的返回值改由**代码**算账本那一侧的逐行明细 —— `ledger_detail`（按来源分组的笔数/金额，来源中文走全 App 唯一那份 `core/LedgerSourceLabel.kt`）／`returns`（退货红冲逐行）／`returns_count`／`returns_amount`／`whole_order_returns`（整单退还是部分退由 `isWholeOrderReturn(row, seen)` 判）＋ `scope_note`（进了回收站的单两边都不计的取数口径）；提示词加三行纪律（⛔ 不许自己按单拼明细、不许自己加总，被核对前先讲 `scope_note`）；`core/LedgerSourceLabel.kt` 补 `"return" -> "退货红冲"`。**仍存在的边界**：真机那一轮是**点名** `run_workflow` 的提问 —— TB-04 原文那种自然提问会不会自动挑工作流，不在本单范围内。判据 `_tools/qa/_check_ai_workflow.py` **162 项全过** ＋ 反验 **49/49 全部成立** ＋ `AiWorkflowRunnerTest` 23 项全绿；真机三张 `shots/86_BUG-0019_账本分项与退货红冲_代码算的.png`／`shots/87_BUG-0019_口径_回收站的单两边都不计.png`／`shots/90_BUG-0019_执行过程_跑工作流完成.png`。
+
+### TB-05 · AI 设置页「跑工作流」开关点开就弹回：默认工具集漏了 run_workflow，AI 跑不了对账工作流
+
+- 严重度：可见　／　状态：已立项　／　记录：2026-10-09 23:46 CST　／　记录人：DSH session-bd8fe093-bbe1-4814-af6d-586e0980ff81
+- 现象：AI 助手 → 设置 →「AI 能用的能力」抬头写「查询 7/8」；把「跑工作流」那条开关点开（checked=true、prefs 的 enabled_tools 里确实存了 run_workflow），退出这一页再进来它又变回关的、抬头还是 7/8。模型侧因此从来没有这个工具：点名让它跑 ledger.reconcile，它回「这个我查不了 —— 对账工作流（ledger.reconcile）在我这边没有启用，我跑不了它，也不会替它编一份结果出来。」
+- 复现：App 派单员 13800000001 → AI 助手 → 设置 (1006,212) → 往下滚 →「AI 能用的能力」desc=打开能力开关 → 点「跑工作流」那条开关 (958,1383) ⇒ checked=true；返回再进这一页 ⇒ 又变回 checked=false。prefs 原文：adb -s emulator-5554 exec-out run-as com.tapmoay.sorders cat shared_prefs/sorders_ai_prefs_u1.xml ⇒ enabled_tools 含 run_workflow、tools_seen 不含它。点名跑工作流：在 AI 助手输入 Run the run_workflow tool with workflow set to ledger.reconcile, from 2026-09-01, to 2026-09-30。
+- 期望：用户点开的工具开关要真的生效：存进 prefs 的 run_workflow 必须在默认集里、再进这一页仍是开的、抬头报数变成 8/8，模型的工具表里有 run_workflow（工作流才跑得起来）。
+- 实际：android/app/src/main/java/com/tapmoay/sorders/ai/AiKeyStore.kt:636-646 的 DEFAULT_ENABLED_TOOLS 只有 9 项、漏了 AiTools.RUN_WORKFLOW；同文件 :698-703 的 resolveEnabledTools 末尾 return (saved + brandNew).intersect(DEFAULT_ENABLED_TOOLS) 把用户点开的名字静默筛掉（:626 的 KDoc 早就警告过这个失效形状）；而设置页 android/app/src/main/java/com/tapmoay/sorders/ai/AiTools.kt:1201-1209 的 settingsItems 渲染开关时不看默认集 ⇒「开关看起来有、其实没有」。
+- 证据：能力开关页 uiautomator dump（checkable=true 的 View 的 checked 位：点开前后 true / 再进 false）；prefs 原文 enabled_tools 与 tools_seen 两串；模型两次回绝的会话（31.4k / 31.2k tokens）；真机 emulator-5554
+- 建议改法：默认集补 AiTools.RUN_WORKFLOW（常量 KDoc 的「7 个只读工具」订正为 8）＋ 单测钉住「存进 prefs 的 run_workflow 不许被筛掉」与「默认集里必须有它」—— 已立项 BUG-0022（docs/changes/BUG-0022.md）
+- 定位：`android/app/src/main/java/com/tapmoay/sorders/ai/AiKeyStore.kt:636-646`　`android/app/src/main/java/com/tapmoay/sorders/ai/AiKeyStore.kt:698-703`　`android/app/src/main/java/com/tapmoay/sorders/ai/AiTools.kt:1201-1209`
+- 补充（2026-10-09，已修复）：**提交 `371d597`（变更单 docs/changes/BUG-0022.md）**。改法：`android/app/src/main/java/com/tapmoay/sorders/ai/AiKeyStore.kt` 的 `DEFAULT_ENABLED_TOOLS` 补 `AiTools.RUN_WORKFLOW`（常量 KDoc 的「7 个只读工具」订正为 8）⇒ `resolveEnabledTools` 末尾那句 `intersect(DEFAULT_ENABLED_TOOLS)` 不再把它静默筛掉；单测 `AiEnabledToolsTest`（7 项）＋ `AiEndpointRulesTest`（6 项）钉住。反着验一次：临时删掉默认集那一行 ⇒ 13 项里 3 项当场变红（`AiEnabledToolsTest.kt:42`／`:60`、`AiEndpointRulesTest.kt:34`），源码逐字节还原。真机：抬头从「查询 7/8」变 **8/8**（`shots/88_BUG-0022_设置页_抬头8比8.png`）、开关留在开的位置（`shots/89_BUG-0022_开关留在开的位置.png`）、工作流真跑起来（`shots/90_BUG-0019_执行过程_跑工作流完成.png`）。⛔ 判据/反验两个脚本（`_tools/qa/_check_ai_workflow.py`／`_tools/qa/_reverse_verify_ai_workflow.py`）随 BUG-0019 那一笔 `0c66e21` 提交 —— 同一份文件同时含两单的节与注入。
 
 <!-- /TESTBUG:DETAIL:B -->
 

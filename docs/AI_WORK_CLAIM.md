@@ -31,6 +31,67 @@
 
 ## 进行中
 
+### [2026-10-09 23:5x → ⏳ CST 已完成] 会话：**BUG-0020 AI 操作流水页的读动作只有英文 id：动作名只认写动作表，读目录与工具那两张表都没认**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`缺陷出处`：**CHG-0089 的遗留**（`docs/changes/CHG-0089.md:191`：「读动作落进 AI 操作流水页之后只有原始 id、没有中文名」—— 真机走查看出来的，当单只登记不修）＋ 用户台账 **L-58**（2026-10-09 发现，`_tmp/USER_BUG_LEDGER_20261006.md:2992-3000`，改前证据 `shots/63_ai_log_read_rows.png`）；同一条在测试指引里也写了「别重复记」：`docs/TEST_PROMPT_A_ORDER.md:223`、`docs/TEST_PROMPT_B_FINANCE.md:208`。用户 2026-10-09 的指令是**「这些全部修起来」** ⇒ 立项 BUG-0020。
+
+`病灶`：读动作（CHG-0089 起）确实落进了「AI 操作流水」页，但动作那一列只有原始 id —— 真机上 `inventory_alerts` / `invoices.list_invoices` 两行光秃秃，同一页的写动作却有中文名（`恢复发票（invoices.restore）` / `撤票（放进回收站）（invoices.delete）`）。根因在 `ui/ai/AiOperationRows.kt:42-46`：`actionLabel(row)` 只问 `AiWrites.titleOf(id)` 这一张**写动作表**，读动作认不出就按设计兜底"如实写 id" —— 兜底本身没错，错在**只问了一张表**：读目录（`ai/AiReadCatalog.kt:138` 的 `ReadAction("ledger.list_entries", "订单账流水（手动记账 + 订单产生的收支）", …)`）与工具表（`ai/AiTools.kt` 的 `TITLES`）里各有一份现成的中文名，没人去问。三张表之间少一个连接者，而 `String → String` 的纯函数在类型与编译期都看不见 ⇒ 只能靠判据钉形状（变更单 §R4）。
+
+`改法`：① `ui/ai/AiOperationRows.kt:55-60` 新增 `private fun knownTitle(id: String): String` —— 三张表**依次认**：`val write = AiWrites.titleOf(id); if (write != id) return write;` → `AiReadCatalog.find(id)?.let { return readTitle(it.cn) }` → `return AiTools.titleOf(id)`（三张都认不出就原样返回 id，调用方靠"返回值 == 入参"判断，⛔ 不在这里编中文名）；② `:69-72` 新增 `internal fun readTitle(cn: String): String` —— 读目录那栏是整句说明，只取第一个「（」之前的表名（`cn.substringBefore("（").substringBefore("(").trim()`），没有括号/剥空了都退回整句（`return short.ifEmpty { cn.trim() }`）；③ ⛔ **不改** `ai/AiReadCatalog.kt`（`_tools/ai/_gen_ai_read_catalog.py` 机器生成的产物，`--check` 会抓手改）—— 短名在消费端现场推导；④ 单测 `ui/ai/AiOperationRowsTest.kt` **9 → 14 档**（新增读目录中文名 / 无括号退整句 / 工具短名三档，中文名一律从表里取，⛔ 不在用例里抄）；⑤ 判据 `_tools/qa/_check_ai_operation_log.py` 第 7 节补「三张表依次认」的形状 ＋ 新增**第 9 节（文书与登记）**，反验 `_tools/qa/_reverse_verify_ai_operation_log.py` 新增注入。
+
+`明确不碰`：三条兜底语义（认不出如实写 id / 没有动作名写「未标动作（只读查询）」/ 失败没原因写「后端没有留下原因」）、`ai/AiReadCatalog.kt` 产物、`AiTools.TITLES` 与 `AiWrites` 两张表、流水页其它三列与筛选翻页、后端 / 端点 / 权限 / 数据库 / 历史数据（Blast Radius **L1 —— 展示层的一列**）。
+
+`判据 / 反验`：`python _tools/qa/_check_ai_operation_log.py` ⇒ **129 项全过**；`python _tools/qa/_reverse_verify_ai_operation_log.py` ⇒ **37/37 全部成立**（36 条注入各自让对应判据变红，还原后判据重新全绿）。单测：`gradle.bat -p android :app:testEmuDebugUnitTest --tests "*AiOperationRows*"` ⇒ `BUILD SUCCESSFUL in 19s`，`AiOperationRowsTest` **14 项 0 失败**（XML `tests="14" skipped="0" failures="0" errors="0"`）。
+
+- 状态：✅ **已完成**（2026-10-09 立项并关闭；变更单 `docs/changes/BUG-0020.md`；台账 **L-58**（用户台账，不进 `docs/TEST_BUG_LEDGER.md`）；Blast Radius **L1 —— 展示层的一列**；提交 `5ce2218`）。
+- 真机：`emulator-5554`（派单员 13800000001，1080×2400）—— ✅ `shots/91_BUG-0020_流水页_读动作有中文名.png`（页面上 `订单账流水（ledger.list_entries）` / `订单列表（orders.list_orders）` / `营业报表（reports.turnover_report）`），改前对照 `shots/63_ai_log_read_rows.png`。
+- 核心改动：**无** —— 为什么：改的 `ui/ai/AiOperationRows.kt`、`android/app/src/test/java/com/tapmoay/sorders/ui/ai/AiOperationRowsTest.kt` 与两份 `_tools/qa/` 脚本都不在 `_tools/qa/_core_files.txt` 里（那份清单里 AI 侧只有 `AiWriteService.kt` —— 写闸门；本单一个字都没碰它）。
+### [2026-10-09 23:5x → ⏳ CST 已完成] 会话：**BUG-0022 AI 设置页「跑工作流」那条开关点开就弹回：默认工具集漏了 run_workflow，末尾那句 intersect 把它静默筛掉**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`缺陷出处`：**BUG-0019 的真机取证**（2026-10-09 23:3x CST，`emulator-5554` 派单员 13800000001）—— 为了让「对账工作流」真的跑起来取一张截图，点名让 AI 跑 `ledger.reconcile`，它两次都回「这个我查不了 —— 对账工作流（ledger.reconcile）在我这边没有启用，我跑不了它，也不会替它编一份结果出来。」顺着这句话查下去抓到的是**另一条独立缺陷**：设置页那条「跑工作流」开关**看起来有、其实没有**。已记台账 **TB-05**（方向 B，严重度**可见**）。
+
+`病灶`：设置页「AI 能用的能力」抬头写「查询 7/8」；「跑工作流」那条开关点开 ⇒ `checked=true`、`shared_prefs/sorders_ai_prefs_u1.xml` 的 `enabled_tools` 里**确实存了** `run_workflow`，可退出这一页再进来它又变回关的、抬头还是 7/8。根因在 `ai/AiKeyStore.kt:636-646`：`DEFAULT_ENABLED_TOOLS` 只有 9 项、**漏了 `AiTools.RUN_WORKFLOW`**；`:698-703` 的 `resolveEnabledTools` 末尾 `return (saved + brandNew).intersect(DEFAULT_ENABLED_TOOLS)` 把用户点开的名字**静默筛掉**（`:626` 的 KDoc 早就警告过这个失效形状：「漏进这个集合 = 末尾那句 intersect 把新工具静默筛掉」）；而设置页 `ai/AiTools.kt:1201-1209` 的 `settingsItems` 渲染开关时**不看默认集**，所以开关看着是有的。消费侧 `ai/AiTools.kt:189-200` 的 `specs` = `ALL.filter { it in on && it in mine }` 里永远没有它 ⇒ 模型侧只能说「我这边没有启用」。**同类先例**：`docs/AI_ASSISTANT_PLAN_V3.md` 里 `remember` 当年漏进默认集的复盘（同一种形状）。
+
+`改法`：① `ai/AiKeyStore.kt` 的 `DEFAULT_ENABLED_TOOLS` 在 `AiTools.READ_DATA,` 之后补两行注释 ＋ `AiTools.RUN_WORKFLOW,`（常量 KDoc 的「7 个只读工具」订正成「8 个只读工具」）＋ 新增一段 ⚠️ 写明这次被漏掉的经过。② `AiEnabledToolsTest.kt` 新增一档「用户自己点开的 run_workflow 不许被筛掉（存进 prefs 也不生效就是这个 bug）」（断言 `resolveEnabledTools(saved + RUN_WORKFLOW, seenAtSave)` 与 `resolveEnabledTools(saved, seenAtSave)` 都含它）＋ 既有「新出现…按默认打开」那档补一条断言（`AiEnabledToolsTest.kt:42`）；`AiEndpointRulesTest.kt:34` 补「只读工具 run_workflow 必须在默认集里（BUG-0022）」。③ 判据 `_tools/qa/_check_ai_workflow.py` 新增**第 14 节**（**175 项全过**）＋ 反验 `_tools/qa/_reverse_verify_ai_workflow.py` 新增 **10 条注入**（㊿ 删默认集那一行 / 51 `intersect` 换成别的集合 / 52 删来历注释 / 53、54 两处单测改名 / 55 文书缺一节 / 56 删文书里那份 prefs 证据 / 57、58 登记簿与工作声明改成 BUG-0099 / 59 台账那条改成「批量调价」）。
+
+`明确不碰`：`run_workflow` 与 `AiWorkflowRunner` 本身（BUG-0019 刚落盘、判据反验都钉着）、其它 8 个工具的默认值与 `tools_seen` 的记账方式、`intersect(DEFAULT_ENABLED_TOOLS)` 那句（它是既有设计 —— 本单要的是默认集收全）、设置页那条开关的坐标与文案、`AiReadCatalog`（机器生成）、后端 / 端点 / 权限 / 数据库 / 历史数据。
+
+`判据 / 反验`：`python _tools/qa/_check_ai_workflow.py` ⇒ **175 项全过**；`python _tools/qa/_reverse_verify_ai_workflow.py` ⇒ **59 条注入全部成立**（19 个被碰过的文件逐字节还原）（跑完被碰过的文件逐字节还原）。单测：`AiEnabledToolsTest` **7 项** ＋ `AiEndpointRulesTest` **6 项** 全绿；**反着验一次**（把 `AiTools.RUN_WORKFLOW,` 那一行临时删掉重跑同一组单测）⇒ 13 项里 **3 项当场变红**（`AiEnabledToolsTest.kt:42` / `:60`、`AiEndpointRulesTest.kt:34`）、`BUILD FAILED in 22s`，源码逐字节还原。
+
+- 状态：✅ **已完成**（2026-10-09 立项并关闭；变更单 `docs/changes/BUG-0022.md`；台账 **TB-05**；Blast Radius **L1 —— AI 能力面**：出厂默认多出一个只读工具；提交 `371d597`）。
+- 真机：`emulator-5554`（派单员 13800000001，1080×2400）—— ✅ `shots/88_BUG-0022_设置页_抬头8比8.png`（抬头从「查询 7/8」变成 **8/8**；`shared_prefs/sorders_ai_prefs_u1.xml` 里 `tools_seen` 仍缺 `run_workflow`、`enabled_tools` 含它 ⇒ 不是用户点开、是新默认集那一行生效）＋ `shots/90_BUG-0019_执行过程_跑工作流完成.png`（同一台机上模型真的跑起了 `ledger.reconcile`）。
+- 核心改动：**无** —— 为什么：改的 `ai/AiKeyStore.kt`、`android/app/src/test/java/com/tapmoay/sorders/ai/AiEnabledToolsTest.kt`、`android/app/src/test/java/com/tapmoay/sorders/ai/AiEndpointRulesTest.kt` 与两份 `_tools/qa/` 脚本都不在 `_tools/qa/_core_files.txt` 里（那份清单里 AI 侧只有 `AiWriteService.kt` —— 写闸门；本单一个字都没碰它）。
+### [2026-10-09 22:5x → ⏳ CST 已完成] 会话：**BUG-0019 AI 对账的明细桥与账本侧对不齐：退货红冲的笔数/金额是模型自己按单拼的，两张已软删的整单退货单被漏掉**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`缺陷出处`：`docs/TEST_BUG_LEDGER.md` 的 **TB-04**（财务方向测试 2026-10-09 12:06 CST 在 `emulator-5554` 上真机复现，严重度**可疑**：「AI 对账的结论对，但明细桥与账本侧对不齐（退货红冲笔数/金额，且漏了两张已软删的整单退货单）」）。
+
+`病灶`：结论对、明细错，而且**没有任何一处代码在算这份明细** —— 模型拿到的是 `orders.list` 178 条 ＋ `ledger.list` 分页 200+200+123+55+57 条的**原始行**，自己在回答里按单拼出「退货红冲 8 笔：−431.50」；9 月窗口内 `source = return` 实际 10 笔 −570.70，差的 450/451 两张**已软删**（ORDER +139.20 与 RETURN −139.20 成对存在、净额 0）—— 模型看不到这两张单，于是"少了两笔"且**不知道自己少了**（见变更单第 ⑥ 节）。
+
+`改法`：① `ai/AiWorkflowRunner.kt`：`val bySource = ledger.rows.groupBy { field(it, *SOURCE)?.lowercase() ?: "" }` → `sourceDetail`（四键：来源 / 来源说明 `ledgerSourceLabel(src)` / 笔数 / `AiWriteArgs.moneyText(sumMoney(rows, *MONEY))`）；`val returns = bySource[SOURCE_RETURN].orEmpty()` ＋ `val returnsAmount = sumMoney(returns, *MONEY)` ＋ `val wholeReturns = returns.count { isWholeOrderReturn(it, seen) }` ＋ `returnsBrief`（订单号 / 日期 / 金额 / 商品 / 货主 / 整单退货）；对账结果新增 6 个键 `ledger_detail` / `returns_count` / `returns_amount` / `whole_order_returns` / `returns` / `scope_note`；`val conclusion = if (incomplete) baseConclusion else baseConclusion + returnsCn + SCOPE_NOTE`（原来那一整块改名 `baseConclusion`）；私有工具 `sumMoney` / `isWholeOrderReturn`（`return no !in seen`，⛔ 不重新查库）/ `wholeReturnCn`；companion 新增 `SOURCE_RETURN` / `SCOPE_NOTE` / `MONEY` / `ENTRY_DATE`。② `ai/AiWorkflow.kt:157-159` 三行纪律（明细照它说、⛔ 不许自己按单拼明细/加总、核对前先讲 `scope_note`）。③ `core/LedgerSourceLabel.kt:19` 补 `"return" -> "退货红冲"`。④ `AiWorkflowRunnerTest.kt` 新增 4 档单测。⑤ 判据 `_check_ai_workflow.py` 新增第 12 节 ＋ 反验 `_reverse_verify_ai_workflow.py` 新增 14 条注入。
+
+`明确不碰`：对账的取数口径（送达日窗口 `delivered_from/delivered_to`、账本日窗口、`来源 = order` 那道过滤、没有归属的单列、差集与 `clean` 判据）、「没查全就不给数字」、两个读接口与它们的 SQL、账本/订单/回收站/现金流水任何一行数据、调价工作流与 `preview_write` 那条唯一的写路、工具结果的旧键。
+
+`判据 / 反验`：`python _tools/qa/_check_ai_workflow.py` ⇒ **162 项全过**；`python _tools/qa/_reverse_verify_ai_workflow.py` ⇒ **49/49 成立**（跑完被碰过的文件逐字节还原）。
+
+- 状态：✅ **已完成**（2026-10-09 立项并关闭；变更单 `docs/changes/BUG-0019.md`；台账 **TB-04**；Blast Radius **L1 —— 只加"算好的明细"与纪律**；提交 `0c66e21`）。
+- 真机：`emulator-5554`（派单员 13800000001，1080×2400）—— ✅ 改名后的提问点名跑 `ledger.reconcile`（`shots/86_BUG-0019_账本分项与退货红冲_代码算的.png`：账本分项表 手工记账 3 ¥930.8 / 订单入账 187 ¥19,806.3 / 货损红冲 2 ¥0 / 退货红冲 8 ¥-431.5 ＋「其中整单退货 2 笔」＋逐行明细；`shots/87_BUG-0019_口径_回收站的单两边都不计.png`：口径整段「只算**没进回收站**的单…成对存在、净额是 0…那不是漏账」；`shots/90_BUG-0019_执行过程_跑工作流完成.png`：执行过程里 `✓ 跑工作流 → 完成`，本轮 67.2k tokens、`toolTrace` 只有 2 条，模型没再自己 `read_data`）。
+- 核心改动：**无** —— 为什么：改的 `ai/AiWorkflowRunner.kt`、`ai/AiWorkflow.kt`、`core/LedgerSourceLabel.kt`、`android/app/src/test/java/com/tapmoay/sorders/ai/AiWorkflowRunnerTest.kt` 与两份 `_tools/qa/` 脚本都不在 `_tools/qa/_core_files.txt` 里（那份清单里 AI 侧只有 `AiWriteService.kt` —— 写闸门；本单一个字都没碰它）。
+
+### [2026-10-09 13:1x → 13:5x CST 已完成] 会话：**BUG-0018 30 张历史开销没有现金流水：钱的那一侧凭空少了一截（播种脚本绕过了记账）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`缺陷出处`：`docs/TEST_BUG_LEDGER.md` 的 **TB-02**（财务方向测试 2026-10-09 在 `emulator-5554` 上真机复现，严重度**可疑**：「现金流量表 / 账本收支」里看到的支出，比开销单加起来的少一大截）。
+
+`病灶`：`backend/scripts/seed_demo_data.py:1167-1178`（第 ⑥ 节）用 `for _ in range(30): db.add(Expense(…))` 直接造那 30 张历史开销 —— **绕过了服务层**，所以 `cash_flows` 里一条 OUT 都没有（记账正路 `POST /api/v1/expenses` → `backend/app/api/v1/expenses.py` → `accounting_service.create_expense` 是会写一条的，还会按 8 类分类落 `biz_type`）。开发库实测：`expenses` **53 张 / ¥44560.51**，而 `cash_flows`（`party_type="expense"`、`direction="out"`、`is_deleted=0`）只有 **23 条 / ¥8720.51**，缺的 30 张 `created_at` 全是 `2026-09-20 09:58:27.189947`。报表按流水算 ⇒「钱花到哪儿去了」那一侧少了 **¥35840.00**。
+
+`改法`：① `backend/app/services/accounting_service.py` 把 `create_expense` 函数体内的局部 `biz_map` 提成模块级 `EXPENSE_BIZ_TYPES`（8 类 16 键）＋ `def expense_biz_type(category: str) -> CashFlowBizType`（认不出落 `EXPENSE_OTHER`、带空格也认），再抽出 `def write_expense_cash_flow(db, expense, operator_id=None) -> CashFlow`（字段全取自**落库那张单**：`flow_date=expense.exp_date` / `amount` / `party_type="expense"` / `party_id`、`doc_id=expense.id` / `party_name=str(expense.category)` / `channel="cash"` / `order_id` / `note` / `operator_id or expense.operator_id`），`create_expense` 删掉手写 `CashFlow(...)` 改调它 —— **口径只有一份**。② `backend/scripts/seed_demo_data.py` 那 30 笔改走 `create_expense(db, ExpenseCreate(...), dispatcher.id)`（中部 import 带 `# noqa: E402`，与既有 `create_receipt` 同一写法）。③ 新增一次性回填 `backend/scripts/backfill_expense_cash_flows.py`（92 行：`expenses_without_cash_flow()` ＋ `backfill_expense_cash_flows(db, dry_run=True)`，**幂等、默认只预览、`--yes` 才写**，复用 `write_expense_cash_flow`）。④ 新增 `backend/tests/test_expense_cash_flow_backfill.py`（4 项）＋ 判据 `_tools/qa/_check_expense_cash_flow.py`（**62 项**）＋ 反验 `_tools/qa/_reverse_verify_expense_cash_flow.py`（**29 条**）。⑤ 工程地图两处登记（`01_ARCHITECTURE.md:38`、`03_BACKEND_DETAILS.md:103`）。
+
+`明确不碰`：`ExpenseCreate` / `POST /expenses` 的契约、8 类 16 键的取值与 `CashFlowBizType` 枚举、`cash_flows` 表结构与既有 23 条流水、历史开销单行、报表口径与算法（金额变大是流水补齐后的**既有算法**结果）、其它记账路径（收款 / 结算 / 采购）、权限点。
+
+`判据 / 反验`：`python _tools/qa/_check_expense_cash_flow.py` ⇒ **62 项全过（exit 0）**（含「空转即停」；其中两处被反验打脸后改强：幂等不再只查子串、`dry_run=True` 用正则钉在调用实参上）；`python _tools/qa/_reverse_verify_expense_cash_flow.py` ⇒ **29/29 全部成立**（28 条注入各自让对应判据变红 ＋ 还原后判据重新全绿，4 个被碰过的文件与运行前逐字节一致）；pytest `backend/tests/test_expense_cash_flow_backfill.py` ⇒ **4 passed（1.52s）**；后端全量 ⇒ **1431 passed（71.33s）、EXIT=0**；开发库真跑 ⇒ 预览「30 张」→ `--yes`「✅ 已补写 30 条」→ 再预览「0 张」，53 张单 ↔ 53 条流水 ¥44560.51（探针 `backend/_tmp_probe_bug0018.py` / `…c.py`，未跟踪）。
+
+- 状态：✅ **已完成**（2026-10-09 立项并关闭；变更单 `docs/changes/BUG-0018.md`；台账 **TB-02**；Blast Radius **L3 —— 钱 / 账 ＋ 一次性数据回填**；提交 `de9be4a`）。
+- 真机：`emulator-5554`（派单员 13800000001，1080×2400）—— 报表中心 → 现金流量表 → 期间切「**全部**」⇒ 出去 **¥48644.21 / 120 笔**（`shots/83_BUG-0018_现金流量表_全部_出去有数.png`）；下滚「钱花到哪儿去了」⇒ 过路费 **8 笔 ¥11075**、油费 **7 笔 ¥8400**、保险 **4 笔 ¥7980**、其他开销 **11 笔 ¥7110**、停车费 **5 笔 ¥6340**、维修 **3 笔 ¥2750**（与探针分口径数字逐个吻合，`shots/84_BUG-0018_现金流量表_钱花到哪儿去了.png`）；账本管理 → 收支 ⇒ 支出 **¥5274 / 9 笔**，其中保险 1 笔 ¥3800、油费 1 笔 ¥900、维修 1 笔 ¥350（`shots/85_BUG-0018_账本收支_支出分类有笔数.png`）。
+- 核心改动：**无** —— 为什么：改的 `backend/app/services/accounting_service.py`、`backend/scripts/seed_demo_data.py`、新增的两个 `backend/scripts/`、`backend/tests/` 与两份 `_tools/qa/` 脚本、两份地图文档都不在 `_tools/qa/_core_files.txt` 里。
 ### [2026-10-09 12:0x → 13:0x CST 已完成] 会话：**CHG-0100 挂账单位卡上看不到「欠了多少」＋ 车辆成本表的「成本合计」没说清只含挂靠司机（测试台账 TB-01 / TB-03 的修复）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `缺陷出处`：`docs/TEST_BUG_LEDGER.md` 的 **TB-01**（方向 B 财务测试 2026-10-09 12:06 在 `emulator-5554` 上真机复现，严重度**可见**：「工作台 → 挂账单位：每张卡片只显示 名称 / 电话 / 账期 / 信用额度 ＋ 删除 / 编辑，整页看不到「已挂账 / 已收 / 余额 / 已用额度」」）与 **TB-03**（同批，严重度**可疑**：「车辆成本表只累计「现在挂在这台车上的那位司机」的按单应付，没有挂车的司机整块不计入；月窗口两处数字差 5952 元（83%）」）。
