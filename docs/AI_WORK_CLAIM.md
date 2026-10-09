@@ -43,7 +43,7 @@
 
 `判据 / 反验`：`python _tools/qa/_check_arrears_units.py` ⇒ **77/77 全过（exit 0）**；`python _tools/qa/_check_vehicle_depreciation.py` ⇒ **80 项通过 / 失败 0 项**；`python _tools/qa/_reverse_verify_arrears_units.py` ⇒ **34/34 全部报红 ＋ 11 个被碰过的文件与运行前逐字节一致**；`python _tools/qa/_reverse_verify_vehicle_depreciation.py` ⇒ **23/23 全部报红 ＋ 12 个文件逐字节一致**；单测 `ArrearsBalanceLineTest` **8 档**（全量 `:app:testEmuDebugUnitTest` ⇒ **103 个类 / tests=1452 / failures=0 / errors=0 / skipped=2**）；编译 `:app:assembleEmuDebug` ⇒ **BUILD SUCCESSFUL in 59s**；全量静检 `python _tools/qa/_check_all.py` ⇒ ****226/228**（跑完 228 个检查、总耗时 369.3 秒；剩下的 2 条红是**并行会话** 2026-10-09 12:19 的提交 `356c2f0`「测试交付物…」缺可回溯事项编号 R3-D02 ＋ 它的级联 `_check_report_facts.py`，与本单无关 —— 本单造成的 3 条（`_check_dev_spec.py` 登记簿对账 / `_check_doc_reachability.py` 孤儿文档 / `_check_hints.py` 裸露解释句）已全部转绿）**。
 
-- 状态：✅ **已完成**（2026-10-09 立项并关闭；变更单 `docs/changes/CHG-0100.md`；台账 **TB-01 / TB-03**；Blast Radius **L1 —— 展示层 ＋ 一句后端口径说明**；提交 ⟪HASH⟫）。
+- 状态：✅ **已完成**（2026-10-09 立项并关闭；变更单 `docs/changes/CHG-0100.md`；台账 **TB-01 / TB-03**；Blast Radius **L1 —— 展示层 ＋ 一句后端口径说明**；提交 0bcbf39）。
 - 真机：`emulator-5554`（派单员 13800000001，1080×2400）—— 工作台 → 挂账单位 ⇒ 卡上「已挂账 ¥5566.3 · 还能赊 ¥2433.7」（信立农批市场管理处）与「已挂账 ¥3444.1 · 额度 ¥1894.26（已超）」（德赛工业园食堂，红色）（`shots/80_CHG-0100_挂账单位_看到余额.png`）；往下滚 ⇒「信用额度：不限额」＋「到目前还没有欠款记录」（取证挂账单位）、「已挂账 ¥68.8 · 额度：不限额」（东江快餐店）（`shots/81_CHG-0100_挂账单位_不限额与无欠款.png`）；报表中心 → 运营分析表 → 车辆 →「老页面：车辆成本」⇒「车辆成本合计 ¥570.96」＋ 新小字 ＋「= 成本合计（只含挂靠司机）¥570.96」（`shots/82_CHG-0100_车辆成本_合计带限定.png`）。
 - 核心改动：**无** —— 为什么：改的 `ui/dispatcher/ArrearsBalanceLine.kt`（新）、`ArrearsUnitsViewModel.kt`、`ArrearsUnitsScreen.kt`、`ReportCenter.kt`、`backend/app/services/reports/vehicle_cost_query.py`、两份判据与两份反验、`_hint_inventory.py` 都不在 `_tools/qa/_core_files.txt` 里。
 

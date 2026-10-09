@@ -23,9 +23,9 @@
 | TA-02 | A | 测试文档写的账号密码与库里的实际密码不一致（05_TESTING.md 写 p… | 可见 | **已修复 74a6ade** | docs/PROJECT_MAP/05_TESTING.md:19-21 写「账号密码均 pass12345」，但拿 pa… | docs/PROJECT_MAP/05_TESTING.md:19-21<br>docs/… | 命令原文：python -X utf8 _tmp/ta_api.py --as… |
 <!-- TESTBUG:ROWS:A -->
 <!-- /TESTBUG:ROWS:A -->
-| TB-01 | B | 挂账单位页看不到任何余额：只有信用额度，点卡片也没反应 | 可见 | 已复现 | 工作台 → 挂账单位：每张卡片只显示 名称 / 电话 / 账期（月结 30 天）/ 信用额度 + 删除 / 编辑；点卡片主… | android/app/src/main/java/com/tapmoay/sorders… | shots/TB_arrears_list.png、shots/TB_arre… |
+| TB-01 | B | 挂账单位页看不到任何余额：只有信用额度，点卡片也没反应 | 可见 | **已修复 0bcbf39** | 工作台 → 挂账单位：每张卡片只显示 名称 / 电话 / 账期（月结 30 天）/ 信用额度 + 删除 / 编辑；点卡片主… | android/app/src/main/java/com/tapmoay/sorders… | shots/TB_arrears_list.png、shots/TB_arre… |
 | TB-02 | B | 一多半的开销在现金流水里查不到：53 张开销只有 23 张有钱出去 | 可疑 | 已复现 | 库 backend/sorders.db 的 expenses 共 53 张（合计 44560.51 元），只有 23 张… | backend/app/api/v1/expenses.py:79-106 | 命令输出：expenses 53 张合计 44560.51；有流水的 23 张… |
-| TB-03 | B | 车辆成本表的「成本合计」不等于利润表的「司机运费」：月窗口差 5952 元（8… | 可疑 | 已复现 | 车辆成本表只累计「现在挂在这台车上的那位司机」的按单应付，没有挂车的司机整块不计入；利润表的司机运费是全量。同一窗口两处数… | backend/app/services/reports/vehicle_cost_que… | shots/TB_vehicle_cost_day.png（顶卡 570.96… |
+| TB-03 | B | 车辆成本表的「成本合计」不等于利润表的「司机运费」：月窗口差 5952 元（8… | 可疑 | **已修复 0bcbf39** | 车辆成本表只累计「现在挂在这台车上的那位司机」的按单应付，没有挂车的司机整块不计入；利润表的司机运费是全量。同一窗口两处数… | backend/app/services/reports/vehicle_cost_que… | shots/TB_vehicle_cost_day.png（顶卡 570.96… |
 | TB-04 | B | AI 对账的结论对，但明细桥与账本侧对不齐（退货红冲笔数/金额，且漏了两张已软… | 可疑 | 已复现 | 让 AI 把 2026-09 的已送达订单和账本对一遍，结论正确（178 单里唯一在 9 月账本找不到的是 10-07 才… | backend/app/services/ledger_sync.py:1 | shots/TB_ai_reconcile4.png（差额说明原文）；_tmp… |
 <!-- TESTBUG:ROWS:B -->
 <!-- /TESTBUG:ROWS:B -->
@@ -75,6 +75,7 @@
 - 证据：shots/TB_arrears_list.png、shots/TB_arrears_tap.png；GET /arrears-units 响应（7 条、无余额字段）；对照 GET /reports/customer-balances（有 已用额度/还能赊/超限）。
 - 建议改法：卡片上补一行「已挂账 / 已用额度（余额）」，或加「看这个单位的账」入口跳到客户欠款明细；余额直接复用 customer-balances 的口径，别另算一套。
 - 定位：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ArrearsUnitsScreen.kt:100-106`　`backend/app/api/v1/arrears.py:1`
+- 补充（2026-10-09，已修复）：**提交 `0bcbf39`（变更单 docs/changes/CHG-0100.md）**。改法（只补展示，客户端一个减法都不做）：新建纯函数 `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ArrearsBalanceLine.kt`（`internal data class ArrearsBalanceLine(val text: String, val warn: Boolean)` ＋ `internal fun arrearsBalanceLine(row: CustomerBalanceRowDto?): ArrearsBalanceLine`，五档：到目前还没有欠款记录 / 没有欠款 · 预收 ¥X / 已挂账 ¥X · 额度：不限额 / 已挂账 ¥X · 额度 ¥L（已超）/ 已挂账 ¥X · 还能赊 ¥A，数字全来自既有的 `GET /reports/customer-balances`）；`ArrearsUnitsViewModel.kt` 并发拉名册与余额（`customerBalancesReport(mode = "day", date = LocalDate.now().toString(), includeOrders = false)` ＋ `filter { it.kind == "unit" }` ＋ `mapNotNull { r -> r.unitId?.let { id -> id to r } }`；余额那一路失败只写 `balanceError`，名册失败才写 `loadError`）；`ArrearsUnitsScreen.kt` 卡上多一行余额（超限标红）＋ 列表顶上「余额没取到：…」＋「重试」。⛔ `GET /arrears-units` 一个字段没加、客户欠款表口径没动、卡片动作没动（点卡片仍不可点，见本条「建议改法」里那条未做的入口）。验证：判据 `_tools/qa/_check_arrears_units.py` 77/77；反验 `_tools/qa/_reverse_verify_arrears_units.py` 34/34 全部报红 ＋ 被碰过的 11 个文件逐字节还原；单测 `ArrearsBalanceLineTest.kt` 8 档（全量 103 个类 / tests=1452 / failures=0 / skipped=2）；真机 `emulator-5554`（派单员 13800000001）：信立农批市场管理处卡上「已挂账 ¥5566.3 · 还能赊 ¥2433.7」、德赛工业园食堂「已挂账 ¥3444.1 · 额度 ¥1894.26（已超）」（`shots/80_CHG-0100_挂账单位_看到余额.png`）、不限额与「到目前还没有欠款记录」（`shots/81_CHG-0100_挂账单位_不限额与无欠款.png`）。注：余额是时点账（as_of = 看的那一天），与 2026-10-08 记这条时看到的数不同属口径使然，不是回归。
 
 ### TB-02 · 一多半的开销在现金流水里查不到：53 张开销只有 23 张有钱出去
 
@@ -97,6 +98,7 @@
 - 证据：shots/TB_vehicle_cost_day.png（顶卡 570.96、三笔成本、挂靠司机配送成本 22）、shots/TB_vehicle_cost_bottom.png（口径说明 5 条原文）；_tmp/tb/vc.py 四组窗口数字。
 - 建议改法：低优先、只是防误读：在「= 成本合计」那一行或顶卡的「车辆成本合计」下补一句小字「配送成本只含挂在这台车上的司机；没挂车的司机的运费在利润表的司机运费里」，出处可直接复用 _NOTES 第 3 条。
 - 定位：`backend/app/services/reports/vehicle_cost_query.py:128`　`backend/app/services/reports/vehicle_cost_query.py:47-53`　`backend/app/services/reports/profit_query.py:118`
+- 补充（2026-10-09，已修复）：**提交 `0bcbf39`（变更单 docs/changes/CHG-0100.md）**。改法（只补口径说明，三笔成本与合计一个数字都没动）：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenter.kt` 的 VehicleCostTab 顶卡「车辆成本合计」下加一句常显小字「配送成本只算挂在这台车上的司机；没挂车的司机在利润表的「司机运费」里，不进这一格。」，两处「= 成本合计」改写成「= 成本合计（只含挂靠司机）」（总表与逐台车各一处）；`backend/app/services/reports/vehicle_cost_query.py` 的 `_NOTES` 第 3 条末尾补一句「没挂车的司机，他们这段时间的配送成本一分钱都不在「成本合计」里 —— 那些钱在利润表的「司机运费」那一格（那张表不按车分组）。」（导出表头 `backend/app/api/v1/reports.py:329` 与 `_NOTES` 同源，一并生效）；`_tools/qa/_hint_inventory.py` 的 OVERRIDE 复核表补一条把这句话钉成常显（钱的口径，属四族之一，不许挂到「我的 → 提示」开关上，并把 `docs/PROJECT_MAP/09A_HINT_CATALOG.md` 重新生成）。⛔ 折旧、车辆开销、挂靠司机配送成本三笔数与合计、折旧未覆盖名单（粤SZM3825 / 粤B12345）、权限与卡片动作全没动。验证：判据 `_tools/qa/_check_vehicle_depreciation.py` 80/80；反验 `_tools/qa/_reverse_verify_vehicle_depreciation.py` 23/23 全部报红 ＋ 12 个文件逐字节还原；判据/反验新增的都是「这句限定在不在」而不是数字；全量静检 226/228（剩下两条红属并行会话提交 356c2f0，与本单无关）；真机 `emulator-5554`：顶卡「车辆成本合计 ¥570.96」＋小字原文＋「= 成本合计（只含挂靠司机）¥570.96」（`shots/82_CHG-0100_车辆成本_合计带限定.png`）。
 
 ### TB-04 · AI 对账的结论对，但明细桥与账本侧对不齐（退货红冲笔数/金额，且漏了两张已软删的整单退货单）
 
