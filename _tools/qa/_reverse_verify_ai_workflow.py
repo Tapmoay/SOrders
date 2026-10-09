@@ -31,12 +31,20 @@ RUNNER = AND + "ai/AiWorkflowRunner.kt"
 TOOLS = AND + "ai/AiTools.kt"
 LOOP = AND + "ai/AiAgentLoop.kt"
 CATALOG = AND + "ai/AiReadCatalog.kt"
+LABEL = AND + "core/LedgerSourceLabel.kt"
+BUG_DOC = "docs/changes/BUG-0019.md"
 GUARD = "_tools/ai/_check_ai_guardrails.py"
 SIZE = "_tools/ai/_sysprompt_size.py"
 TEST_RUN = "android/app/src/test/java/com/tapmoay/sorders/ai/AiWorkflowRunnerTest.kt"
 DOC = "docs/changes/CHG-0096.md"
 REG = "docs/changes/README.md"
 CLAIM = "docs/AI_WORK_CLAIM.md"
+#: BUG-0022（「跑工作流」开关点开就弹回）：默认集、单测、文书、台账。
+KEYSTORE = AND + "ai/AiKeyStore.kt"
+TEST_ENABLED = "android/app/src/test/java/com/tapmoay/sorders/ai/AiEnabledToolsTest.kt"
+TEST_ENDPOINT = "android/app/src/test/java/com/tapmoay/sorders/ai/AiEndpointRulesTest.kt"
+DOC22 = "docs/changes/BUG-0022.md"
+LEDGER = "docs/TEST_BUG_LEDGER.md"
 
 
 def sub(old: str, new: str) -> Callable[[str], str]:
@@ -186,6 +194,86 @@ CASES: list[tuple[str, str, Callable[[str], str], str]] = [
     ("㉟ 工作声明那一条被改成别的单号", CLAIM,
      lambda s: s.replace("CHG-0096", "CHG-0097"),
      "工作声明里记了这条活"),
+    # ---- 账本那一侧的明细（第 12 节 · TB-04 / BUG-0019）----
+    ("㊱ 明细不再按来源分组（又回到让模型自己按单拼）", RUNNER,
+     sub('val bySource = ledger.rows.groupBy { field(it, *SOURCE)?.lowercase() ?: "" }',
+         'val bySource = ledger.rows.groupBy { "" }'),
+     "明细按「来源」分组算"),
+    ("㊲ 来源的中文名在执行器里另抄一份（第二份表）", RUNNER,
+     sub('put("来源说明", ledgerSourceLabel(src))',
+         'put("来源说明", if (src == "return") "退货红冲" else src)'),
+     "来源的中文名走全 App 唯一那一份表"),
+    ("㊳ 退货红冲不再单拎出来（returns 永远是空的）", RUNNER,
+     sub("val returns = bySource[SOURCE_RETURN].orEmpty()", "val returns = emptyList<JsonObject>()"),
+     "退货红冲那一档单独拎出来"),
+    ("㊴ 整单退货改成猜的（不再看本次已送达清单）", RUNNER,
+     sub("return no !in seen", "return true"),
+     "判据是「这张单在不在本次已送达清单里」"),
+    ("㊵ 口径那句话被掏空（回收站那一层没了）", RUNNER,
+     sub('const val SCOPE_NOTE = "账本这一侧的口径：只算**没进回收站**的单的账。进了回收站（已删除）的单，"',
+         'const val SCOPE_NOTE = "账本口径。"'),
+     "口径把「没进回收站」讲清楚"),
+    ("㊶ 口径里「那不是漏账」那句删掉（下一个人会去查漏账）", RUNNER,
+     sub('"拿库里的原始数据核对时笔数会对不上，那不是漏账，是这一条口径。"',
+         '"拿库里的原始数据核对时笔数会对不上。"'),
+     "口径点明「那不是漏账」"),
+    ("㊷ 没查全也照样把账本明细说出去", RUNNER,
+     sub("val conclusion = if (incomplete) baseConclusion else baseConclusion + returnsCn + SCOPE_NOTE",
+         "val conclusion = baseConclusion + returnsCn + SCOPE_NOTE"),
+     "结论只在**查全**时才接账本那两句"),
+    ("㊸ 结果里不再交 ledger_detail（模型手里没有明细）", RUNNER,
+     sub('putJsonArray("ledger_detail") { sourceDetail.forEach { add(it) } }',
+         'putJsonArray("ledger_rows") { sourceDetail.forEach { add(it) } }'),
+     '结果里交了 putJsonArray("ledger_detail")'),
+    ("㊹ 口径那句话不再交给模型", RUNNER,
+     sub('put("scope_note", SCOPE_NOTE)', 'put("scope_note", "")'),
+     '结果里交了 put("scope_note", SCOPE_NOTE)'),
+    ("㊺ 提示词里「不许自己按单去拼明细」那条纪律删掉", WORKFLOW,
+     drop_line("不许自己按单去拼明细"),
+     "明细纪律进提示词（⛔ 不许自己按单去拼明细）"),
+    ("㊻ 来源表里删掉 return 那一档（界面上露出英文 return）", LABEL,
+     sub('"return" -> "退货红冲"', '"ret" -> "退货红冲"'),
+     "来源中文表认得出「退货红冲」"),
+    ("㊼ BUG-0019.md 缺一节（九节不全）", BUG_DOC,
+     sub("## ⑨ 关闭（六格）", "## ⑨ 关闭"),
+     "BUG-0019.md 九节齐全"),
+    ("㊽ 登记簿里 BUG-0019 那一行被改成别的单号", REG,
+     lambda s: s.replace("BUG-0019", "BUG-0099"),
+     "登记簿有 BUG-0019 这一行"),
+    ("㊾ 工作声明里那条被改成别的单号", CLAIM,
+     lambda s: s.replace("BUG-0019", "BUG-0099"),
+     "工作声明里记了这条活"),
+    # ---- BUG-0022（第 14 节）：开关真的能打开 ----
+    ("㊿ 默认工具集里把 run_workflow 那一行删掉（开关点开就弹回）", KEYSTORE,
+     drop_line("AiTools.RUN_WORKFLOW,"),
+     "只读工具 run_workflow 在默认集里"),
+    ("51 末尾那句 intersect 换成别的集合（筛子没了 —— 这条反着证明它才是筛子）", KEYSTORE,
+     sub("intersect(DEFAULT_ENABLED_TOOLS)", "intersect(emptySet())"),
+     "末尾那句 intersect 还在"),
+    ("52 源码里那条 BUG-0022 的来历注释删掉（下一个人又要重新踩）", KEYSTORE,
+     drop_line("BUG-0022"),
+     "源码里点明了这一条为什么危险（BUG-0022）"),
+    ("53 单测里「存进 prefs 的 run_workflow 不许被筛掉」那一档改名", TEST_ENABLED,
+     sub("用户自己点开的 run_workflow 不许被筛掉（存进 prefs 也不生效就是这个 bug）", "run_workflow 开关要能开"),
+     "单测钉住「存进 prefs 的 run_workflow 不许被筛掉」"),
+    ("54 另一档「默认集里必须有它」改名", TEST_ENDPOINT,
+     sub("只读工具 run_workflow 必须在默认集里（BUG-0022）", "默认集要够全"),
+     "单测钉住「默认集里必须有它」"),
+    ("55 BUG-0022.md 缺一节（九节不全）", DOC22,
+     sub("## ⑨ 关闭（六格）", "## ⑨ 关闭"),
+     "BUG-0022.md 九节齐全"),
+    ("56 文书里那份真机 prefs 证据删掉", DOC22,
+     drop_line("enabled_tools"),
+     "BUG-0022 点明了真机取证那一份 prefs"),
+    ("57 登记簿里 BUG-0022 那一行被改成别的单号", REG,
+     lambda s: s.replace("BUG-0022", "BUG-0099"),
+     "登记簿有 BUG-0022 这一行"),
+    ("58 工作声明里那条被改成别的单号", CLAIM,
+     lambda s: s.replace("BUG-0022", "BUG-0099"),
+     "工作声明里记了这条活"),
+    ("59 台账里那条被改成别的说法", LEDGER,
+     sub("跑工作流", "批量调价"),
+     "台账里有这一条"),
 ]
 
 

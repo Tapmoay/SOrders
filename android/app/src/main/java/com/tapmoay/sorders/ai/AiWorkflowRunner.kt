@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ai
 
+import com.tapmoay.sorders.core.ledgerSourceLabel
 import java.math.BigDecimal
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
@@ -17,6 +18,11 @@ import kotlinx.serialization.json.putJsonObject
  * 对账 = 两张表各查一次 + 按订单号对差集；调价 = 查清商品范围与现有专属价。
  * 要改数据时它只**交棒**：把该发的动作、参数、要问用户的那一句放进 `next`，
  * 由模型问过用户之后走 `preview_write` 发卡。**写能力仍然只有那一条路径**。
+ *
+ * ### 账本那一侧的明细由它算（TB-04 / BUG-0019）
+ * 对账结果里 `ledger_detail` / `returns` 的笔数与金额、`whole_order_returns`、`scope_note` 的口径
+ * 全是**代码算的**：模型只照着说。原来让它自己按单拼明细，它会报出一个"库里数不出来"的笔数差
+ * （差的那些挂在已进回收站的单上）—— 于是看起来像漏账。
  *
  * ### 为什么它是代码而不是提示词里的步骤清单
  * 见 [AiWorkflow] 的文件头：窗口一错，结论就是"这个月少记了三万块"这种**看着最像真的**的假账。
@@ -107,7 +113,7 @@ internal class AiWorkflowRunner(
         val scopeCn = if (shipper != null) "只看 " + shipper else "全部货主"
         val clean = missing.isEmpty() && unowned.isEmpty() && ledgerOnly.isEmpty() && noNo == 0
 
-        val conclusion = if (incomplete) {
+        val baseConclusion = if (incomplete) {
             "这次**没查全**（订单或流水超过一次能取的上限 " + AiTools.MAX_ROWS + " 条），" +
                 "所以下面的数字不能当完整的账用。把时间范围缩小一点（比如按周）再跑一次。"
         } else if (clean) {
@@ -136,6 +142,47 @@ internal class AiWorkflowRunner(
                 }
             }
         }
+
+        // ---- 账本那一侧的逐行明细（笔数/金额**全是代码算的**，⛔ 不让模型自己按单拼）----
+        // TB-04（BUG-0019）：模型原来自己按单拼明细，报「退货红冲 8 笔 −431.50」，
+        // 而库里同一窗口有 10 笔 −570.70 —— 差的 2 笔挂在**已进回收站**的单上，
+        // 账本口径两边都不计。数没错，错的是**口径没说 + 明细让模型自己拼**。
+        // 所以这里按来源把明细算好交给它，并把口径写成一句固定的话（[SCOPE_NOTE]）。
+        val bySource = ledger.rows.groupBy { field(it, *SOURCE)?.lowercase() ?: "" }
+        val sourceDetail = bySource.entries.sortedBy { it.key }.map { (src, rows) ->
+            buildJsonObject {
+                put("来源", src)
+                put("来源说明", ledgerSourceLabel(src))
+                put("笔数", rows.size)
+                put("金额", AiWriteArgs.moneyText(sumMoney(rows, *MONEY)))
+            }
+        }
+        val returns = bySource[SOURCE_RETURN].orEmpty()
+        val returnsAmount = sumMoney(returns, *MONEY)
+        val wholeReturns = returns.count { isWholeOrderReturn(it, seen) }
+        val returnsBrief = returns.take(BRIEF_ROWS).map { row ->
+            buildJsonObject {
+                put("订单号", field(row, *ORDER_NO) ?: "（行里没有订单号）")
+                put("日期", field(row, *ENTRY_DATE) ?: "")
+                put("金额", money(row, *MONEY)?.let { AiWriteArgs.moneyText(it) } ?: "（没读到）")
+                put("商品", field(row, *R_PRODUCT) ?: "")
+                put("货主", field(row, *SHIPPER, *TEMP_SHIPPER) ?: "")
+                put("整单退货", wholeReturnCn(row, seen))
+            }
+        }
+        val returnsCn = if (returns.isEmpty()) {
+            "账本这段窗口里**没有退货红冲**（来源 = return）的行。"
+        } else {
+            "账本这段窗口里的退货红冲有 " + returns.size + " 笔（合计 " +
+                AiWriteArgs.moneyText(returnsAmount) + " 元）" +
+                (if (wholeReturns > 0) "，其中 " + wholeReturns + " 笔挂在**整单退货**的单上" else "") +
+                "。逐行明细在 `ledger_detail` / `returns` 里（**代码算的**，明细最多摆 " + BRIEF_ROWS +
+                " 条、笔数与金额是全量）：照它说，⛔ 不要自己按单拼明细、不要自己加总；" +
+                "有人拿库里的原始数据核对时，先把 `scope_note` 那条口径讲清楚。"
+        }
+
+        // 账本那一段只在**查全**时才说：没查全时账本自己都不完整（见上面那句"不能当完整的账用"）。
+        val conclusion = if (incomplete) baseConclusion else baseConclusion + returnsCn + SCOPE_NOTE
 
         val brief = missing.take(BRIEF_ROWS).map { row ->
             buildJsonObject {
@@ -178,6 +225,12 @@ internal class AiWorkflowRunner(
             if (!incomplete) put("missing_amount", AiWriteArgs.moneyText(missingAmount))
             put("unowned_count", unowned.size)
             put("ledger_only_count", ledgerOnly.size)
+            putJsonArray("ledger_detail") { sourceDetail.forEach { add(it) } }
+            put("returns_count", returns.size)
+            put("returns_amount", AiWriteArgs.moneyText(returnsAmount))
+            put("whole_order_returns", wholeReturns)
+            putJsonArray("returns") { returnsBrief.forEach { add(it) } }
+            put("scope_note", SCOPE_NOTE)
             putJsonArray("missing") { brief.forEach { add(it) } }
             put("next", nextJson(wf, buildJsonObject { if (shipper != null) put("shipper", shipper) }))
             put("trace", trace)
@@ -403,6 +456,26 @@ internal class AiWorkflowRunner(
         return ReadResult(rows, text(root, "truncated") == "true", null)
     }
 
+    /** 一批行按某个金额键求和：**认不出来的行按 0 算**（与 [money] 同一条规矩 —— ⛔ 不猜）。 */
+    private fun sumMoney(rows: List<JsonObject>, vararg keys: String): BigDecimal =
+        rows.fold(BigDecimal.ZERO) { acc, row -> money(row, *keys)?.let { acc.add(it) } ?: acc }
+
+    /**
+     * 这一行红冲是不是**整单退货**留下的：看它的订单号还在不在本次"已送达"清单里（[seen]）。
+     *
+     * 整单退掉的单已经不在已送达档里；部分退货的单还在。这是**代码判的**，
+     * ⛔ 不让模型自己看金额猜（猜错就会把一张还在的单说成"已整单退"）。
+     */
+    private fun isWholeOrderReturn(row: JsonObject, seen: Set<String>): Boolean {
+        val no = field(row, *ORDER_NO) ?: return false
+        return no !in seen
+    }
+
+    private fun wholeReturnCn(row: JsonObject, seen: Set<String>): String {
+        val no = field(row, *ORDER_NO) ?: return "（行里没有订单号，认不出是哪张单）"
+        return if (no in seen) "否（部分退：这张单还在已送达清单里）" else "是（整单退：这张单不在本次已送达清单里）"
+    }
+
     private fun err(message: String): String = buildJsonObject { put("error", message) }.toString()
 
     private class ReadResult(val rows: List<JsonObject>, val truncated: Boolean, val error: String?)
@@ -412,6 +485,20 @@ internal class AiWorkflowRunner(
         val ALL_WORDS = setOf("全部", "所有", "全部商品", "所有商品", "全部批发商", "所有批发商", "全部商户", "all", "*")
         const val STATUS_DELIVERED = "DELIVERED"
         const val SOURCE_ORDER = "order"
+
+        /** 账本里的**退货红冲**行（`LedgerSource.RETURN`）：营收与成本一起冲回头（BUG-0019 / 台账 TB-04）。 */
+        const val SOURCE_RETURN = "return"
+
+        /**
+         * 账本口径那一句话 —— 模型被人拿"库里的原始数据"核对笔数时，照它解释（BUG-0019 / 台账 TB-04）。
+         *
+         * ⚠️ 这是**口径**不是客套话：`backend/app/services/ledger_scope.py` 的 `visible_ledger_clause()`
+         * 把进了回收站（软删）的单整条排除在外；那种单的自动行与退货红冲行在库里**成对存在、净额 0**，
+         * 所以拿原始数据数笔数会多出成对的那几行 —— **不是漏账**。
+         */
+        const val SCOPE_NOTE = "账本这一侧的口径：只算**没进回收站**的单的账。进了回收站（已删除）的单，" +
+            "它的自动行与退货红冲行在库里成对存在、净额 0，账本与营业额**两边都不计** —— " +
+            "拿库里的原始数据核对时笔数会对不上，那不是漏账，是这一条口径。"
         /** 明细里最多摆几条订单（剩下的让模型自己说"还有 N 张"）。 */
         const val BRIEF_ROWS = 20
 
@@ -421,6 +508,12 @@ internal class AiWorkflowRunner(
         val GOODS = arrayOf("货款", "goods_amount")
         val DELIVERED_AT = arrayOf("送达时间", "delivered_at")
         val SOURCE = arrayOf("来源", "source")
+
+        /** 金额那两个名字：订单侧是「合计 / total」，账本侧是「金额 / amount」—— 两边的行都认（BUG-0019）。 */
+        val MONEY = arrayOf("合计", "total", "金额", "amount")
+
+        /** 账本流水的记账日（`entry_date`）：`AiFieldLabels` 认不出它，明细里自己认（BUG-0019）。 */
+        val ENTRY_DATE = arrayOf("entry_date", "日期")
         val P_NAME = arrayOf("名称", "name")
         val P_PRICE = arrayOf("default_unit_price")
         val R_PRODUCT = arrayOf("商品", "product_name")

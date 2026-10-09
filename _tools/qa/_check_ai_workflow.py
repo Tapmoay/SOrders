@@ -23,6 +23,9 @@
 8. **提示词里又抄了一份步骤**：步骤进提示词就会漂移（把 36 张表抄进提示词就是这个坑）。
 9. **工具没注册 / 没进白名单**：模型根本不知道有这条工作流 —— **静默失效**，没有报错、没有日志。
 10. **判据自己空转**：清单指向不存在的文件、反验脚本失踪、CHG 文档缺节、登记簿 / 工作声明被改名。
+11. **账本明细又回到"模型自己按单拼"**（BUG-0019 / 台账 TB-04）：明细不由代码按来源算好、
+    口径那句话被掏空、或者没查全也照样把账本明细说出去 —— 模型报的笔数/金额就会与库里的原始数据对不上
+    （差的挂在**已进回收站**的单上），看着像**漏账**，其实只是口径没说。编译、单测、真机都不会喊。
 
 ## R4-BOUNDARY-JUSTIFICATION: 为什么代码边界解决不了这件事
 上面这些**没有一条是类型属性**：`"delivered_from"` 与 `"from"` 同型（都是 String），
@@ -43,7 +46,10 @@
 4. `ai/AiAgentLoop.kt`：第 13 条拼进 systemPrompt（接在 12 之后、工具清单之前）；
 5. 提示词体积预算里算上 `AiWorkflow.kt`；
 6. 四个步骤 action 在 `AiReadCatalog.kt`（机器生成的目录）里真的存在；
-7. 两个单测在，且关键档都在；文书齐（`CHG-0096.md` 九节 ＋ 登记簿 ＋ 工作声明）＋ 反验脚本在。
+7. 两个单测在，且关键档都在；文书齐（`CHG-0096.md` 九节 ＋ 登记簿 ＋ 工作声明）＋ 反验脚本在；
+8. **账本那一侧（BUG-0019 / 台账 TB-04）**：笔数金额由代码按 `来源` 分组算、整单退货由代码判、
+   来源中文走全 App 唯一那一份表（执行器里 ⛔ 不许再抄一份）、口径那句话只有一份且**只在查全时**跟着结论走、
+   没查全时一个字都不说账本明细；`BUG-0019.md` 九节 ＋ 登记簿 ＋ 工作声明。
 
 用法：python _tools/qa/_check_ai_workflow.py
 """
@@ -69,6 +75,21 @@ DOC = ROOT / "docs/changes/CHG-0096.md"
 REG = ROOT / "docs/changes/README.md"
 CLAIM = ROOT / "docs/AI_WORK_CLAIM.md"
 REVERSE = ROOT / "_tools/qa/_reverse_verify_ai_workflow.py"
+
+#: 全 App 唯一那一份「账本来源 → 中文名」的表（BUG-0019 / 台账 TB-04：执行器里 ⛔ 不许再抄一份）。
+LEDGER_SOURCE_LABEL = AND / "core/LedgerSourceLabel.kt"
+
+#: 这条单自己的变更文书（九节 ＋ 登记簿 ＋ 工作声明）。
+BUG_DOC = ROOT / "docs/changes/BUG-0019.md"
+
+#: 工具开关的默认集与那条纯函数（BUG-0022：设置页「跑工作流」点开就弹回）。
+KEYSTORE = AI / "AiKeyStore.kt"
+TEST_ENABLED = ROOT / "android/app/src/test/java/com/tapmoay/sorders/ai/AiEnabledToolsTest.kt"
+TEST_ENDPOINT = ROOT / "android/app/src/test/java/com/tapmoay/sorders/ai/AiEndpointRulesTest.kt"
+
+#: BUG-0022 的变更文书 ＋ 台账（真机抓到的那条「开关看起来有、其实没有」）。
+BUG_0022_DOC = ROOT / "docs/changes/BUG-0022.md"
+LEDGER = ROOT / "docs/TEST_BUG_LEDGER.md"
 
 #: 全仓至少要有这么多 .kt（防"目录被搬走 → 一个都没扫到 → 全绿"）。
 MIN_KT = 100
@@ -129,7 +150,11 @@ def code_only(t: str) -> str:
 
 def read(p: Path) -> str:
     if not p.exists():
-        raise SystemExit("找不到文件：" + str(p) + "（被改名/搬走了？这条判据要跟着改）")
+        msg = "找不到文件：" + str(p) + "（被改名/搬走了？这条判据要跟着改）"
+        # ⚠️ 先打到 stdout：stderr 在 Windows 上默认走 ANSI 代码页，反验脚本按 utf-8 抓它就成乱码，
+        # 于是「文件被改名」这条反验会假绿（2026-10-09 实测：SystemExit 那句话只在 stderr 上）。
+        print(msg)
+        raise SystemExit(msg)
     return p.read_text(encoding="utf-8").replace("\r\n", "\n")
 
 
@@ -324,7 +349,52 @@ def main() -> int:
         c.present("执行器单测逐字断言 " + lit, t_run, re.escape(lit))
     c.present("执行器单测用的是注入的假读（不出网、不碰后端）", t_run, r"private class FakeRead")
 
-    print("\n== 12. 文书与反向验证 ==")
+    print("\n== 12. 账本那一侧的明细（TB-04 / BUG-0019）==")
+    lsl = read(LEDGER_SOURCE_LABEL)
+    # 台账 TB-04：模型原来自己按单拼明细 —— 报「退货红冲 8 笔 −431.50」，库里同窗口 10 笔 −570.70，
+    # 差的 2 笔挂在**已进回收站**的单上（账本口径两边都不计）。病灶是「明细让模型自己拼 ＋ 口径没说」，
+    # 所以这一节钉的是：明细是不是**代码按来源算好的**、整单退货是不是**代码判的**、
+    # 口径那句话是不是**只有一份且只在查全时跟着结论走**、没查全时是不是**一个字都不说**。
+    c.present("明细按「来源」分组算（笔数/金额都是代码算的）", runner_code,
+              r"ledger\.rows\.groupBy \{ field\(it, \*SOURCE\)")
+    c.present("每一行明细都带来源 / 来源说明 / 笔数 / 金额", runner_code,
+              r'put\("来源", src\)[\s\S]{0,240}?put\("来源说明", ledgerSourceLabel\(src\)\)'
+              r'[\s\S]{0,240}?put\("笔数", rows\.size\)[\s\S]{0,240}?put\("金额", AiWriteArgs\.moneyText\(sumMoney\(rows, \*MONEY\)\)\)')
+    c.present("来源的中文名走全 App 唯一那一份表", runner_code, r"ledgerSourceLabel\(src\)")
+    c.absent("⛔ 执行器里没有再抄一份来源中文表（按来源 when 出中文）", runner_code, r'"return"\s*->')
+    c.present("退货红冲那一档单独拎出来（SOURCE_RETURN）", runner_code, r"bySource\[SOURCE_RETURN\]")
+    c.present("退货红冲的合计是代码加出来的（⛔ 不是让模型自己加）", runner_code,
+              r"val returnsAmount = sumMoney\(returns, \*MONEY\)")
+    c.present("整单退货 / 部分退是代码判的", runner_code,
+              r"private fun isWholeOrderReturn\(row: JsonObject, seen: Set<String>\): Boolean")
+    c.present("判据是「这张单在不在本次已送达清单里」（⛔ 不重新查一遍）", runner_code, r"return no !in seen")
+    c.present("逐行明细给到订单号 / 日期 / 金额 / 商品 / 货主", runner_code,
+              r'put\("订单号", field\(row, \*ORDER_NO\)[\s\S]{0,200}?put\("日期", field\(row, \*ENTRY_DATE\)'
+              r'[\s\S]{0,400}?put\("金额", money\(row, \*MONEY\)[\s\S]{0,300}?put\("货主", field\(row, \*SHIPPER, \*TEMP_SHIPPER\)')
+    c.present("每一行的「整单退货」那一栏也是代码判的", runner_code,
+              r'put\("整单退货", wholeReturnCn\(row, seen\)\)')
+    c.present("口径那句话写死成常量（只有一份）", runner_code, r"const val SCOPE_NOTE")
+    c.present("口径把「没进回收站」讲清楚", runner_code, r"SCOPE_NOTE = [\s\S]{0,300}?没进回收站")
+    c.present("口径点明「成对存在、净额 0」", runner_code, r"成对存在、净额 0")
+    c.present("口径点明「那不是漏账」", runner_code, r"那不是漏账")
+    c.present("结论只在**查全**时才接账本那两句（没查全一个字都不说）", runner_code,
+              r"val conclusion = if \(incomplete\) baseConclusion else baseConclusion \+ returnsCn \+ SCOPE_NOTE")
+    c.present("退货红冲那几句话里带着「不要自己按单拼明细」", runner_code, r"不要自己按单拼明细")
+    for key in ['putJsonArray("ledger_detail")', 'put("returns_count"', 'put("returns_amount"',
+                'putJsonArray("returns")', 'put("scope_note", SCOPE_NOTE)']:
+        c.present("结果里交了 " + key, runner_code, re.escape(key))
+    c.present("整单退货的笔数也单独交出去", runner_code, r'put\("whole_order_returns", wholeReturns\)')
+    c.present("明细纪律进提示词（照 ledger_detail / returns 说）", wf_code, r"ledger_detail")
+    c.present("明细纪律进提示词（⛔ 不许自己按单去拼明细）", wf_code, r"不许自己按单去拼明细")
+    c.present("明细纪律进提示词（先讲 scope_note 那条口径）", wf_code, r"scope_note")
+    c.present("来源中文表认得出「退货红冲」", lsl, r'"return" -> "退货红冲"')
+    c.present("来源表 KDoc 里点明了这一档（order / manual / refund / return）", lsl,
+              r"\`order\` / \`manual\` / \`refund\` / \`return\`")
+    for name in ["账本明细是按来源算出来的", "整单退货还是部分退", "口径那句话只有一份",
+                 "没查全时一个字都不说账本明细"]:
+        c.present("执行器单测有这一档：" + name, t_run, re.escape(name))
+
+    print("\n== 13. 文书与反向验证 ==")
     doc = read(DOC)
     missing = [s for s in SECTIONS if s not in doc]
     c.ok("CHG-0096.md 九节齐全", not missing, "缺：" + " / ".join(missing))
@@ -347,7 +417,75 @@ def main() -> int:
             break
     c.ok("工作声明里记了这条活（标题里看得出是哪条单）",
          ("CHG-0096" in claim_line) and ("工作流" in claim_line), "行：" + claim_line[:140])
+    bug = read(BUG_DOC)
+    missing_bug = [s for s in SECTIONS if s not in bug]
+    c.ok("BUG-0019.md 九节齐全", not missing_bug, "缺：" + " / ".join(missing_bug))
+    c.present("BUG-0019 写的就是账本口径这一条", bug, r"退货红冲")
+    c.present("BUG-0019 点明了回收站那条口径", bug, r"回收站")
+    reg_bug = ""
+    for ln in read(REG).splitlines():
+        if "BUG-0019" in ln:
+            reg_bug = ln
+            # ⛔ 别的单的登记行里也会提一句 BUG-0019（例如 BUG-0022 那行写着「BUG-0019 真机取证时抓到」）——
+            # 取到那种行会误判，所以优先收下**同时含预期关键词**的那一行。
+            if "退货红冲" in ln:
+                break
+    c.ok("登记簿有 BUG-0019 这一行，而且那一行说的就是这条单",
+         ("BUG-0019" in reg_bug) and ("退货红冲" in reg_bug), "行：" + reg_bug[:140])
+    claim_bug = ""
+    for ln in read(CLAIM).splitlines():
+        if "BUG-0019" in ln:
+            claim_bug = ln
+            # 同上：BUG-0022 的声明块里也会提一句 BUG-0019（缺陷出处那一行），它不含「账本」。
+            if "账本" in ln:
+                break
+    c.ok("工作声明里记了这条活", ("BUG-0019" in claim_bug) and ("账本" in claim_bug), "行：" + claim_bug[:140])
     c.ok("反验脚本在：" + REVERSE.name, REVERSE.exists())
+
+    print("\n== 14. 「跑工作流」那条开关真的能打开（BUG-0022）==")
+    # 真机取证（2026-10-09，emulator-5554）：设置页 →「AI 能用的能力」里那条「跑工作流」开关
+    # **能点开**、prefs 的 `enabled_tools` 里**确实存了** `run_workflow`，可**再进这一页它又变回关的**
+    # （抬头永远写着「查询 7/8」），模型的工具表里从来没有它 —— 它只能如实回一句
+    # 「对账工作流（ledger.reconcile）在我这边没有启用，我跑不了它」。
+    # 根因：`AiKeyStore.DEFAULT_ENABLED_TOOLS` 漏了这一项，而 `resolveEnabledTools` 末尾那句
+    # `intersect(DEFAULT_ENABLED_TOOLS)` 会把任何不在其中的名字**静默筛掉**（正是那个常量
+    # 自己的 KDoc 警告过的失效形状）。⇒ 工作流在真机上从来没跑起来过，BUG-0019 的明细桥
+    # 也就没有一条真机路径能证明 —— 这一节钉的就是"开关必须真的能打开"。
+    ks = read(KEYSTORE)
+    block = re.search(r"val DEFAULT_ENABLED_TOOLS: Set<String> = linkedSetOf\(([\s\S]*?)\)\s*\n", ks)
+    c.ok("能定位到默认工具集", block is not None,
+         "正则没匹配到 `val DEFAULT_ENABLED_TOOLS: Set<String> = linkedSetOf(`")
+    default_set = block.group(1) if block else ""
+    c.present("只读工具 run_workflow 在默认集里（漏了 = 开关点开就弹回）", default_set,
+              r"AiTools\.RUN_WORKFLOW")
+    c.present("末尾那句 intersect 还在（它才是筛子）", ks, r"intersect\(DEFAULT_ENABLED_TOOLS\)")
+    c.present("源码里点明了这一条为什么危险（BUG-0022）", ks, r"BUG-0022")
+    c.present("单测钉住「存进 prefs 的 run_workflow 不许被筛掉」", read(TEST_ENABLED),
+              re.escape("用户自己点开的 run_workflow 不许被筛掉（存进 prefs 也不生效就是这个 bug）"))
+    c.present("单测钉住「默认集里必须有它」", read(TEST_ENDPOINT),
+              re.escape("只读工具 run_workflow 必须在默认集里（BUG-0022）"))
+    doc22 = read(BUG_0022_DOC)
+    missing22 = [s for s in SECTIONS if s not in doc22]
+    c.ok("BUG-0022.md 九节齐全", not missing22, "缺：" + " / ".join(missing22))
+    c.present("BUG-0022 写的就是这条开关", doc22, r"跑工作流")
+    c.present("BUG-0022 点明了真机取证那一份 prefs", doc22, r"enabled_tools")
+    reg22 = ""
+    for ln in read(REG).splitlines():
+        if "BUG-0022" in ln:
+            reg22 = ln
+            if "工作流" in ln:
+                break
+    c.ok("登记簿有 BUG-0022 这一行，而且那一行说的就是这条单",
+         ("BUG-0022" in reg22) and ("工作流" in reg22), "行：" + reg22[:140])
+    claim22 = ""
+    for ln in read(CLAIM).splitlines():
+        if "BUG-0022" in ln:
+            claim22 = ln
+            if "工作流" in ln:
+                break
+    c.ok("工作声明里记了这条活", ("BUG-0022" in claim22) and ("工作流" in claim22), "行：" + claim22[:140])
+    c.present("台账里有这一条", read(LEDGER), r"跑工作流")
+    c.present("反验脚本里有这一节", read(REVERSE), r"BUG-0022")
 
     print("\n" + "=" * 60)
     if c.fails:

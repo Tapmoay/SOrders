@@ -21,7 +21,9 @@ import org.junit.Test
  * - 手工记的账（来源 = manual）**不算**这张单已经进账本（算进来会**漏报**）；
  * - 没有归属的单**不算漏记**，但要单独说清楚（否则用户白等）；
  * - 没查全（truncated）就**不给任何数字结论**；
- * - 调价**一条价都不算**（涨降算法只有确认卡上那一份实现）。
+ * - 调价**一条价都不算**（涨降算法只有确认卡上那一份实现）；
+ * - 账本那一侧的**逐行明细**（各来源几笔多少钱、退货红冲逐行、哪些是整单退）是**代码算的**，
+ *   没查全时一个字都不说 —— 台账 TB-04：模型自己按单拼明细时，会报出一个"库里数不出来"的笔数差。
  */
 class AiWorkflowRunnerTest {
 
@@ -215,6 +217,88 @@ class AiWorkflowRunnerTest {
         val fake = FakeRead(mapOf("orders.list_orders" to empty, "ledger.list_entries" to empty))
         val root = obj(runner(fake).run(AiWorkflows.LEDGER_RECONCILE, args("from" to "上个月")))
         assertEquals("认不出来的日期就退回默认窗口", "2026-10-01", root.obj("window").str("from"))
+    }
+
+    // -------------------------------------------------- 账本明细（TB-04 / BUG-0019）
+
+    /** 四种来源混在一起：自动记账 + 退货红冲（部分退 A001 / 整单退 A009）+ 手工记账。 */
+    private val ledgerMixed = """{"items":[
+        {"订单号":"A001","来源":"order","货主":"张三","合计":"12.50","entry_date":"2026-10-03"},
+        {"订单号":"A001","来源":"return","货主":"张三","商品":"菜籽油","合计":"-2.50","entry_date":"2026-10-05"},
+        {"订单号":"A009","来源":"return","货主":"李四","商品":"大米","合计":"-7.10","entry_date":"2026-10-06"},
+        {"订单号":"","来源":"manual","货主":"张三","合计":"12.50","entry_date":"2026-10-03"}
+    ],"truncated":false}"""
+
+    private fun mixedFake() = FakeRead(mapOf("orders.list_orders" to orders2, "ledger.list_entries" to ledgerMixed))
+
+    @Test
+    fun `账本明细是按来源算出来的_退货红冲逐行都在`() = runBlocking {
+        val root = obj(runner(mixedFake()).run(AiWorkflows.LEDGER_RECONCILE, args()))
+
+        val detail = root.arr("ledger_detail")
+        assertEquals("三个来源各一行（manual / order / return）：" + detail, 3, detail.size)
+        val manual = detail.first { it.str("来源") == "manual" }
+        assertEquals("来源说明走全 App 唯一那份中文表", "手工记账", manual.str("来源说明"))
+        assertEquals(1, manual.num("笔数"))
+        assertEquals("12.5", manual.str("金额"))
+        assertEquals("订单入账", detail.first { it.str("来源") == "order" }.str("来源说明"))
+        assertEquals("退货红冲", detail.first { it.str("来源") == "return" }.str("来源说明"))
+
+        assertEquals(2, root.num("returns_count"))
+        assertEquals("-9.6", root.str("returns_amount"))
+        val returns = root.arr("returns")
+        assertEquals(2, returns.size)
+        assertEquals("A001", returns[0].str("订单号"))
+        assertEquals("2026-10-05", returns[0].str("日期"))
+        assertEquals("-2.5", returns[0].str("金额"))
+        assertEquals("菜籽油", returns[0].str("商品"))
+        assertTrue(
+            "结论要说清退货红冲几笔、多少钱（数都是代码算的）：" + root.str("conclusion"),
+            root.str("conclusion").contains("退货红冲有 2 笔（合计 -9.6 元）"),
+        )
+        assertTrue(
+            "⛔ 结论里不许自己拼明细，要指向 ledger_detail：" + root.str("conclusion"),
+            root.str("conclusion").contains("不要自己按单拼明细"),
+        )
+    }
+
+    @Test
+    fun `整单退货还是部分退_是代码判的不许猜`() = runBlocking {
+        val root = obj(runner(mixedFake()).run(AiWorkflows.LEDGER_RECONCILE, args()))
+        assertEquals("A009 不在本次已送达清单里 ⇒ 那一笔是整单退", 1, root.num("whole_order_returns"))
+        val returns = root.arr("returns")
+        assertTrue("A001 还在已送达清单里 ⇒ 部分退：" + returns[0], returns[0].str("整单退货").startsWith("否"))
+        assertTrue("A009 不在 ⇒ 整单退：" + returns[1], returns[1].str("整单退货").startsWith("是"))
+        assertTrue(
+            "结论要点出有几笔挂在整单退货的单上：" + root.str("conclusion"),
+            root.str("conclusion").contains("1 笔挂在**整单退货**的单上"),
+        )
+    }
+
+    @Test
+    fun `口径那句话只有一份_讲清回收站的单两边都不计`() = runBlocking {
+        val root = obj(runner(mixedFake()).run(AiWorkflows.LEDGER_RECONCILE, args()))
+        val note = root.str("scope_note")
+        assertTrue("要说清只算没进回收站的：" + note, note.contains("没进回收站"))
+        assertTrue("要说清成对存在、净额 0：" + note, note.contains("成对存在、净额 0"))
+        assertTrue("要说明对不上不是漏账：" + note, note.contains("那不是漏账"))
+        assertTrue("结论末尾要带上这条口径：" + root.str("conclusion"), root.str("conclusion").contains(note))
+    }
+
+    @Test
+    fun `没查全时一个字都不说账本明细`() = runBlocking {
+        val fake = FakeRead(
+            mapOf(
+                "orders.list_orders" to """{"items":[{"订单号":"A001","货主":"张三","货款":"12.50"}],"truncated":true}""",
+                "ledger.list_entries" to ledgerMixed,
+            ),
+        )
+        val root = obj(runner(fake).run(AiWorkflows.LEDGER_RECONCILE, args()))
+        assertEquals("true", root.str("incomplete"))
+        assertTrue(
+            "没查全时结论里不许出现退货红冲的数（那是拿半份数据当账）：" + root.str("conclusion"),
+            !root.str("conclusion").contains("退货红冲"),
+        )
     }
 
     // -------------------------------------------------------------- 批量调价

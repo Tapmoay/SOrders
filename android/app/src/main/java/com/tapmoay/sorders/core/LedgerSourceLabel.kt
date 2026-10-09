@@ -1,7 +1,7 @@
 package com.tapmoay.sorders.core
 
 /**
- * 账本流水的「来源」（`ledgers.source`：`order` / `manual` / `refund`）→ 中文 —— **唯一一份实现**。
+ * 账本流水的「来源」（`ledgers.source`：`order` / `manual` / `refund` / `return`）→ 中文 —— **唯一一份实现**。
  *
  * 两个消费点：AI 记账/改账卡片上的「来源：…」，与派单员账本顶部那张**扇形图**的图例。
  * 各写一份 `when` 的后果不是崩，而是**同一个东西在两张界面上叫两个名字**——
@@ -14,5 +14,8 @@ fun ledgerSourceLabel(raw: String): String = when (raw.lowercase()) {
     "order" -> "订单入账"
     "manual" -> "手工记账"
     "refund" -> "货损红冲"
+    // 退货（2026-09-20 上线）：营收与成本一起冲回头，与「货损红冲」（货没回来、只冲成本）不是一回事 ——
+    // 少了这一行，账本图例与 AI 记账卡上会直接露出英文 `return`（BUG-0019 顺手补）。
+    "return" -> "退货红冲"
     else -> raw.ifBlank { "未知来源" }
 }
