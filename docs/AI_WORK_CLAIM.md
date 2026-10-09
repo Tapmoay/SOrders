@@ -47,6 +47,19 @@
 
 - 状态：⏳ **进行中**（2026-10-10 立项；变更单 `docs/changes/BUG-0028.md`；台账 **TA-08 / TA-09 / TA-10**；Blast Radius **L2 —— 展示口径 / 输入契约**）
 
+### [2026-10-10 04:0x → 05:0x CST 已完成] 会话：**BUG-0027 派单员软删/恢复在途单不发任何实时推送、司机端旧卡片点开只说「订单不存在」（TA-05 / TA-06）**（DSH `d8de659b-72c0-4695-9cb6-8b7b0f7e4868`）
+
+`用户口径`：测试台账 **TA-05 / TA-06**（A 方向测试 2026-10-10 03:32 / 03:37 CST 在隔离栈 ＋ 5558 上复现，严重度 **可疑** / **可见**）：派单员把一张**在途**单删进回收站（只写 `orders.deleted_at`、不动 `status`）或把它恢复回来时，司机端「进行中」列表推送前毫无变化、手动刷新后被删的卡**静默消失**、恢复后**静默回归**，全程没有一句话；而那张旧卡片仍留在列表里且可点开，点开只有「订单不存在」+「重试」。
+
+`病灶`：`backend/app/api/v1/orders_lifecycle.py` 的 `delete_cancelled_order`（HEAD :98-108）与 `restore_order`（HEAD :223-233）写完 `deleted_at` 与操作日志就 `db.commit()`，**一次 `outbox.enqueue` 都没有** —— 派单（`orders.assigned`）/ 送达（`orders.delivered`）/ 撤回 / 取消全走发件箱，唯独「删进回收站」没有；`backend/app/api/v1/orders_common.py` 的 `_get_order_scoped` 对**当事人**也只回 `404 "订单不存在"`（与「单号打错」「这单不是你的」逐字相同）。同一份改前 docstring 里就写着「这条删除**没有任何推送**告诉司机」—— 注释记着坑，行为没跟上。
+
+`改法`：① 两个写事务里各入队一个事件（`orders.deleted` / `orders.restored`，载荷 `{"order_id", "user_ids": [司机, 货主]}`），`AGGREGATE_KEY` 两条都映射 `order_id`，`main.py` 的 `_outbox_deliver` 登记两支 → `push_events` 两个薄包装 → `message_center.publish_order_deleted` / `publish_order_restored`（站内信 ＋ 系统通知 ＋ 实时信号三腿，幂等键 `order.deleted:<id>`）。② 软删单的 404 **detail** 对当事人分岔成两句人话（在途 / 非在途），**状态码仍 404**、非当事人仍「订单不存在」—— 不许从文案反推出「有一张看不见的已删除单」。③ 司机端：`PushTrust.ORDER_TYPES` 加两类型；`NewOrderAlert` 把被删并进撤回/取消那一支（同一句语音 ＋ 共用去重键 `revoked:<id>` ＋ 立刻闭嘴）；`RealtimeHub` 的 `order.deleted` 支重拉列表**并播报一句**、`order.restored` 支只重拉；新增 `ui/order/OrderDeleted.kt` ＋ 详情页在 `ErrorView` **之前**插一支「已被派单员删除」+「返回」。
+
+`明确不碰`：软删/恢复的状态机与 `deleted_at` 语义、30 天隔离与恢复后状态/chip、已送达撤单 422 的闸、钱/账本/结算与全部核心区文件（`_tools/qa/_core_files.txt` 里没有本单文件）、发件箱既有契约；并行的 `ui/driver/DriverOrdersViewModel.kt` / `ui/driver/DriverOrdersScreen.kt`（BUG-0026）**零改动**。
+
+`判据 / 反验`：`_tools/qa/_check_soft_delete_realtime.py` **60 项全过**（后端发得出 / 文案说人话 / 司机端认得出且不静默，含安卓 HINTS 与后端两句文案的逐字对账）；`_tools/qa/_reverse_verify_soft_delete_realtime.py` **22 条注入全部报红**（其中 8 条同时要求后端用例也红），末尾逐字节还原并读回核对。
+
+- 状态：✅ **已完成**（2026-10-10 立项 · 2026-10-10 关闭；变更单 `docs/changes/BUG-0027.md`；台账 **TA-05 / TA-06**；Blast Radius **L2 —— 契约 / 事件**；提交 `db7b3a4`）。
 ### [2026-10-10 03:35 → 03:4x CST 已完成] 会话：**BUG-0025 账本行的「合计」能写成与 数量×单价 不符的值（TB-10）**（DSH `session-037fee22-aabb-48fe-994c-ad845128ba63`）
 
 `用户口径`：测试台账 **TB-10**（财务方向测试 2026-10-10 03:03 CST 在 8020 副本库上复现，严重度 **可疑**）—— 手工记账建的行 quantity=3 / unit_price=20.00（total 自动 60.0000），再用 `PATCH /api/v1/ledger/entries/{id}` 只给 `{"total":"288.00"}` 就 **200** 落库，库里三数并存（60 vs 288），账本账户按 total 累加（Shipper 账户 200.0000→488.0000）。用户唯一能走到这条路的路径是 AI（`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteLedgerHandlers.kt:130-133` 只放 total，`:161` 还提示「可以改：合计金额、数量、单价…」）。
