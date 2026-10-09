@@ -31,6 +31,22 @@
 
 ## 进行中
 
+### [2026-10-10 04:0x → ⏳ CST 进行中] 会话：**BUG-0028 基础数据表单：输入被静默改掉、显示口径两处不一致（TA-08 / TA-09 / TA-10）**（DSH `9a5b6961-c1fe-4292-8001-8318d06b970e`）
+
+`用户口径`：测试台账 **TA-08 / TA-09 / TA-10**（方向 A 基础数据测试 2026-10-10 凌晨在隔离栈 8010 + 5556 上复现，只记录未修；报告 `_tmp/test_round3/trackA1_basicdata_report.md`）——TA-08 同一个单价两处两个数：商品卡 `¥0.01/箱`、改价弹窗 `0.005`（product id=76 的子分价，卡上是真值的两倍）；TA-09 改价弹窗输入 `-3` 被静默改成 `3` 并保存（更早 `-1` → `1`），全程无提示；TA-10 联系人电话填 `abc` 被静默清空仍保存成功（库 `phone=NULL`），卡片上那一行是空白，看不出"这条没有电话"。
+
+`病灶`：TA-08 = `ui/common/ProductCardKit.kt:174` 的 `"¥" + formatMoney(price) + "/" + unitOrDefault(unit)`——`util/Money.kt:27-33` 的 `formatMoney` 是"到分四舍五入"，被从**金额**口径顺手套到了**单价**（`Numeric(14,4)`，子分价 `0.005` 印成 `0.01`），而改价弹窗预填走 `trimMoneyZeros`（`Money.kt:52-56`）印的是真值。TA-09 = `ui/dispatcher/ProductsScreen.kt:682` `onValueChange = { price = InputRules.priceInput(it) }`，`core/InputRules.kt:174-186` 的 `moneyInput` 用 `mapNotNull` 把负号/字母**丢掉**，调用点拿不到"丢了什么"，确定键只看 `price.toDoubleOrNull() != null` ⇒ `-3` 变 `3` 照样保存。TA-10 = `ui/shipper/AddressScreen.kt:911-923` `InputRules.phoneInput(it)`（`digits(v,12)`，非数字全丢）+ `ui/shipper/AddressViewModel.kt:710-717` 的两条校验（`phoneError(required=false)` 对空串放行、`contactIdentityError` 只要求称呼非空）+ `AddressScreen.kt:1362` `Text(c.phone)` 空电话画成空白行。
+
+`改法`：① 售价行改用保四位精度的 `trimMoneyZeros`（卡片=弹窗=库），并把 `Money.kt` 的 ⛔ 收窄成"金额显示不许用本函数 / 单价必须用本函数"。② `core/InputRules.kt` 新增 `InputRewrite(value, note)` ＋ `priceRewrite` / `contactPhoneRewrite`（过滤实现仍是原来那一份，新增的只是"这次改掉了什么"的说明）。③ `QuickPriceDialog`：有改写就**保留用户原样输入** ＋ 框下红字 ＋ 确定键变灰（拒绝）。④ 联系人电话栏改调 `vm.onContactPhoneInput(it)`，`saveContact()` 先看 `contactPhoneNote`（非空即拦），红字出口 `FormErrorLine(vm.contactPhoneNote ?: vm.formError)`，联系人卡空电话印 `无电话`、placeholder 写"留空＝无电话"。⑤ TA-10 按台账二选一里的**"明确标注无电话"**（不是"唯一性对 NULL 生效"）：`backend/app/models/shipper.py:53-56` 明写"没填存 NULL 而不是空串……NULL 才允许多行共存"，改那条要动核心区建表/迁移且会让"两个只写了称呼的老客户"建不出来。代价写进变更单 §⑥/§⑨。
+
+`明确不碰`：后端一行不改（`backend/app/**`、表结构、迁移、接口契约）；金额显示口径与 `formatMoney` 的进位算法；库精度 `Numeric(14,4)`；`moneyInput` / `priceInput` / `moneyError` / `phoneInput` / `phoneError` 的语义与既有单测；CHG-0010「新建联系人的时候不需要必填手机号」（电话仍选填，⛔ 不许改成必填）；账本/结算/报表金额口径；软删与状态机；AI 写闸门。
+
+`判据 / 反验`：（回填：`_tools/qa/_check_basicdata_input_guard.py` 项数 / `_tools/qa/_reverse_verify_basicdata_input_guard.py` 注入条数 / 单测改前红改后绿 / 隔离工作树 `_tmp/wt_0028` 的红绿日志）
+
+⚠️ **交叉点**：`ui/common/ProductCardKit.kt` 与 `ui/dispatcher/ProductsScreen.kt` 正被并行会话改（CHG-0105 低饱和配色 / CHG-0103），本单只做**追加式**改动并在「交叉点」记一笔。
+
+- 状态：⏳ **进行中**（2026-10-10 立项；变更单 `docs/changes/BUG-0028.md`；台账 **TA-08 / TA-09 / TA-10**；Blast Radius **L2 —— 展示口径 / 输入契约**）
+
 ### [2026-10-10 03:35 → 03:4x CST 已完成] 会话：**BUG-0025 账本行的「合计」能写成与 数量×单价 不符的值（TB-10）**（DSH `session-037fee22-aabb-48fe-994c-ad845128ba63`）
 
 `用户口径`：测试台账 **TB-10**（财务方向测试 2026-10-10 03:03 CST 在 8020 副本库上复现，严重度 **可疑**）—— 手工记账建的行 quantity=3 / unit_price=20.00（total 自动 60.0000），再用 `PATCH /api/v1/ledger/entries/{id}` 只给 `{"total":"288.00"}` 就 **200** 落库，库里三数并存（60 vs 288），账本账户按 total 累加（Shipper 账户 200.0000→488.0000）。用户唯一能走到这条路的路径是 AI（`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteLedgerHandlers.kt:130-133` 只放 total，`:161` 还提示「可以改：合计金额、数量、单价…」）。
@@ -56,6 +72,23 @@
 - 状态：✅ **已完成**（2026-10-10 立项 · 2026-10-10 关闭；变更单 `docs/changes/BUG-0024.md`；台账 **TB-08**；Blast Radius **L2 —— 契约 / 数据**；提交 `9744177`）。
 - 核心改动：backend/app/services/accounting_service.py —— 为什么必须动核心：这笔钱「谁占着」的取数口径与结算单三态机（建单 / 确认 / 作废）全在这一个文件里，而 `settled_doc_id` 的写入时机正是本 bug 的病灶；边界（接口层 / 前端）既拿不到「这笔明细是不是挂在别的草稿单上」的真相，也没法在并发下正确判锁（只能拼 `bill_ids LIKE` 反查，两个派单员同时建单时必然漏），所以只能在核心区的服务层把取数收口（`_tools/qa/_core_files.txt` 收录：账本入账与欠款口径）。
 
+### [2026-10-10 03:2x → ⏳ CST 进行中] 会话：**CHG-0105 把 CHG-0101/0102 挪乱的色相全还回去：老色相 ＋ H 档的明度/彩度**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
+
+`用户口径`：先发两张真机图（`m06183` 登录页 / `m06184` 待派单池），逐字（ref **m06185**）「**你仔细看一看，全变成棕色了一开始不是这样子的这样子信息怎么去辨认啊**」；再给执行口径（ref **m06201**，逐字）「然后你回退的那个颜色它不是完全一样的因为回头的颜色，可能它也是偏鲜艳或者明亮啊，同样是按照我们一开始调整工作台的那种色彩理论嘛，就是我调的那个来调整，它们的明度或者说是饱和度，但是**不要调整，它们的色相**啊」。⇒ 一句话：**每个颜色保留 CHG-0101 之前的老色相，明度 L\* 与彩度 C\* 沿用 CHG-0101/0102 那套 H 档**。台账 **L-68**（L-64=CHG-0101 / L-65=CHG-0102 / L-66=CHG-0103 / L-67=CHG-0104）。
+
+`病灶`：CHG-0101 一共动了 45 个 token，其中 **24 个连色相一起挪**；CHG-0102 又按「明度对齐」再挪一轮（`_tmp/probe_palette_diff.py` 三份 `Color.kt`（`44127ea^` / `44127ea` / `bddaee9`）的 Lab/LCh 现算）。两单合起来：主操作 / 派单作业 / 信息 = 深红棕 `#8B4A4A`；`OrderCard.kt` 里地址（`:171`）与商品行（`:290`）读 `Color(ThemeGreen)`、收货人 / 下单人 / 货主（`:209`/`:223`/`:237`）读 `colorScheme.tertiary`（＝ `Tertiary`）—— 这五颗图标全糊成红棕 / 鲑棕族，「哪一行是人、哪一行是地址」得读字才分得清；登录页 `ui/login/LoginScreen.kt:64` 的 `Surface(color = PrimaryContainer)` 从浅绿 `#D6F2E4` 变成粉棕 `#F0E2DC`，登录键跟着 `Primary` 变深红棕。⚠️ `ui/common/OrderCard.kt` **一行代码都没被 CHG-0101 改过**（它不在 `git diff --name-only 44127ea^ 44127ea` 的 79 个文件里）—— 它是**读到的 token 值变了**，这正是「改 token 值 ＝ 全 App 换色」这条手法的反面代价。
+
+`改法`：**唯一一处新东西是一个换算**：`rehue(目标色, 色相来源)` —— 取目标色的 L\* 与 C\*、色相来源的 h，LCh→sRGB 出界就二分退彩度。⛔ **不是原样退回旧值**（用户逐字说了「回退的那个颜色它不是完全一样的……可能它也是偏鲜艳或者明亮」，老色相里就有荧光橙 `#FF6B2C` / 亮青 `#48F0F0` / 黄绿 `#CDDC39`）。落地：① `android/app/src/main/java/com/tapmoay/sorders/ui/theme/Color.kt` **33 个 token** 换色相（总数 86 → 86 不变；`ThemeGreen`/`Primary` `#8B4A4A`→**`#28684B`**、`ThemeGreenDeep` `#6E3636`→**`#175036`**、`PrimaryContainer`/`ProductRowTint` `#F0E2DC`→**`#DBE8E1`**、`OnProductRowTint`→`#1B2E22`、`OnPrimaryContainer`→`#192E24`、`MgrGreen`/`SuccessGreen`/`Success`→`#49A67A`、`ProgressYellow`→`#A17C42`、`ShipperTeal`→`#4C9FBB`、`ProductPurple`→`#A587D4`、`InventoryTeal`→`#318F8F`、`MoneyOrange`/`Tertiary`→`#AF753B`、`ArrearsTangerine`→`#BA6947`、`MessageRed`→`#DC7E76`、`AccountBrown`→`#B66B50`、`DriverLime`→`#7E833A`、`CashOut`→`#697290`、`UnitConvRose`→`#937197`、`WarningAmber`→`#D3A06E`、`OriginTeal`→`#6CA6B1`、`SecondaryContainer`→`#E2E4E3`、`OnSecondaryContainer`→`#003E2C`、`ErrorContainerLight`→`#F7E4E4`、`OnSurfaceVariantLight`→`#434549`、`OutlineLight`→`#838383`、`OutlineVariantLight`→`#D0D0D0` 等）；② `android/**` 里硬编码的同一批色值跟着换（`git diff --stat -- android` = **34 个文件 / 373 insertions / 271 deletions**，大户 `ui/dispatcher/ReportCenter.kt`）；③ `ui/nav/Modules.kt` 只有 4 行（`账户管理` / 货主端 `下单` / `地址与联系人` / `消息中心` —— 其余格子读 token 名，自动跟随）；④ 随动：`_tools/qa/_check_green_theme.py`、`_check_low_sat_palette.py`、`_check_palette_uniformity.py`、`_check_ai_chat_green.py` 及各自的反向验证脚本 ＋ 单测 `ThemePaletteTest.kt` / `PaletteUniformityTest.kt` / `ProductCardKitTest.kt` ＋ 设计系统 §2。
+
+`两条排除规则`（⛔ 别当成漏改）：`MIN_CHROMA = 4.0` —— 近中性色（`BackgroundLight` / `SurfaceContainer*` / `SurfaceVariantLight` 等，C\* < 4）色相挪了肉眼也看不出来，硬套只会引入取整噪声，**不碰**；`MIN_DHUE = 6.0` —— 色相差不到 6° 的不动。另有 `PER_TOKEN_ONLY = {'33380F','3A2420'}`：`OnDriverLime` 与 `OnSecondaryContainer` / `OnPrimaryContainer` 与 `OnProductRowTint` 在 CHG-0101 之后**共用同一个值**，值级替换会误伤，只在 `Color.kt` 里逐 token 改。
+
+`明确不碰`：H 档那套明度带宽与彩度目标（用户要的「统一」就是它，本单只还色相）；`ui/theme/AiBrand.kt` 的 AI 品牌渐变（`ModulesEntryTest.kt:56/:58` 钉着）；`AiChatGreen #4B8C5E` / `AiChatGreenDeep #3D734D`（CHG-0104 刚定的绿，Δh < 6° 被规则排除）；`OrderCard` 商品块的布局结构与数量拼法（CHG-0091 真机抓到过 0 高回归）；路由 / 能力 / 权限 / 账本口径 / 数据库 / 历史数据（Blast Radius **L0 —— 展示层**）；`backend/**`（并行会话正在改，本单一个字节不碰）。
+
+`判据 / 反验`：`python -X utf8 _tools/qa/_check_green_theme.py` ⇒ __（待跑）；`_tools/qa/_check_low_sat_palette.py` ⇒ __（待跑）；`_tools/qa/_check_palette_uniformity.py` ⇒ __（待跑）；`_tools/qa/_check_ai_chat_green.py` ⇒ __（待跑）；四份反向验证脚本 ⇒ __（待跑）；`_tools/qa/_check_reverse_verify_anchors.py` ⇒ __（待跑）；全量单测 ⇒ __；全量静检 ⇒ __。
+
+- 状态：⏳ **进行中**（变更单 `docs/changes/CHG-0105.md`；台账 **L-68**；Blast Radius **L0 —— 展示层**；提交 `__`）。
+- 核心改动：**无** —— 为什么：只动 `ui/theme/Color.kt` 的 33 个数值、`android/**` 里硬编码的同一批色值、`Modules.kt` 4 行，加上随动的判据与文书；没有一个是 `_tools/qa/_core_files.txt` 里的核心区文件。
+
 ### [2026-10-10 03:12 → 03:3x CST 已完成] 会话：**BUG-0023 开销能挂到不存在的司机/车辆/订单上；挂到不存在车辆的那笔被车辆成本表静默吞掉**（DSH `session-1ad1cd28-67cd-4778-9b93-23f101063a40`）
 
 `用户口径`：修复会话任务书（TB-07，ref **m00001**，逐字）「**标题**：开销能挂到不存在的司机/车辆/订单上；挂到不存在车辆的那笔被车辆成本表静默吞掉」＋三条要修「① 写入/修改开销时校验 driver_id / vehicle_id / order_id 真实存在（且未软删/未停用），不存在就 400 并说清是哪个字段、哪个 id；② 报表口径不许静默吞：车辆成本表要么把这部分单列一行（例如「未挂车的运费/开销」＋笔数），要么在两处口径差异处给出可核对的说明 —— 目标是一个用户拿同一窗口能把两张表对上，或至少看到「另有 N 笔 X 元未挂车」；③ 顺手确认：软删司机/车辆之后，原来挂在它上面的开销会去哪（写进变更单 §⑤ Data Contract）」。
@@ -70,6 +103,38 @@
 
 - 状态：✅ **已完成**（2026-10-10 立项 · 2026-10-10 关闭；变更单 `docs/changes/BUG-0023.md`；台账 **TB-07**；Blast Radius **L2 —— 契约 / 数据**（写入契约 + 报表出参新增字段；钱的既有口径只读不改）；提交 `512ec98`）。
 - 核心改动：`backend/app/services/accounting_service.py` —— 为什么必须动核心：它是「账本入账与欠款口径」的**唯一写入闸门**（`_tools/qa/_core_files.txt:50`），而本单要的正是「不存在的关联根本不许落库」—— 这条守卫写在接口层（`api/v1/expenses.py`）会漏掉两个种子脚本与 AI 那条写入路径（三处都调 `accounting_service.create_expense`），写在模型层（给三个关联列补 `ForeignKey`）又会把老库里已经存在的孤儿行变成写入失败；所以只能加在这一个函数里，且**只**加三格「存在 + 可用」判定，入账金额 / 现金流水 / 业务类型一个字不动。
+
+### [2026-10-10 03:0x → ⏳ CST 进行中] 会话：**CHG-0104 AI 助手聊天页的主色：一个像微信的绿，与全 App 主操作色解绑**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
+
+`用户口径`：ref **m04856**（逐字）「还有一点就是你别帮我那个a i对话框改的颜色改其他颜色了它的主颜色还是绿色，但是什么样的绿呃还是啊，要你的方案进行，它就像微信一样，为什么要绿色呢？因为我希望让使用，用人跟微信一样亲切啊，因为我们微信是大家经常用的」—— 三件事：**是绿的** / **绿值他交给我们定**（「要你的方案进行」）/ **像微信**。台账 **L-67**（承接 CHG-0102 的 L-65，L-66 已被并行的 CHG-0103 占掉）。
+
+`病灶`：AI 这一片的强调色是**借**来的 —— `ui/ai/AiChatScreen.kt:177` 写的是 `private val AiAccent = Color(ThemeGreen)`，而 `ThemeGreen` 是全 App 主操作色（CHG-0101 起是用户亲手画的深红棕 `#8B4A4A`）。CHG-0091 那次把 Google AI 蓝改成读 `ThemeGreen`，当时是绿的、看着没问题；CHG-0101 一换主色，AI 页就跟着整页变红棕（顶栏三颗图标 / 输入行 ⊕ / 会话选中 / 抽屉 / 块引竖条 / 代码块描边 / 密钥页按钮 / 设置页按钮 / 空态），用户说的就是这个「不知怎么就跟着变了」。更糟的是 `ThemeGreenDeep #6E3636` 被 `ui/order/OrderCard.kt:317` 的「确认接单」与 `ui/ai/AiChatScreen.kt:2406` 的**发送键隔着文件共用** —— 改订单卡的颜色会把 AI 发送键一起改掉。同一片表面还有一处漏网：`ui/ai/AiOperationsScreen.kt` 的刷新图标与分段控件仍是 Google 蓝 `AiBlue`，而齿轮点进去的上一级就是设置页，两页同一个分段控件一个绿一个蓝。
+
+`改法`：① `ui/theme/Color.kt`（`AiPink` 之后）**新增两个 token**：`AiChatGreen = 0xFF4B8C5EL`（强调档：图标 / 浅底 / 选中 / 描边；白字只有 4.03:1，⛔ 不承载白字）＋ `AiChatGreenDeep = 0xFF3D734DL`（实心档＋白字 **5.59:1**，过 AA），注释里写清「为什么不改 `ThemeGreen`」「为什么是两个档」「与品牌渐变互不相干」；② `ui/ai/AiChatScreen.kt`：`AiAccent` 改读 `AiChatGreen`（KDoc 重写、补上 CHG-0091→CHG-0101 这条病史、写死两条 ⛔）、**四处实心＋白字**改读深档（`:1157` 新对话 / `:2079` 去设置 / 发送键 / 思考强度分段控件 —— 分段控件选中态是**文字**所以传深档）、另两处漏在 `AiAccent` 之外直接写 `Color(ThemeGreen)` 的强调点收敛成 `AiAccent`（`:1728` 导出卡「已下载」那颗勾、`:1763` 分享文件按钮）、import 换掉；③ `ui/ai/AiSettingsScreen.kt` 的 `val accent = Color(AiChatGreen)` / 「保存」按钮 / 分段控件；④ `ui/ai/AiOperationsScreen.kt` 的 `AiBlue` 两处换掉；⑤ 新建单测 `android/app/src/test/java/com/tapmoay/sorders/ui/theme/AiChatGreenTest.kt`（**7 档**，自带 Lab/LCh 与相对亮度换算，直接读 `SurfaceLight`/`BackgroundLight` 真 token 而不是写死像素值）＋ 判据 `_tools/qa/_check_ai_chat_green.py`（七节 46 条，含「强调档**必须**过不了 AA」这条反向哨兵）＋ 反验 `_tools/qa/_reverse_verify_ai_chat_green.py`（**30 条注入**）＋ 设计系统新增 **§4.25j** ＋ 登记簿一行。
+
+`为什么必须是两个档`（本单的核心论证）：绿在 sRGB 里亮度权重最高（`0.2126 / 0.7152 / 0.0722` 里的 **0.7152**）⇒ 同一个 L\* 下绿色的相对亮度远高于红 / 紫，CHG-0102 那套 H 档明度带 L\*∈[53,63] 与「白字 ≥4.5:1」**在绿色上不可能同时成立**。h=150°、C\*=38 时按 L\* 扫出来的实算表：L\*63→**2.87** / 58→**3.38** / 56→**3.65** / 53→**4.05** / 50→**4.46** / 48→**4.84（只有它过 AA）**。而微信品牌绿 `#07C160` 自己 L\*68.8 C\*72.3 h148.8°、白字只有 **2.38:1**（微信自己就没过 AA）⇒ **只能照抄它的色相、不能照抄它的值**：本单强调档 h=**149.9°**（与微信绿差 1.1°）、深档 h=150.1°，两档 ΔL\*=9.1（与主操作色 `#8B4A4A`→`#6E3636` 的 9.4 同构）。
+
+`明确不碰`：`ThemeGreen = 0xFF8B4A4A`（全 App 主操作色 —— 用户图一亲手画的，那条口径至今有效；⛔ 本单**不是**把它改回绿）；`ThemeGreenDeep = 0xFF6E3636`（`ui/order/OrderCard.kt:317`「确认接单」在读它 —— 本单只把 AI 发送键从它身上**解绑**，一个字节都不改它的值）；`ui/theme/AiBrand.kt` 的三段品牌渐变与 `aiBrandBrush`（用户从没让动过，`ModulesEntryTest` 钉着）；`AiBlue` / `AiPurple` / `AiPink` 三个品牌色值与品牌徽章；AI 三页的版式 / 文案 / 交互 / 发送键的启用判定（可发/不可发照旧只差深浅）；后端 / 端点 / 权限 / 数据库 / 历史数据（Blast Radius **L0 —— 展示层**）。
+
+`判据 / 反验`：`python -X utf8 _tools/qa/_check_ai_chat_green.py` ⇒ __（待跑）；`python -X utf8 _tools/qa/_reverse_verify_ai_chat_green.py` ⇒ __（待跑，30 条注入逐条报红 ＋ 被注入文件逐字节还原）；`AiChatGreenTest` ⇒ __（待跑，7 档）；编译 ⇒ __；全量单测与全量静检 ⇒ __。
+
+- 状态：⏳ **进行中**（变更单 `docs/changes/CHG-0104.md`；台账 **L-67**；Blast Radius **L0 —— 展示层**；提交 `__`）。
+- 核心改动：**无** —— 为什么：本次只动 `ui/theme/Color.kt`（**新增**两个 token，不改任何已有 token 的值）、三个 `ui/ai/*.kt`、一份新建单测、`docs/` 与 `_tools/qa/` 两个脚本，没有一个是 `_tools/qa/_core_files.txt` 里的核心区文件；AI 的读写闸门、工具表、权限一个字没动（判据第 6 节正面钉着「主操作色与深一档原值不变」）。
+
+### [2026-10-10 02:30 → ⏳ CST 进行中] 会话：**CHG-0103 商品管理页：沽清的商品整张卡变灰（按钮一起暗）**（DSH `session-13224897-ec65-4086-a237-20d4a88274b8`）
+
+`用户口径`：ref **m05399**（逐字）「顺便参考他这个样式啊，我们现在的商品管理。如果估清了。他那个卡片只会有一个沽清的状态，但是并没有整体变灰的样式啊参考。他的样式啊，他当时就有一个整体变灰的变动啊啊，改一下吧。」并附了一张参考 App 的产品管理页截图（顶部 `在售(99+)` / `已沽清(1)`、左分类右商品卡；那张「农家米粉肉」整张发灰降饱和、叠一个斜的「已沽清」印章式水印，「改价」灰掉不可点、「取消沽清」与「编辑」仍是暗的但可点；未沽清的卡是正常白底 + 绿色「改价」）。台账 **L-66**（承接 CHG-0102 的 L-65）。
+
+`病灶`：商品管理页的商品卡沽清之后**只多了一枚「已沽清」角标**（`ProductsScreen.kt` 原来就 `val soldOut: (@Composable () -> Unit)? = if (p.isActive) null else ({ ProductSoldOutBadge() })` 一行 → `badge = soldOut`），卡还是白的、图还是亮的、三个按钮还是可以点的。而这条口径**早就定过**：2026-10-07 用户在下单页选品弹层上把「沽清」从"贴个角标"改成"**整卡变灰 ＋ 点不动**"（台账 **L-35** / `BUG-0017`，ref **m01347**：「灰掉了之后**就不能点**的哈……就是**整卡变灰**嘛」）—— 那次只在 `ui/common/ProductPicker.kt::ProductRow` 落地、还留了句注释「⚠️ 只在此处生效 —— 商品管理页与批量页的卡不受影响（它们各有各的用法）」⇒ 同一件事在两个页面上两套说法，用户这轮看的就是这个不一致。
+
+`改法`：① **新建 `android/app/src/main/java/com/tapmoay/sorders/ui/common/ProductSoldOutScrim.kt`**（纯展示件，⛔ 不 import `android.*`，好让单测直接引用）：`const val PRODUCT_SOLD_OUT_SURFACE_ALPHA: Float = 0.45f` ＋ `const val PRODUCT_SOLD_OUT_CONTENT_ALPHA: Float = 0.6f` ＋ `@Composable fun productSoldOutCardColor()`（`surfaceVariant.copy(alpha = 0.45f)` —— ⛔ 不写死一个灰，深色主题各用各的值）＋ 卡壳 `@Composable fun ProductSoldOutCard(soldOut: Boolean, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit)`（在售那一支**直接 `Column` 透传**、连 alpha 都不挂；沽清那一支 `Surface(灰底 + RoundedCornerShape(12.dp) + BorderStroke(1.dp, outlineVariant))` 里 `Box(Modifier.alpha(0.6f)) { Column(content) }`）；② `ui/dispatcher/ProductsScreen.kt::ProductCard` 整张卡包进灰罩（`ProductSoldOutCard(soldOut = !p.isActive) { SectionCard { … } }`，卡里的每一行一个字都没动）＋ KDoc 末尾补一节（逐字引 m05399，并写明"灰卡与角标是同一件事的两种说法、⛔ 不要在这一页另写一套透明度"）；③ 三个动作里**只有「改价」**多一道 `enabled = !acting && p.isActive`（灰卡上"看起来不能点"的必须真的点不动；⛔「上架」「编辑」必须留着 —— 沽清不是终点，禁掉这两颗这件商品就再也回不到在售，参考图里那两颗也是暗的但仍可点）；④ 灰卡与「已沽清」角标**并存**（灰卡说"不能动"、角标说"为什么"，**不是** `ProductsScreen.kt:421` 那段注释记着的"同一个状态两个词两种颜色"病灶）；⑤ 设计系统新增 **§4.25i**（7 条口径 —— 初稿编成 §4.2d，落笔才发现 §4.2d 已被 CHG-0081 占着，遂改号并挪到 §4.25h 之后）＋ §4.2b 布局表那一行随动 ＋ `08_CODE_LOCATOR.md` 商品管理那一行随动 ＋ 登记簿一行 ＋ 本文件这一条；⑥ 判据 `_tools/qa/_check_sold_out_card_grey.py`（11 节）＋ 反向验证 `_tools/qa/_reverse_verify_sold_out_card_grey.py`（**20 条注入**）。
+
+`明确不碰`：`ui/common/ProductCardKit.kt` 的 `ProductSoldOutBadge`（文案只有「已沽清」、**故意不给参数**）与 `ProductLine` / `ProductActiveConfirmDialog`；`ui/common/ProductPicker.kt`（`BUG-0017` 那份实现，且**正被 CHG-0102 改着** —— 本次一个字节都不碰；"取值同一套、代码两个文件"这件事写在共用件文件头与 §4.25i，并用判据交叉对账"两处对不上就红"）；三个动作的文案/顺序/形态与沽清/上架的二次确认弹层；颜色 token（`ThemeGreen` / 主操作色 `#8B4A4A` / `QuickPriceGreen` / `ProductPurple` / `Success` / `colorScheme.error`）；`ProductCheckList`（可见范围页下架商品**仍可勾**）；参考图里那个**斜的「已沽清」印章水印**（本轮不做，理由写在 §⑨ 已知局限）；批量操作页 / 库存页 / 排序页的商品卡（本轮用户只点名商品管理页）；后端 / 端点 / 权限 / 数据库 / 历史数据（Blast Radius **L0 —— 展示层**）。
+
+`判据 / 反验`：`python -X utf8 _tools/qa/_check_sold_out_card_grey.py` ⇒ **✅ 全部 65 项通过**（exit 0）；`python -X utf8 _tools/qa/_reverse_verify_sold_out_card_grey.py` ⇒ **✅ 20 条注入逐条报红 ＋ 8 个被注入文件逐字节还原**（exit 0）；全量静检 ⇒ **`❌ 6/233` = 正好那 6 条基线、新增红 0**（中途一次 `13/232` 多出来的 7 条全是并行会话的瞬时红：CHG-0104 半成品改 `ui/ai/*` ＋ 登记簿正在被写的 146 份中途态 ＋ 提示目录随之过期，重跑 `_hint_inventory.py --md` 后逐一转绿）；单测 ⇒ **`BUILD SUCCESSFUL in 25s`**（`:app:testEmuDebugUnitTest --rerun` 真跑：106 份报告 = **1482 用例 / 0 失败 / 0 错误 / 2 跳过**）；真机 ⇒ __（待取，由主会话统一做）。
+
+- 状态：⏳ **进行中**（变更单 `docs/changes/CHG-0103.md`；台账 **L-66**；Blast Radius **L0 —— 展示层**；提交 `__`）。
+- 核心改动：**无** —— 为什么：本次只动 `ui/dispatcher/ProductsScreen.kt` 与新建 `ui/common/ProductSoldOutScrim.kt`（外加文档与 `_tools/qa/` 两个脚本），这些都不在 `_tools/qa/_core_files.txt` 里；沽清这个事实本身（`products.is_active`）与下单那两道闸门一个字没动。
 
 ### [2026-10-10 01:2x → ⏳ CST 进行中] 会话：**CHG-0102 工作台配色：低饱和但不发灰 —— 统一的是明度，不是饱和度**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
 

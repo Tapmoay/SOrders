@@ -57,7 +57,7 @@
 静默空转保护：`MIN_KT = 100`（目录被搬走 / 一个 .kt 都没扫到就红，不许"扫了 0 个也全绿"）。
 
 ## 判据
-1. `Color.kt`：`ThemeGreen = 0xFF8B4A4A`、`NavBlue = ThemeGreen`、`InfoBlue = ThemeGreen`；
+1. `Color.kt`：`ThemeGreen = 0xFF28684B`、`NavBlue = ThemeGreen`、`InfoBlue = ThemeGreen`；
    Primary 四件套是同一族红棕；商品块四个 token（浅底 / 深字 / 深色块 / 块首图标）都在且是**裸 ARGB**；
 2. 页面底四层是**暖砂白**（并交叉要求 `_check_warm_surface_palette.py` 认得这四个值）；
 3. `OrderCard`：商品块是一块一行的圆角胶囊（`shapes.medium` ＋ `ProductRowTint` ＋ 8/6 内边距），
@@ -92,21 +92,21 @@ MIN_KT = 100
 
 #: 主操作色那几个语义 token。
 #: ⚠️ 本表在 **CHG-0101（2026-10-09 晚）** 随用户第三套整体配色图整体换过一次：
-#:    原来是绿主题（#00A870 系），现在是用户画的**低饱和红棕**（#8B4A4A 系）。
+#:    原来是绿主题（#00A870 系）；CHG-0101 曾换成低饱和红棕（#8B4A4A 系），CHG-0105 起改成**老色相 ＋ H 档明度彩度**（深绿 #28684B 系）。
 #:    判据的形状没变 —— 还是"哪个 token 等于哪个值、必须是裸 Long"，
 #:    换的只是被钉住的那个值。为什么换、换成什么，见 CHG-0101 的 ⑥。
 GREEN_TOKENS = {
-    "ThemeGreen": "0xFF8B4A4A",
-    "ThemeGreenDeep": "0xFF6E3636",
-    "ProductRowTint": "0xFFF0E2DC",
-    "OnProductRowTint": "0xFF3A2420",
+    "ThemeGreen": "0xFF28684B",
+    "ThemeGreenDeep": "0xFF175036",
+    "ProductRowTint": "0xFFDBE8E1",
+    "OnProductRowTint": "0xFF1B2E22",
 }
 
 #: 亮色四件套（Primary 家族）。
 PRIMARY_KIT = {
-    "Primary": "Color(0xFF8B4A4A)",
-    "PrimaryContainer": "Color(0xFFF0E2DC)",
-    "OnPrimaryContainer": "Color(0xFF3A2420)",
+    "Primary": "Color(0xFF28684B)",
+    "PrimaryContainer": "Color(0xFFDBE8E1)",
+    "OnPrimaryContainer": "Color(0xFF192E24)",
 }
 
 #: 商品块里那句"数量的拼法"——§4.20 的唯一实现点，⛔ 一个字符都不许动。
@@ -169,15 +169,15 @@ def main() -> int:
     c.ok(f"扫到 {len(kt)} 个 .kt（下限 {MIN_KT}）", len(kt) >= MIN_KT)
 
     print("\n== 1. Color.kt：主操作色是用户画的那套，旧名保留成别名 ==")
-    # ⚠️ 这一行**没有** `L` 后缀（作者写的是 `0xFF8B4A4A`，不是 `0xFF8B4A4AL`）——
+    # ⚠️ 这一行**没有** `L` 后缀（作者写的是 `0xFF28684B`，不是 `0xFF28684BL`）——
     #    所以收尾用 `[^\n]*$`，别去钉 `\b`（`A` 之后就是行尾注释，`\b` 会匹配不上）。
-    c.present("ThemeGreen = #8B4A4A（用户图三的「主操作色（确认接单）」，CHG-0101）", color,
-              r"^val ThemeGreen = 0xFF8B4A4A[^\n]*$")
+    c.present("ThemeGreen = #28684B（CHG-0105 起：老色相 ＋ H 档明度彩度）", color,
+              r"^val ThemeGreen = 0xFF28684B[^\n]*$")
     c.present("NavBlue 是 ThemeGreen 的别名（16 处引用不改调用点）", color,
               r"^val NavBlue = ThemeGreen\b")
     c.present("InfoBlue 也跟着换成 ThemeGreen", color,
               r"^val InfoBlue = ThemeGreen\b")
-    # ⚠️ 这些 token 行尾**带对齐注释**（`val ThemeGreen = 0xFF8B4A4AL  // 主操作…`），
+    # ⚠️ 这些 token 行尾**带对齐注释**（`val ThemeGreen = 0xFF28684BL  // 主操作…`），
     #    所以收尾必须是 `[^\n]*$` 而不是 `\s*$`（`\s*` 遇到行尾注释就匹配不上）。
     for name, want in GREEN_TOKENS.items():
         c.present(f"{name} = {want}", color,
@@ -274,8 +274,8 @@ def main() -> int:
         for f in c.fails:
             print(f"   - {f}")
         return 1
-    print(f"✅ 全部 {c.passes} 项通过：主操作色是用户画的低饱和红棕 #8B4A4A、"
-          f"商品行是一块一块的胶囊、页面背景是暖砂白与顶栏同档（那条绿渐变早已撤掉）。")
+    print(f"✅ 全部 {c.passes} 项通过：主操作色是 CHG-0105 还原的老色相深绿 #28684B、"
+          f"商品行是一块一块的胶囊、页面背景与顶栏同档（那条绿渐变早已撤掉）。")
     return 0
 
 

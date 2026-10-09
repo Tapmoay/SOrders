@@ -286,7 +286,7 @@ fun ProductPickerBody(
                 enabled = picked.isNotEmpty(),
                 modifier = Modifier.height(48.dp).widthIn(min = 128.dp),
                 shape = MaterialTheme.shapes.medium,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF59A570)),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF49A67A)),
             ) {
                 Text(
                     when {
@@ -489,7 +489,7 @@ private fun ProductRow(
                         onClick = { if (!soldOut) onAdd() },
                         enabled = !soldOut,
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (pickedQty > 0) Color(0xFF59A570) else Color(ThemeGreen),
+                            containerColor = if (pickedQty > 0) Color(0xFF49A67A) else Color(ThemeGreen),
                             contentColor = Color.White,
                             disabledContainerColor = MaterialTheme.colorScheme.outlineVariant,
                             disabledContentColor = MaterialTheme.colorScheme.outline,
@@ -537,7 +537,7 @@ private fun pickedFact(qty: Int, unit: String): ProductFact = ProductFact(
     icon = Icons.Default.CheckCircle,
     label = "已选",
     value = "$qty $unit",
-    color = Color(0xFF59A570),
+    color = Color(0xFF49A67A),
 )
 
 // ---------------------------------------------------------------- 数量

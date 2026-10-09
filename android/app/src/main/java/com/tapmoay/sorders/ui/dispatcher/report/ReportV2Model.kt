@@ -41,10 +41,10 @@ import java.util.Locale
  * · [gray] 灰 = 说不清的（接口没给的口径）。
  */
 internal object Palette {
-    val good = Color(0xFF59A570)
+    val good = Color(0xFF49A67A)
     val bad = Color(0xFFDE7C81)
-    val warn = Color(0xFFBA6F45)
-    val info = Color(0xFF529EBF)
+    val warn = Color(0xFFAF7C4D)
+    val info = Color(0xFF4CA0BC)
     val violet = Color(0xFF8075C0)
     val gray = Color(0xFF546E7A)
 }
@@ -152,14 +152,14 @@ internal object ReportNodes {
  * ⛔ 这一份是**唯一一份**：老入口页 `ReportHomeScreen` 与 v2 的「详细报表」都读它。
  */
 internal val REPORT_ENTRIES: List<EntryCard> = listOf(
-    EntryCard("0", "营业纵览", Icons.Default.Payments, Color(0xFFBA6F45)),
-    EntryCard("1", "商品经营", Icons.Default.Inventory2, Color(0xFFB084CE)),
-    EntryCard("2", "司机绩效", Icons.Default.LocalShipping, Color(0xFF59A570)),
-    EntryCard("3", "客户经营", Icons.Default.Storefront, Color(0xFF529EBF)),
+    EntryCard("0", "营业纵览", Icons.Default.Payments, Color(0xFFAF7C4D)),
+    EntryCard("1", "商品经营", Icons.Default.Inventory2, Color(0xFFA587D4)),
+    EntryCard("2", "司机绩效", Icons.Default.LocalShipping, Color(0xFF49A67A)),
+    EntryCard("3", "客户经营", Icons.Default.Storefront, Color(0xFF4CA0BC)),
     EntryCard("4", "资金收支", Icons.Default.SwapHoriz, Color(0xFF8075C0)),
     // 2026-10-05 CHG-0036：用户定「红色只给欠钱」（别人欠我 / 我欠别人 / 超额度）。异常不是欠账，
     // 所以它从红 #FF4D4F 换成设计系统里已有的琥珀 #F5A623（与「营业纵览」的金橙 #FF9500 同族但更深）。
-    EntryCard("5", "异常与审计", Icons.Default.ReportProblem, Color(0xFFB98E4A)),
+    EntryCard("5", "异常与审计", Icons.Default.ReportProblem, Color(0xFFBA8F4A)),
     EntryCard("6", "经营利润", Icons.Default.CurrencyYuan, Color(0xFF00B3A4)),
     EntryCard("7", "车辆成本", Icons.Default.DirectionsCar, Color(0xFF546E7A)),
     EntryCard("8", "成本覆盖", Icons.Default.BarChart, Color(0xFF4CAF50)),

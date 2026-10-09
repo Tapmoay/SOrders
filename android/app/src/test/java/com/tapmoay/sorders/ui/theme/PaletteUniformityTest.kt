@@ -27,6 +27,12 @@ import org.junit.Test
  *
  * ⚠️ 与 `ThemePaletteTest` 的分工：那边守**取色本身**（是不是那套、够不够不灰、
  *    白字读不读得清）；这边守**它们之间的关系**（齐不齐、有没有掉队的）。
+ *
+ * ⚠️ CHG-0105（2026-10-10「只还色相」）：工作台这些身份色按用户 ref `m06138`
+ *    「工作台就按我们一开始的那个题目那个方案去做」回到 CHG-0102 的原方案
+ *    （`ProgressYellow` / `MessageRed` / `AccountBrown` / `InventoryTeal` 四个 token
+ *    退回原值，它们的 L\* 与 CHG-0105 的现值完全相同）。**本文件四条硬指标与
+ *    全部阈值一个字没动** —— 上面那些数字是重锚过的现值，不是放宽后的值。
  */
 class PaletteUniformityTest {
 

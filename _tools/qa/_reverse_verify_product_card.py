@@ -83,7 +83,7 @@ MUTATIONS = [
         "@Composable\nprivate fun ProductsBottomBar(",
         "private fun leakedStockColor(stock: Int, lowStockAlert: Int) = when {\n"
         "    stock <= 0 -> Color(0xFFE53935)\n"
-        "    else -> Color(0xFF6BA6AE)\n"
+        "    else -> Color(0xFF6CA6B1)\n"
         "}\n\n"
         "@Composable\nprivate fun ProductsBottomBar(",
         "不再自己判库存颜色",

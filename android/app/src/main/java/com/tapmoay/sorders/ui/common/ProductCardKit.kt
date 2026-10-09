@@ -31,8 +31,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.Success
-import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.util.resolveStaticUrl
+import com.tapmoay.sorders.util.trimMoneyZeros
 
 /**
  * # 商品"长什么样"的**唯一一套零件**
@@ -124,13 +124,13 @@ fun productNameColor(raw: String?): Color = try {
 const val DEFAULT_PRODUCT_NAME_COLOR = "#5C7590"
 
 /** [DEFAULT_PRODUCT_NAME_COLOR] 的 `Color` 形态（`const` 里不能调 `toInt()`，所以单列一个）。 */
-private val FallbackNameColor = Color(0xFF5C7590)
+private val FallbackNameColor = Color(0xFF697290)
 
 // 库存那三个颜色：**判据的配色跟着判据走**（放在这里，别散回各页面）。
 // 「库存管理」的模块语义色是蓝青 #00BCD4（与 `Modules.kt` 里那一格同色：跨端同功能同色）。
 private val StockOutRed = Color(0xFFE53935)
-private val StockLowYellow = Color(0xFF8D8340)
-private val StockOkCyan = Color(0xFF6BA6AE)
+private val StockLowYellow = Color(0xFF908643)
+private val StockOkCyan = Color(0xFF6CA6B1)
 
 /**
  * 库存这个数字用什么颜色 —— **它不是装饰，是"这一行要你处理"的信号**
@@ -160,18 +160,24 @@ data class ProductFact(
 )
 
 /**
- * 「售价」那一行 —— **钱的格式化只有这一处**（`¥` + [formatMoney] + `/单位`）。
+ * 「售价」那一行 —— **钱的格式化只有这一处**（`¥` + [trimMoneyZeros] + `/单位`）。
  *
  * 单位走 [unitOrDefault]（空 → 「件」），所以调用方**不要**再自己 `ifBlank { "件" }`：
  * 各写一份的话，同一件商品在两个页面上会显示成「¥25/件」和「¥25/」（少了单位的那个
  * 看起来像被截断了，而它其实是漏了兜底）。
  *
- * ⚠️ 金额末尾多余的 0 由 [formatMoney] 去掉（`25.00 → 25`，2026-09-22 用户定的显示口径）。
+ * ⚠️ 末尾多余的 0 由 [trimMoneyZeros] 去掉（`25.0000 → 25`、`12.5000 → 12.5`）——
+ * **单价是 `Numeric(14,4)`，显示必须保到四位**：2026-10-10 之前这里走的是 [formatMoney]
+ * （"到分四舍五入"），子分价 `0.005` 被印成 `0.01` —— 卡片上是真值的**两倍**，而同一件商品的
+ * 改价弹窗（`QuickPriceDialog` 的预填）用的正是 [trimMoneyZeros]，显示 `0.005`：同一个数两个答案
+ * （BUG-0028 / 测试台账 TA-08）。⛔ 别把这一行换回 [formatMoney]：金额（订单合计 / 收款判据）
+ * 才用"到分"口径，单价不是金额（分界写在 `util/Money.kt` 的 [trimMoneyZeros] KDoc 里）。
+ * 拿不到数（空串 / 非数字）时才退回 `"0"`，与这一行改造前的显示一致。
  */
 fun productPriceFact(price: String, unit: String?): ProductFact = ProductFact(
     icon = Icons.Default.Sell,
     label = "售价",
-    value = "¥" + formatMoney(price) + "/" + unitOrDefault(unit),
+    value = "¥" + (trimMoneyZeros(price).takeIf { it.toDoubleOrNull() != null } ?: "0") + "/" + unitOrDefault(unit),
     color = Color(MoneyOrange),
 )
 
@@ -199,7 +205,7 @@ fun productReservedFact(reserved: Int, unit: String?): ProductFact = ProductFact
 )
 
 /** 占用数量的颜色（挂账单位模块色 `#FF6B2C`）。 */
-private val ReservedOrange = Color(0xFFC26357)
+private val ReservedOrange = Color(0xFFBA6947)
 
 /**
  * 库存状态角标的**文案**（`null` = 这个状态不出角标）。

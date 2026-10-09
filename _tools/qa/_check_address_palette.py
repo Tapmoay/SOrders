@@ -7,13 +7,13 @@
 
 * 配色（审计第 41 / 42 / 55 / 56 行）：同一条线路的「起点 / 终点」，卡片轨道用 RouteRail 的私有色
   OriginTeal(#00BCD4) / DestOrange(#F5A623)，表单分组却用 InventoryTeal(#00A8A8) / MoneyOrange(#FF9500)；
-  「电话」在三处写死 Color(0xFF59A570)，别处又用 MgrGreen；「人」的图标一处湖蓝一处青绿；
+  「电话」在三处写死 Color(0xFF49A67A)，别处又用 MgrGreen；「人」的图标一处湖蓝一处青绿；
   地点抽屉的「分组」借了商品管理的紫、备注借了订单状态「已撤销」的灰 —— 全是**裸色值**。
 * 文案（审计第 48 行）：常驻标题「常用线路（联系人+地点）」12 个字，比规范 §4.10 的上限（7~8 字）多一半；
   ImageStrip 里那句说明是裸 Text（该走 ui/common/Hints.kt::Hint，用户关掉提示就该跟着消失）。
 
 ## 为什么必须有机器的判据
-颜色纪律只存在于 **tint 实参**里：Color(0xFF59A570) 与 Color(MgrGreen) 的**类型完全相同**，
+颜色纪律只存在于 **tint 实参**里：Color(0xFF49A67A) 与 Color(MgrGreen) 的**类型完全相同**，
 编译、渲染、点击全都没问题 —— 破法是**静默**的，页面看上去「就是有点花」，谁也说不出哪一行不对。
 文案同理：多写四个字、把 Hint 退回 Text，没有任何一处会报错。而且这一页的第二个答案会自我复制：
 下一个人照着抄，「电话就写 00B578」就成了惯例，用户就得在每一页重新认一次颜色。
@@ -38,7 +38,7 @@
 与 UserSearch.matches(kw, it.displayName, it.phone)（按人匹配的口径，手机号后 4 位就靠它）。
 
 R4-BOUNDARY-JUSTIFICATION: 这一条**没法用边界消除** —— 「同一个概念该用哪个色」只存在于 tint 实参里，
-而 Color(0xFF59A570) 与 Color(MgrGreen) 在类型系统里是同一个类型：编译器、渲染器、无障碍树都看不出区别，
+而 Color(0xFF49A67A) 与 Color(MgrGreen) 在类型系统里是同一个类型：编译器、渲染器、无障碍树都看不出区别，
 破法因此是静默的（页面照常工作，只是同一个「电话」在两处是两种绿）。类型层也没法表达
 「这两个 token 只许给起点 / 终点用」，Kotlin 不禁止任何人在任何地方再写一遍字面量。
 所以只能靠一条判据把「本页的每个概念 ↔ ui/theme/Color.kt 里唯一那份定义」对起来，
@@ -82,8 +82,8 @@ RAW_COLOR = "Color(0xFF"
 #:    所以 `L?`；写死任一种都会让另一行永远对不上（这条判据就是这么红过一次的）。
 #:    也**不能**用字面量 `in`：后面是"对齐空格 + 行尾注释"，
 #:    `strip_comments()` 只吃掉注释、留下空格，字面量永远差那几个空格。
-ORIGIN_DECL = re.compile(r"^val OriginTeal = 0xFF6BA6AEL?\b", re.M)
-DEST_DECL = re.compile(r"^val DestOrange = 0xFFB98E4AL?\b", re.M)
+ORIGIN_DECL = re.compile(r"^val OriginTeal = 0xFF6CA6B1L?\b", re.M)
+DEST_DECL = re.compile(r"^val DestOrange = 0xFFBA8F4AL?\b", re.M)
 #: 顶部三档的三个语义色（顺序 = 路线 / 联系人 / 地址）
 TAB_COLORS = "listOf(Color(OriginTeal), Color(ShipperTeal), Color(MoneyOrange))"
 #: 线路卡上那个电话图标（整行钉住：色 + 尺寸 + 无障碍文案）
@@ -290,7 +290,7 @@ def main() -> int:
         "分组那一行的 tint 不是湖蓝",
     )
     c.ok(
-        "本页不再出现商品紫（Color(0xFFB084CE) / ProductPurple）",
+        "本页不再出现商品紫（Color(0xFFA587D4) / ProductPurple）",
         ("8455E6" not in src) and ("ProductPurple" not in src),
         "商品紫又回来了",
     )
@@ -318,7 +318,7 @@ def main() -> int:
     c.ok("Color.kt 里 val OriginTeal 恰好定义一次", n_orig == 1, f"实际 {n_orig} 处")
     c.ok("Color.kt 里 val DestOrange 恰好定义一次", n_dest == 1, f"实际 {n_dest} 处")
     c.ok(
-        "两个色值没被顺手改（起点 #6BA6AE / 终点 #B98E4A，CHG-0101 换的那套）",
+        "两个色值没被顺手改（起点 #6CA6B1 / 终点 #BA8F4A，CHG-0105「只还色相」后的现值）",
         (ORIGIN_DECL.search(color_src) is not None) and (DEST_DECL.search(color_src) is not None),
         "色值变了",
     )

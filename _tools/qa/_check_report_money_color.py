@@ -69,8 +69,8 @@ UNSPECIFIED_FLOOR = 6
 MINUS_ROWS = ("− 商品成本", "− 司机运费", "− 期间费用", "− 车辆折旧")
 
 #: 老页面三处「商品毛利」的判负写法（两处 StatRow 文本完全相同，数它们出现 2 次）
-GP_TONE = "if (profit >= 0) Color(0xFF59A570) else Color(0xFFE53935)"
-GP_GREEN_ONLY = 'StatRow("商品毛利", "¥" + formatMoney(profit.toString()), Color(0xFF59A570))'
+GP_TONE = "if (profit >= 0) Color(0xFF49A67A) else Color(0xFFE53935)"
+GP_GREEN_ONLY = 'StatRow("商品毛利", "¥" + formatMoney(profit.toString()), Color(0xFF49A67A))'
 
 
 def read(p: Path) -> str:
@@ -164,22 +164,22 @@ def main() -> int:
 
     print("[4] 老页面：商品毛利为负时不许画绿")
     c.count("商品毛利", center, GP_TONE, 2)
-    c.present("商品毛利", center, "else if (profit < 0) Color(0xFFE53935) else Color(0xFF59A570),")
-    c.present("商品毛利", center, "val gpColor = if (gp >= 0) Color(0xFF59A570) else Color(0xFFE53935)")
+    c.present("商品毛利", center, "else if (profit < 0) Color(0xFFE53935) else Color(0xFF49A67A),")
+    c.present("商品毛利", center, "val gpColor = if (gp >= 0) Color(0xFF49A67A) else Color(0xFFE53935)")
     c.absent("商品毛利", center, GP_GREEN_ONLY)
 
     print("[5] 老页面：留抵（该交的增值税为负）不许画绿")
     # 留抵 = 进项比销项多，后端给的数**带负号**（演示库实测 -127.49）。老页面原来把「留抵」当好事画绿，
     # 被 2026-10-05 的口径推翻：带负号 ⇒ 红；正数（真该交的税）仍是本页原有的橙 #FF6B2C。
     c.present("留抵", center,
-              "if ((data.vatPayable.toDoubleOrNull() ?: 0.0) < 0.0) 0xFFE53935 else 0xFFC26357")
-    c.present("留抵", center, "if (payable < 0.0) Color(0xFFE53935) else Color(0xFFC26357)")
-    c.absent("留抵", center, "0xFF59A570 else 0xFFC26357")
+              "if ((data.vatPayable.toDoubleOrNull() ?: 0.0) < 0.0) 0xFFE53935 else 0xFFBA6947")
+    c.present("留抵", center, "if (payable < 0.0) Color(0xFFE53935) else Color(0xFFBA6947)")
+    c.absent("留抵", center, "0xFF49A67A else 0xFFBA6947")
 
     print("[6] 老页面既有的正负上色一个字都没被换掉")
-    c.present("opColor", center, "val opColor = if (op >= 0) Color(0xFF59A570) else Color(0xFFE53935)")
+    c.present("opColor", center, "val opColor = if (op >= 0) Color(0xFF49A67A) else Color(0xFFE53935)")
     c.present("净流入", center,
-              "if (income - expense >= 0) Color(0xFF59A570) else Color(0xFFE53935)")
+              "if (income - expense >= 0) Color(0xFF49A67A) else Color(0xFFE53935)")
 
     print("[7] 文档与登记表")
     c.present("CHG-0037", doc_raw, "带负号的金额")

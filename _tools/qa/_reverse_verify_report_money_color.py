@@ -120,14 +120,14 @@ CASES: list[tuple] = [
     (
         '老页面两处「商品毛利」改回恒绿 → 必须点名商品毛利',
         CENTER, False,
-        swap_all("if (profit >= 0) Color(0xFF59A570) else Color(0xFFE53935)", "Color(0xFF59A570)"),
+        swap_all("if (profit >= 0) Color(0xFF49A67A) else Color(0xFFE53935)", "Color(0xFF49A67A)"),
         True, "商品毛利",
     ),
     (
         '老页面「营业利润」的正负上色被换成恒绿 → 必须点名 opColor',
         CENTER, False,
-        swap("val opColor = if (op >= 0) Color(0xFF59A570) else Color(0xFFE53935)",
-             "val opColor = Color(0xFF59A570)"),
+        swap("val opColor = if (op >= 0) Color(0xFF49A67A) else Color(0xFFE53935)",
+             "val opColor = Color(0xFF49A67A)"),
         True, "opColor",
     ),
     (
@@ -139,15 +139,15 @@ CASES: list[tuple] = [
     (
         '老页面「经营利润」卡的留抵（带负号）改回恒绿 → 必须点名留抵',
         CENTER, False,
-        swap("if ((data.vatPayable.toDoubleOrNull() ?: 0.0) < 0.0) 0xFFE53935 else 0xFFC26357",
-             "if ((data.vatPayable.toDoubleOrNull() ?: 0.0) < 0.0) 0xFF59A570 else 0xFFC26357"),
+        swap("if ((data.vatPayable.toDoubleOrNull() ?: 0.0) < 0.0) 0xFFE53935 else 0xFFBA6947",
+             "if ((data.vatPayable.toDoubleOrNull() ?: 0.0) < 0.0) 0xFF49A67A else 0xFFBA6947"),
         True, "留抵",
     ),
     (
         '老页面税账页大数的留抵改回恒绿 → 必须点名留抵',
         CENTER, False,
-        swap("if (payable < 0.0) Color(0xFFE53935) else Color(0xFFC26357)",
-             "if (payable < 0.0) Color(0xFF59A570) else Color(0xFFC26357)"),
+        swap("if (payable < 0.0) Color(0xFFE53935) else Color(0xFFBA6947)",
+             "if (payable < 0.0) Color(0xFF49A67A) else Color(0xFFBA6947)"),
         True, "留抵",
     ),
     (

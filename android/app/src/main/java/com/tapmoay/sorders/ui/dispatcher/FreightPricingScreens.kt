@@ -271,7 +271,7 @@ fun UnpricedOrdersScreen(container: AppContainer, onBack: () -> Unit, onOpenOrde
                             Text(
                                 "待定价",
                                 style = MaterialTheme.typography.labelLarge,
-                                color = Color(0xFFC26357),
+                                color = Color(0xFFBA6947),
                             )
                         }
                         Spacer(Modifier.height(6.dp))

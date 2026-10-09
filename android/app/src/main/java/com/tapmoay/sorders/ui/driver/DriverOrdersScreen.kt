@@ -87,8 +87,8 @@ fun DriverOrdersScreen(
             SegmentedStatusTabs(
                 labels = listOf("进行中", "已完成"),
                 colors = listOf(
-                    androidx.compose.ui.graphics.Color(0xFF8D8340),
-                    androidx.compose.ui.graphics.Color(0xFF59A570),
+                    androidx.compose.ui.graphics.Color(0xFF908643),
+                    androidx.compose.ui.graphics.Color(0xFF49A67A),
                 ),
                 selected = vm.tab,
                 onSelect = { vm.selectTab(it) },
@@ -170,7 +170,7 @@ fun DriverOrdersScreen(
                                     //    重复接单由 `ACKABLE` 与后端 CAS 一起挡（见 `DriverOrdersViewModel.ack`）。
                                     bottomAction = {
                                         if (vm.ordersTab == 0 && order.status in OrderStatusModel.ACKABLE) {
-                                            // 语义绿 = 「已送达/成功」那一支（`0xFF59A570`），与详情页那颗
+                                            // 语义绿 = 「已送达/成功」那一支（`0xFF49A67A`），与详情页那颗
                                             // 逐像素同色同高（56dp）——同一个动作在两个页面上不该长得不一样。
                                             // 高 56dp 是刻意的例外：`06_DESIGN_SYSTEM.md §4.2` 那排 40dp 是
                                             // **并列**的次要动作，而这是"这一张单现在要做的那一件事"，是主行动。
@@ -183,7 +183,7 @@ fun DriverOrdersScreen(
                                                 enabled = !locked,
                                                 modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(56.dp),
                                                 colors = ButtonDefaults.buttonColors(
-                                                    containerColor = Color(0xFF59A570),
+                                                    containerColor = Color(0xFF49A67A),
                                                     contentColor = Color.White,
                                                 ),
                                             ) {

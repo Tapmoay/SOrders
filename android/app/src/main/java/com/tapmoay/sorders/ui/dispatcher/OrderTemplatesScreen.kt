@@ -479,9 +479,9 @@ private fun TemplateCard(
             }
             val receiver = (t.receiverName + " " + t.receiverPhone).trim()
             if (receiver.isNotBlank()) {
-                TemplateFactRow(Icons.Default.Badge, "收货人", receiver, Color(0xFF59A570))
+                TemplateFactRow(Icons.Default.Badge, "收货人", receiver, Color(0xFF49A67A))
             }
-            TemplateFactRow(Icons.Default.Inventory2, "商品", goodsText(t), Color(0xFFB084CE))
+            TemplateFactRow(Icons.Default.Inventory2, "商品", goodsText(t), Color(0xFFA587D4))
             TemplateFactRow(
                 Icons.Default.Payments, "参考运费",
                 if (t.freightFee == null) "不预设" else "¥" + formatMoney(t.freightFee),

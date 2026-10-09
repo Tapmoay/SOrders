@@ -338,7 +338,7 @@ fun ProfileScreen(
                     RowMotion(5, jelly) {
                         ProfileRow(
                             icon = if (vm.updateState == "downloading") Icons.Default.Download else Icons.Default.Update,
-                            tint = Color(0xFF59A570),
+                            tint = Color(0xFF49A67A),
                             title = when (vm.updateState) {
                                 "checking" -> "正在检查更新…"
                                 "downloading" -> "正在下载更新 " + vm.downloadProgress + "%"
@@ -371,7 +371,7 @@ fun ProfileScreen(
                                         modifier = Modifier
                                             .width(90.dp)
                                             .height(8.dp),
-                                        color = Color(0xFF59A570),
+                                        color = Color(0xFF49A67A),
                                     )
                                 } else {
                                     Text(

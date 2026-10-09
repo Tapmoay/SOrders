@@ -120,7 +120,7 @@ object Modules {
         // 颜色沿用「账本 = 橙」这条跨端同色约定（与货主端「我的账本」同色）。
         ModuleEntry("账本管理", Routes.LEDGER_HOME, Icons.Default.AccountBalanceWallet, color = MoneyOrange),           // 焦糖 · 账本（跨端同色）
         // ⛔ 这里**没有**「开销管理」那一格：它并进上面「账本管理」里了（用户点名要合并）。
-        ModuleEntry("车辆管理", Routes.DISPATCH_VEHICLES, Icons.Default.DirectionsCar, color = 0xFF4AA6A8L),            // 湖青 · 车与车况（CHG-0102 起按 H 档：L*63.0 C*28.0 h199.8）
+        ModuleEntry("车辆管理", Routes.DISPATCH_VEHICLES, Icons.Default.DirectionsCar, color = 0xFF4AA5A7L),            // 湖青 · 车与车况（CHG-0102 起按 H 档：L*63.0 C*28.0 h199.8）
         // ⛔ 这里**没有**「司机运费结算」那一格了（2026-10-07 CHG-0075）：它与账本管理入口页
         //    那格「司机账」并成了「司机账 · 运费结算」，合并后只剩账本管理入口页那一格
         //    （`Routes.FREIGHT_SETTLEMENT`）—— 留着就等于同一个东西两个入口。
@@ -260,8 +260,8 @@ object Modules {
         // 黄也**更合规矩**——派单端「订单管理」就是黄，跨端同功能同色
         // （下单绿 / 账本橙 / 消息红 / 地址湖蓝 / 订单黄）。
         ModuleEntry("我的订单", Routes.SHIPPER_ORDERS, Icons.Default.ListAlt, color = 0xFF8D7A3CL),
-        ModuleEntry("下单", Routes.ORDER_CREATE, Icons.Default.AddCircleOutline, color = 0xFF59A570L),
-        ModuleEntry("地址与联系人", Routes.ADDRESSES, Icons.Default.Place, color = 0xFF529EBFL),
+        ModuleEntry("下单", Routes.ORDER_CREATE, Icons.Default.AddCircleOutline, color = 0xFF49A67AL),
+        ModuleEntry("地址与联系人", Routes.ADDRESSES, Icons.Default.Place, color = 0xFF4CA0BCL),
         ModuleEntry("我的账本", Routes.SHIPPER_LEDGER, Icons.Default.AccountBalanceWallet, color = 0xFFC29750L),
         ModuleEntry("消息中心", Routes.MESSAGES, Icons.Default.Notifications, color = 0xFFDE7C81L),
         // 退货申请（2026-09-21）：货主在「我的订单」里对**已送达**的单提出申请，进展在这一页看

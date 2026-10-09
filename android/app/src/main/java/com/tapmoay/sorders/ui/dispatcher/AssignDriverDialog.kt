@@ -298,7 +298,7 @@ fun AssignDriverDialog(
                                     "¥" + formatMoney(t.fee),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                    color = androidx.compose.ui.graphics.Color(0xFFBA6F45),
+                                    color = androidx.compose.ui.graphics.Color(0xFFAF7C4D),
                                 )
                             }
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

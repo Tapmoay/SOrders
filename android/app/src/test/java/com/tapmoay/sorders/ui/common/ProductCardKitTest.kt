@@ -29,6 +29,19 @@ class ProductCardKitTest {
     }
 
     @Test
+    fun `子分价不许被四舍五入（卡片=弹窗=库）`() {
+        // BUG-0028 / 测试台账 TA-08（2026-10-10）：商品的默认售价列是 Numeric(14,4)，可以是 0.005 元/箱。
+        // 这一行原来走 formatMoney（"到分四舍五入"），0.005 被印成 ¥0.01/箱 —— 卡片上是真值的**两倍**，
+        // 而同一件商品的改价弹窗预填用的是 trimMoneyZeros，显示 0.005：同一个数两个答案。
+        // ⛔ 口径按列精度选：金额（Numeric(12,2)）用 formatMoney，单价（Numeric(14,4)）用 trimMoneyZeros。
+        assertEquals("¥0.005/箱", productPriceFact("0.005", "箱").value)
+        assertEquals("¥12.3456/件", productPriceFact("12.3456", "").value)
+        assertEquals("¥12.5/袋", productPriceFact("12.5000", "袋").value)
+        // 拿不到数时才退回 "0"（改造前 formatMoney("") 也是 0，卡片上不会出现「¥/箱」）
+        assertEquals("¥0/件", productPriceFact("", "").value)
+    }
+
+    @Test
     fun `单位为空时退回件`() {
         // 各页自己写 ifBlank 的话，同一件商品会出现「¥25/件」和「¥25/」两种
         assertEquals("¥25/件", productPriceFact("25", "").value)
@@ -43,24 +56,27 @@ class ProductCardKitTest {
 
     @Test
     fun `到报警线是黄的`() {
-        // ⚠️ CHG-0101（2026-10-09 用户三张配色图）把这两个色换成低饱和的那套：
-        //    黄 0xFFFFB300 → 0xFFC8B270、青 0xFF00BCD4 → 0xFF6BA6AE。
-        //    CHG-0102（2026-10-10 用户选了 H 档）黄再跟着走一档：
-        //    0xFFC8B270 → 0xFF8D8340（＝ ProgressYellow 订单管理那格）。
-        //    ⛔ 青 `0xFF6BA6AE` **没动** —— 它读的是 `OriginTeal`（线路起点），
-        //    不是本次换的那 19 格里的任何一个。
+        // ⚠️ 这两个色跟着"判据的配色"走过三程，但**判据本身一个字没动**：
+        //    · CHG-0101（2026-10-09 用户三张配色图）换成低饱和的那套：
+        //      黄 0xFFFFB300 → 0xFFC8B270、青 0xFF00BCD4 → 0xFF6BA6AE。
+        //    · CHG-0102（2026-10-10 用户选了 H 档）黄再跟着走一档：
+        //      0xFFC8B270 → 0xFF908643（＝ ProgressYellow 订单管理那格）。
+        //    · CHG-0105（2026-10-10 只还色相）黄一度按"还色相"换成 0xFFA17C42，
+        //      随后按用户「工作台就按我们一开始的那个题目那个方案」退回 0xFF908643
+        //      （净结果：这个黄没变）；青则微调 0xFF6BA6AE → 0xFF6CA6B1。
+        //    ⛔ 青读的是 `OriginTeal`（线路起点），不是工作台那 19 格里的任何一个。
         //    ⛔ 色值跟着换是对的，但**判据本身一个字没动**：断货红 / 报警黄 / 正常青
         //    这三档的语义与优先级是这条用例在守的东西（换色不该顺手把它放宽）。
-        assertEquals(Color(0xFF8D8340), productStockColor(stock = 5, lowStockAlert = 10))
-        assertEquals(Color(0xFF8D8340), productStockColor(stock = 10, lowStockAlert = 10))
+        assertEquals(Color(0xFF908643), productStockColor(stock = 5, lowStockAlert = 10))
+        assertEquals(Color(0xFF908643), productStockColor(stock = 10, lowStockAlert = 10))
     }
 
     @Test
     fun `报警线为零表示不报警而不是阈值为零`() {
         // 少了 lowStockAlert > 0 这个前置条件的话，库存 3 件会被判成"到报警线了"（黄），
         // 而 0 表示的是"这个商品不设报警线"
-        assertEquals(Color(0xFF6BA6AE), productStockColor(stock = 3, lowStockAlert = 0))
-        assertEquals(Color(0xFF8D8340), productStockColor(stock = 3, lowStockAlert = 10))
+        assertEquals(Color(0xFF6CA6B1), productStockColor(stock = 3, lowStockAlert = 0))
+        assertEquals(Color(0xFF908643), productStockColor(stock = 3, lowStockAlert = 10))
     }
 
     @Test

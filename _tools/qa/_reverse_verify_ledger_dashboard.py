@@ -63,7 +63,7 @@ MUTATIONS = [
     (
         "「车辆管理」不放桌面上了（用户明确要求放桌面）",
         MODULES,
-        '        ModuleEntry("车辆管理", Routes.DISPATCH_VEHICLES, Icons.Default.DirectionsCar, color = 0xFF4AA6A8L),            // 湖青 · 车与车况（CHG-0102 起按 H 档：L*63.0 C*28.0 h199.8）\n',
+        '        ModuleEntry("车辆管理", Routes.DISPATCH_VEHICLES, Icons.Default.DirectionsCar, color = 0xFF4AA5A7L),            // 湖青 · 车与车况（CHG-0102 起按 H 档：L*63.0 C*28.0 h199.8）\n',
         "",
         "「车辆管理」在网格里",
     ),
@@ -72,7 +72,7 @@ MUTATIONS = [
         MODULES,
         '        ModuleEntry("账本管理", Routes.LEDGER_HOME, Icons.Default.AccountBalanceWallet, color = MoneyOrange),           // 焦糖 · 账本（跨端同色）\n',
         '        ModuleEntry("账本管理", Routes.LEDGER_HOME, Icons.Default.AccountBalanceWallet, color = MoneyOrange),\n'
-        '        ModuleEntry("开销管理", Routes.DISPATCH_EXPENSES, Icons.Default.Receipt, color = 0xFF5C7590L),\n',
+        '        ModuleEntry("开销管理", Routes.DISPATCH_EXPENSES, Icons.Default.Receipt, color = 0xFF697290L),\n',
         "网格里没有「开销管理」",
     ),
     (
@@ -272,7 +272,7 @@ MUTATIONS = [
     (
         "车辆管理那一格换成「太深」的色（用户否过这一类）",
         MODULES,
-        "color = 0xFF4AA6A8L),            // 湖青 · 车与车况",
+        "color = 0xFF4AA5A7L),            // 湖青 · 车与车况",
         "color = 0xFF4E342EL),            // 深棕",
         "没有新增「太深/太沉」的格子",
     ),

@@ -318,7 +318,7 @@ def main() -> int:
         "只切到 %d 个字符" % len(row_code),
     )
     # 语义色在 ui/theme/Color.kt 里是**裸的 ARGB 值**（用的时候必须包成 Color(...)）。
-    # ⚠️ 2026-10-09 晚（CHG-0101 换色）起这些 token 写的是 `0xFFBA6F45`，
+    # ⚠️ 2026-10-09 晚（CHG-0101 换色）起这些 token 写的是 `0xFFAF7C4D`，
     #    不再带 `L` 后缀 —— 所以这里匹配到 `{8}` 位十六进制就够，别去钉那个后缀。
     # 这条前置判据是给下一个人看的：哪天它变成 Color 了，本节的 Color(...) 判据要跟着改。
     c.ok(
@@ -430,7 +430,7 @@ def main() -> int:
         r"enabled = actions\.shareEnabled,\s*\n"
         r"\s*modifier = Modifier\.size\(ExportActionButtonSize\),\s*\n\s*"
         r"colors = IconButtonDefaults\.iconButtonColors\(\s*\n\s*"
-        r"contentColor = Color\(ThemeGreen\),\s*\n\s*"
+        r"contentColor = AiAccent,\s*\n\s*"
         r"disabledContentColor = MaterialTheme\.colorScheme\.outlineVariant,\s*\n",
         uniq=True,
     )
@@ -461,9 +461,9 @@ def main() -> int:
         uniq=True,
     )
     c.present(
-        "分享那颗亮起来是主操作色（ThemeGreen）",
+        "分享那颗亮起来是 AI 页的强调色（AiAccent，CHG-0104 起不再隔着文件读主操作色）",
         row_code,
-        first_line_span(r"contentColor = Color\(ThemeGreen\),"),
+        first_line_span(r"contentColor = AiAccent,"),
         uniq=True,
     )
 

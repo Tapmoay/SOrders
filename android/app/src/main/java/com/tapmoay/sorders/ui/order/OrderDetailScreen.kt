@@ -228,6 +228,13 @@ fun OrderDetailScreen(
             //    而他真正需要的信息（订单还在、只是这一步没成）被这句"重试"盖住。
             //    现在：没内容 → 整页错误（这时候它确实没什么可显示的）；
             //          有内容 → 走下面那两条横幅（本次刷新没成功 / 这个动作没成功）。
+            // BUG-0027（台账 TA-06）：这张单是被派单员删进回收站的 —— 说人话 + 给出路。
+            // 后端 404 的 detail 已经换成「订单已被派单员删除，如需找回请联系派单员从回收站恢复。」
+            // （见 backend/app/api/v1/orders_common.py 的 _deleted_order_notice）。
+            // ⛔ 不要退化成下面那条「订单不存在 + 重试」：重试一百次这张单也不会回来，
+            //    司机只会以为是自己的网不好；而且「订单不存在」既没说谁删的、也没给出路。
+            vm.order == null && vm.error != null && OrderDeleted.isDeletedNotice(vm.error) ->
+                OrderDeletedPanel(vm.error.orEmpty(), onBack = onBack)
             vm.order == null && vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
             vm.order == null -> EmptyView("订单不存在")
             else -> Column(Modifier.fillMaxSize()) {
@@ -1044,7 +1051,7 @@ private fun DetailBody(
                         Icon(
                             Icons.Default.Call,
                             contentDescription = null,
-                            tint = androidx.compose.ui.graphics.Color(0xFF59A570),
+                            tint = androidx.compose.ui.graphics.Color(0xFF49A67A),
                             modifier = Modifier.size(22.dp),
                         )
                         Spacer(Modifier.width(8.dp))
@@ -1080,7 +1087,7 @@ private fun DetailBody(
                         Icon(
                             Icons.Default.Person,
                             contentDescription = null,
-                            tint = androidx.compose.ui.graphics.Color(0xFF59A570),
+                            tint = androidx.compose.ui.graphics.Color(0xFF49A67A),
                             modifier = Modifier.size(22.dp),
                         )
                         Spacer(Modifier.width(8.dp))
@@ -1097,7 +1104,7 @@ private fun DetailBody(
                             "下单人 " + bossText,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                            color = if (bossWho != null) androidx.compose.ui.graphics.Color(0xFF59A570)
+                            color = if (bossWho != null) androidx.compose.ui.graphics.Color(0xFF49A67A)
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         if (canEditInfo) EditHint(onClick = { edit.startEdit(OrderEditField.BOSS) })
@@ -1265,7 +1272,7 @@ private fun DetailBody(
                             // 量列宽与渲染用**同一个函数**（不同的话右对齐当场错位）。
                             "×" + qtyWithUnitConverted(netQty(line), line.unit, conversions),
                             style = qtyStyle,
-                            color = androidx.compose.ui.graphics.Color(0xFFB084CE),
+                            color = androidx.compose.ui.graphics.Color(0xFFA587D4),
                             textAlign = TextAlign.End,
                             modifier = Modifier.width(qtyW),
                         )
@@ -1354,7 +1361,7 @@ private fun DetailBody(
                             netTotal,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                            color = androidx.compose.ui.graphics.Color(0xFFBA6F45),
+                            color = androidx.compose.ui.graphics.Color(0xFFAF7C4D),
                         )
                     }
                 }
@@ -1706,7 +1713,7 @@ private fun DetailBody(
                         enabled = !acting,
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = androidx.compose.ui.graphics.Color(0xFF59A570),
+                            containerColor = androidx.compose.ui.graphics.Color(0xFF49A67A),
                             contentColor = androidx.compose.ui.graphics.Color.White,
                         ),
                     ) {
@@ -1989,7 +1996,7 @@ private fun NavigationBlock(
             Icon(
                 Icons.Default.MyLocation,
                 contentDescription = null,
-                tint = Color(0xFF59A570),
+                tint = Color(0xFF49A67A),
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(6.dp))
@@ -2028,7 +2035,7 @@ private fun NavigationBlock(
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = onFillClick,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF529EBF), contentColor = Color.White),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CA0BC), contentColor = Color.White),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Default.AddLocationAlt, contentDescription = null, modifier = Modifier.size(18.dp))

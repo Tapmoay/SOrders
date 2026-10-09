@@ -20,20 +20,20 @@
 
 下面这些注入里**没有一条**能让 `gradle` 或 `ThemePaletteTest` 变红：
 
-- 把某个 token 的色值从 `#8B4A4A` 改回 `#00A870` —— 合法 Kotlin，Compose 照画；
+- 把某个 token 的色值从 `#28684B` 改回 `#00A870` —— 合法 Kotlin，Compose 照画；
   `ThemePaletteTest` 只钉了 `ThemeGreen` 那**一个** token，`MgrGreen` / `ShipperTeal` /
   `WarningAmber` 这些改回旧色它**一声不响**。而那正是本单最容易出的错：
-  45 个 token 换值，漏一个不会有任何东西报错，只是屏幕上有两块颜色一旧一新。
+  CHG-0105 还原了 33 个 token 的色相，漏一个不会有任何东西报错，只是屏幕上有两块颜色一旧一新。
 - 往 `ui/nav/Modules.kt` 的某一格里塞回旧亮青 `0xFF00BCD4L` —— 编译过、跑得动；
   21 格的"两两距离"根本不量这一组（`ModulesEntryTest` 只量账本入口页 7 格与货主端 8 格），
   而饱和度地板是 15%，旧亮青的饱和度很高、**照样过**。于是它只能靠本单第 2 节那条
-  "40 个旧值一处都不许留"来守 —— 那条是活的还是死的，只能靠这里注入来证明。
+  "旧值一处都不许留"来守 —— 那条是活的还是死的，只能靠这里注入来证明。
 - 往 `ALLOW_OLD` 白名单里塞一个没人再用的值 —— 判据不会红（它只会更"宽松"）。
   所以第 2 节末尾专门有一条"白名单不许变成死条目"，下面有一条注入专门打它。
 
 类型系统能表达"这里要一个 Long"，表达不了"这个 Long 必须是用户画的那个色"。
 色值是**数据**，不是形状；能在数据上守的那一半交给 `ThemePaletteTest`（它跑得动 Android 的
-资源与 `Modules` 对象），另一半（跨文件、跨 45 个 token、跨 21 格、以及"地板不许被抬高"）
+资源与 `Modules` 对象），另一半（跨文件、跨已换值的那批 token、跨 21 格、以及"地板不许被抬高"）
 只能靠这里的注入来证明判据活着。
 
 ## 怎么保证不伤到工作区
@@ -116,12 +116,12 @@ def sub_all(old: str, new: str, least: int = 2):
 
 #: (说明, 相对路径, 注入函数, 期望在红线输出里出现的关键词)
 CASES: list[tuple[str, str, object, str]] = [
-    # ---- 1. Color.kt：45 个 token 换值，漏一个不会有任何东西报错 ----
+    # ---- 1. Color.kt：CHG-0105 还原了 33 个 token 的色相，漏一个不会有任何东西报错 ----
     (
-        "主操作色退回 CHG-0091 那个绿（白字对比度当场从 6.61:1 掉回 2.9:1）",
+        "主操作色退回 CHG-0091 那个绿（白字对比度当场从 6.62:1 掉回 2.9:1）",
         COLOR,
-        sub("val ThemeGreen = 0xFF8B4A4A", "val ThemeGreen = 0xFF00A870"),
-        "ThemeGreen = #8B4A4A",
+        sub("val ThemeGreen = 0xFF28684B", "val ThemeGreen = 0xFF00A870"),
+        "ThemeGreen = #28684B",
     ),
     (
         "别名 NavBlue 不再指向主操作色（全仓 16 处调用点会跟着变）",
@@ -138,38 +138,38 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "别名被写成 `Color(0x…)`（用色处类型对不上，实测编译不过）",
         COLOR,
-        sub("val NavBlue = ThemeGreen", "val NavBlue = Color(0xFF8B4A4A)"),
+        sub("val NavBlue = ThemeGreen", "val NavBlue = Color(0xFF28684B)"),
         "语义色 token 不是 `Color(0x…)` 形式",
     ),
     (
         "成功色退回旧的值",
         COLOR,
-        sub("val MgrGreen = 0xFF59A570", "val MgrGreen = 0xFF00B578"),
-        "MgrGreen = 0xFF59A570",
+        sub("val MgrGreen = 0xFF49A67A", "val MgrGreen = 0xFF00B578"),
+        "MgrGreen = 0xFF49A67A",
     ),
     (
         "客服/货主那格的 token 退回旧色",
         COLOR,
-        sub("val ShipperTeal = 0xFF529EBF", "val ShipperTeal = 0xFF00A2C7"),
-        "ShipperTeal = 0xFF529EBF",
+        sub("val ShipperTeal = 0xFF4CA0BC", "val ShipperTeal = 0xFF00A2C7"),
+        "ShipperTeal = 0xFF4CA0BC",
     ),
     (
         "账本色退回旧橙（判据里那个 40 值黑名单的一员）",
         COLOR,
-        sub("val MoneyOrange = 0xFFBA6F45", "val MoneyOrange = 0xFFFF9500"),
-        "MoneyOrange = 0xFFBA6F45",
+        sub("val MoneyOrange = 0xFFAF7C4D", "val MoneyOrange = 0xFFFF9500"),
+        "MoneyOrange = 0xFFAF7C4D",
     ),
     (
         "提醒色退回旧琥珀",
         COLOR,
-        sub("val WarningAmber = 0xFFC8A56A", "val WarningAmber = 0xFFFF9F1C"),
-        "WarningAmber = 0xFFC8A56A",
+        sub("val WarningAmber = 0xFFD3A06E", "val WarningAmber = 0xFFFF9F1C"),
+        "WarningAmber = 0xFFD3A06E",
     ),
     (
         "账本入口页卡其那格退回旧黄（那 40 个旧值之一）",
         COLOR,
-        sub("val ProgressYellow = 0xFF8D8340", "val ProgressYellow = 0xFFFFB300"),
-        "ProgressYellow = 0xFF8D8340",
+        sub("val ProgressYellow = 0xFF908643", "val ProgressYellow = 0xFFFFB300"),
+        "ProgressYellow = 0xFF908643",
     ),
     (
         "消息红退回旧的红",
@@ -186,20 +186,20 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "商品行底色退回 CHG-0091 那个极浅绿",
         COLOR,
-        sub("val ProductRowTint = 0xFFF0E2DCL", "val ProductRowTint = 0xFFE6F7EEL"),
-        "ProductRowTint = 0xFFF0E2DC",
+        sub("val ProductRowTint = 0xFFDBE8E1L", "val ProductRowTint = 0xFFE6F7EEL"),
+        "ProductRowTint = 0xFFDBE8E1",
     ),
     (
         "商品行上的字退回墨绿",
         COLOR,
-        sub("val OnProductRowTint = 0xFF3A2420L", "val OnProductRowTint = 0xFF10331FL"),
-        "OnProductRowTint = 0xFF3A2420",
+        sub("val OnProductRowTint = 0xFF1B2E22L", "val OnProductRowTint = 0xFF10331FL"),
+        "OnProductRowTint = 0xFF1B2E22",
     ),
     (
         "数量块那档深色退回 CHG-0091 的深绿",
         COLOR,
-        sub("val ThemeGreenDeep = 0xFF6E3636L", "val ThemeGreenDeep = 0xFF0E7A50L"),
-        "ThemeGreenDeep = 0xFF6E3636",
+        sub("val ThemeGreenDeep = 0xFF175036L", "val ThemeGreenDeep = 0xFF0E7A50L"),
+        "ThemeGreenDeep = 0xFF175036",
     ),
     (
         "危险红退回旧的亮红",
@@ -210,51 +210,51 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "线路起点退回旧亮青",
         COLOR,
-        sub("val OriginTeal = 0xFF6BA6AEL", "val OriginTeal = 0xFF00BCD4L"),
-        "OriginTeal = 0xFF6BA6AE",
+        sub("val OriginTeal = 0xFF6CA6B1L", "val OriginTeal = 0xFF00BCD4L"),
+        "OriginTeal = 0xFF6CA6B1",
     ),
     (
         "线路终点退回旧金",
         COLOR,
-        sub("val DestOrange = 0xFFB98E4A", "val DestOrange = 0xFFF5A623"),
-        "DestOrange = 0xFFB98E4A",
+        sub("val DestOrange = 0xFFBA8F4A", "val DestOrange = 0xFFF5A623"),
+        "DestOrange = 0xFFBA8F4A",
     ),
     (
         "支出那档退回旧蓝",
         COLOR,
-        sub("val CashOut = 0xFF5C7590L", "val CashOut = 0xFF1565C0L"),
-        "CashOut = 0xFF5C7590",
+        sub("val CashOut = 0xFF697290L", "val CashOut = 0xFF1565C0L"),
+        "CashOut = 0xFF697290",
     ),
     # ---- 2. 主题四件套与背景分层 ----
     (
         "主按钮底色退回绿的（`Primary` 跟 `ThemeGreen` 是两处，漏一处只有一半界面换色）",
         COLOR,
-        sub("val Primary = Color(0xFF8B4A4A)", "val Primary = Color(0xFF00A870)"),
-        "Primary = Color(0xFF8B4A4A)",
+        sub("val Primary = Color(0xFF28684B)", "val Primary = Color(0xFF00A870)"),
+        "Primary = Color(0xFF28684B)",
     ),
     (
         "主色上的字那一档没跟着换",
         COLOR,
-        sub("val OnPrimaryContainer = Color(0xFF3A2420)", "val OnPrimaryContainer = Color(0xFF0B4A32)"),
-        "OnPrimaryContainer = Color(0xFF3A2420)",
+        sub("val OnPrimaryContainer = Color(0xFF192E24)", "val OnPrimaryContainer = Color(0xFF0B4A32)"),
+        "OnPrimaryContainer = Color(0xFF192E24)",
     ),
     (
         "商品胶囊底那一档没跟着换",
         COLOR,
-        sub("val PrimaryContainer = Color(0xFFF0E2DC)", "val PrimaryContainer = Color(0xFFD6F2E4)"),
-        "PrimaryContainer = Color(0xFFF0E2DC)",
+        sub("val PrimaryContainer = Color(0xFFDBE8E1)", "val PrimaryContainer = Color(0xFFD6F2E4)"),
+        "PrimaryContainer = Color(0xFFDBE8E1)",
     ),
     (
         "次级容器退回 CHG-0091 那个浅绿",
         COLOR,
-        sub("val SecondaryContainer = Color(0xFFE7E3D8)", "val SecondaryContainer = Color(0xFFD2F2E3)"),
-        "SecondaryContainer = Color(0xFFE7E3D8)",
+        sub("val SecondaryContainer = Color(0xFFE2E4E3)", "val SecondaryContainer = Color(0xFFD2F2E3)"),
+        "SecondaryContainer = Color(0xFFE2E4E3)",
     ),
     (
         "强调色（账本/收款）退回旧橙",
         COLOR,
-        sub("val Tertiary = Color(0xFFBA6F45)", "val Tertiary = Color(0xFFF57F17)"),
-        "Tertiary = Color(0xFFBA6F45)",
+        sub("val Tertiary = Color(0xFFAF7C4D)", "val Tertiary = Color(0xFFF57F17)"),
+        "Tertiary = Color(0xFFAF7C4D)",
     ),
     (
         "错误色退回旧的红",
@@ -278,7 +278,7 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "派单端某一格又冒出旧亮青（那一组不量两两距离，只有「旧值一处不留」能拦住）",
         MODULES,
-        sub('color = 0xFF4AA6A8L),', 'color = 0xFF48F0F0L),', expect=1),
+        sub('color = 0xFF4AA5A7L),', 'color = 0xFF48F0F0L),', expect=1),
         "个旧 token 值一处都不许留",
     ),
     (
@@ -302,8 +302,8 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "货主端「下单」那格被换成跟主色一样的值（两格撞色，饱和度量不出来）",
         MODULES,
-        sub('color = 0xFF59A570L),', 'color = 0xFF8B4A4AL),', expect=1),
-        "新值 0xFF59A570 至少被硬编码",
+        sub('color = 0xFF49A67AL),', 'color = 0xFF28684BL),', expect=1),
+        "新值 0xFF49A67A 至少被硬编码",
     ),
     # ---- 4. 地板：m02683「不要太灰」那条线的出处与上下界 ----
     (
@@ -421,17 +421,17 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "设计系统里旧绿被写成了一句**现在时**的说明（沿革句里出现是对的，现在是错的）",
         DESIGN,
-        sub("ThemeGreen=**#8B4A4A 深红棕**（CHG-0101 起", "ThemeGreen=**#00A870 深绿**（旧版"),
+        sub("ThemeGreen=**#28684B 深绿**（CHG-0105 起", "ThemeGreen=**#00A870 深绿**（旧版"),
         "设计系统里那两个旧值只在",
     ),
     (
         "设计系统里新主色被整个删掉（那张表还是旧的绿）",
         DESIGN,
         # ⚠️ `06_DESIGN_SYSTEM.md:26` 那一行是**两格一行、且没有反引号**：
-        #    `| 派单作业 / 主操作 | 深红棕 #8B4A4A | NavBlue || 代理下单 / 已完成 | 雾绿 #59A570 | MgrGreen |`
-        sub("| 派单作业 / 主操作 | 深红棕 #8B4A4A |",
+        #    `| 派单作业 / 主操作 | 深绿 #28684B | NavBlue || 代理下单 / 已完成 | 草绿 #49A67A | MgrGreen |`
+        sub("| 派单作业 / 主操作 | 深绿 #28684B |",
             "| 派单作业 / 主操作 | 深绿 #00A870（尚未换） |"),
-        "设计系统那张语义色总表已经是新主色 #8B4A4A",
+        "设计系统那张语义色总表已经是新主色 #28684B",
     ),
     (
         "变更单的 Blast Radius 被改大（本单不碰数据、不碰钱）",
@@ -545,7 +545,7 @@ def main() -> int:
             print("   - " + b)
         return 1
     print("✅ %d 条注入都证明这条红线真的在检查。" % len(CASES))
-    print("   45 个 token、21 格模块色、40 个旧值、15% 地板 —— 弄坏任何一处，判据都会红。")
+    print("   33 个还原色相的 token、21 格模块色、73 个旧值、15% 地板 —— 弄坏任何一处，判据都会红。")
     return 0
 
 

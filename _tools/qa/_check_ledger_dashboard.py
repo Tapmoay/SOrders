@@ -446,11 +446,12 @@ def main() -> int:
             f"{icons}",
         )
         # 同屏不许撞色：7 格两两 RGB 欧氏距离 ≥60
-        # ⚠️ `MoneyOrange` 这个 token 的值在 CHG-0101 里从 #FF9500 换成了 #BA6F45，
-        #    所以**不能再把它硬编码成 FF9500** —— 改成从 `Color.kt` 现场读它的值，
+        # ⚠️ `MoneyOrange` 这个 token 的值换过好几轮（CHG-0101 起就不再是原来的 #FF9500，
+        #    CHG-0105「只还色相」之后是 #AF7C4D），所以**不能再把它硬编码**——
+        #    改成从 `Color.kt` 现场读它的值，
         #    往后换色时这条判据不会再变成"读了旧值还判红"。
         mo = re.search(r"^val MoneyOrange = (?:Color\()?0xFF([0-9A-Fa-f]{6})", read(COLOR), re.M)
-        mo_hex = mo.group(1) if mo else "BA6F45"
+        mo_hex = mo.group(1) if mo else "AF7C4D"
         cols = [(m[0], m[1]) for m in re.findall(r'ModuleEntry\("([^"]+)"[\s\S]{0,200}?color = (MoneyOrange|0xFF[0-9A-Fa-f]{6})L?', body)]
         hexes = []
         for name, tok in cols:
