@@ -75,7 +75,7 @@
 
 `判据 / 反验`：`python _tools/qa/_check_ai_settings_fold.py`（七节 **51/51 全绿**）/ `python _tools/qa/_reverse_verify_ai_settings_fold.py`（**20** 条注入 ✅ 全部报红 ＋ 被碰过的 5 个文件逐字节还原），单测 `AiCapabilitySummaryTest` **7 档**；全量单测 101 个类 tests=1436 failures=0；全量静检 227/228（唯一那条红是并行会话的 `_tools/qa/_test_bug_ledger.py` 在 GBK 控制台打 ✅/❌ 没 reconfigure，与本单无关）。
 
-- 状态：✅ **已完成**（2026-10-09 立项并关闭；变更单 `docs/changes/CHG-0098.md`；台账 **L-63**；Blast Radius **L0 —— 展示层**；提交 `<sha 见下>`）。
+- 状态：✅ **已完成**（2026-10-09 立项并关闭；变更单 `docs/changes/CHG-0098.md`；台账 **L-63**；Blast Radius **L0 —— 展示层**；提交 `a983369`）。
 - 真机：`emulator-5554`（派单员 13800000001，1080×2400 / density 440 ⇒ 1dp = 2.75px）—— `shots/74_ai设置_能力说明_折叠.png`（折叠态：`API Key 加密存在本机、不上传；费用你自己承担。` ＋ 绿色 `能查 39 项 · 能改 23 项（点开看清单）` ＋ 右端 ⌄）／`shots/75_ai设置_能力说明_展开.png`（点一下后标题变「收起清单」＋ ⌃，正文整段展开、一个字没删）。**那一段的下沿从 y=1430 提到 y=656 px ⇒ 省下 774 px ≈ 281.5 dp**（节点几何 `uiautomator dump`）。
 - 核心改动：**无** —— 为什么：改的 `ui/ai/AiSettingsScreen.kt` 与新建的 `ai/AiCapabilitySummary.kt`、`ai/AiCapabilitySummaryTest.kt` 都不在 `_tools/qa/_core_files.txt` 里。
 
@@ -85,13 +85,13 @@
 
 `病灶`：CHG-0095 把卡片的形状改对了（左框 / 中信息 / 右两颗按钮），但信息区第三行写的是 `"已保存到：" + saved.path` —— 一整条绝对路径摊在卡片上、`maxLines = 2` 占两行，把卡撑成一大块。用户第二次点名要「只表示一保存做个简单的」。
 
-`改法`：① 新建 `ai/AiExportCard.kt` 里加两个纯函数 —— `internal fun exportSavedLabel(): String = "已保存"` 与 `internal fun exportStatusLine(error: String, saved: Boolean, busy: Boolean, progress: String): String`（顺序即判据：**错误 > 已存好 > 正在忙**；这一行从前是 Composable 里的 `when`）。② `ui/ai/AiChatScreen.kt` 的 `ExportFileRow`：状态行整行改走 `exportStatusLine`，`maxLines` **2 → 1**，KDoc 补第二次点名的口径。③ 单测 `AiExportCardTest` 加 5 档（15 → 20，其中一条直接断言「存好那一档**不含** `/storage`」）。④ 判据 `_tools/qa/_check_ai_export_card.py` 加 14 条（67 → 89，含**四条 `absent`** 反向钉住路径不许漏回来）；反验加 7 条注入（29 → 36）。⑤ `_tools/qa/_check_ai_export_files.py` 里「存到哪了要说出来」那条随本单改口径（**不是放松**：从"路径必须在卡片上"改成钉「由纯函数给出 ＋ 卡片确实不再读 `saved.path`」）。⑥ 文档：变更单 + 登记簿 + 设计系统 §4.25e + 代码定位表那一行。
+`改法`：① 新建 `ai/AiExportCard.kt` 里加两个纯函数 —— `internal fun exportSavedLabel(): String = "已保存"` 与 `internal fun exportStatusLine(error: String, saved: Boolean, busy: Boolean, progress: String): String`（顺序即判据：**错误 > 已存好 > 正在忙**；这一行从前是 Composable 里的 `when`）。② `ui/ai/AiChatScreen.kt` 的 `ExportFileRow`：状态行整行改走 `exportStatusLine`，`maxLines` **2 → 1**，KDoc 补第二次点名的口径。③ 单测 `AiExportCardTest` 加 5 档（15 → 20，其中一条直接断言「存好那一档**不含** `/storage`」）。④ 判据 `_tools/qa/_check_ai_export_card.py` 加 14 条（67 → 89，含**四条 `absent`** 反向钉住路径不许漏回来）；反验加 7 条注入（29 → 35，并撤掉 1 条落脚点已消失的旧注入、另 3 条改锚点）。⑤ `_tools/qa/_check_ai_export_files.py` 里「存到哪了要说出来」那条随本单改口径（**不是放松**：从"路径必须在卡片上"改成钉「由纯函数给出 ＋ 卡片确实不再读 `saved.path`」）。⑥ 文档：变更单 + 登记簿 + 设计系统 §4.25e + 代码定位表那一行。
 
 `明确不碰`：失败那一档的「⚠ ＋后端原话」与错误色（换个字就等于把错误吞了）；忙那一档的进度原话与「正在生成…」兜底；Android 10 以下那句中文说明（它是**唯一**还写着文件位置的地方，而那一档本来就分享不了、用户确实在找文件）；左框与右两颗按钮的一切（44dp、语义色、12dp 间距、**两颗永远都在**、enabled 只来自 `exportCardActions`）；`ExportFileRow` 三个入参两个回调签名；`StoredExportRecipe` / `ExportRowState` / `ExportedFile` 的字段与落盘（`path` 照旧存在，只是不显示了）；导出链路、落点、分享、404 清任务号、连点拦截；后端 / 端点 / 权限 / 数据库 / 历史消息。
 
 `判据 / 反验`：`python _tools/qa/_check_ai_export_card.py`（八节 **89/89 全绿**）/ `python _tools/qa/_reverse_verify_ai_export_card.py`（**35** 条注入 ✅ 全部报红 ＋ 被碰过的文件逐字节还原），单测 `AiExportCardTest` **20 档**；全量单测与全量静检见下。
 
-- 状态：✅ **已完成**（2026-10-09 立项并关闭；变更单 `docs/changes/CHG-0097.md`；台账 **L-62**；Blast Radius **L0 —— 展示层**）。
+- 状态：✅ **已完成**（2026-10-09 立项并关闭；变更单 `docs/changes/CHG-0097.md`；台账 **L-62**；Blast Radius **L0 —— 展示层**；提交 `a983369`）。
 - 真机：`emulator-5554`（派单员 13800000001，1080×2400 / density 440 ⇒ 1dp = 2.75px）—— `shots/76_ai_导出卡_改后_状态行只剩已保存.png`（刚生成、还没点下载：卡上**只有两行字**，没有第三行）／`shots/77_ai_导出卡_改后_已保存三个字.png`（点过下载：第三行就是 `已保存`，y=1951→2014 一次 63px ＝ **一行**，改前同一句是「已保存到：/storage/…」占**两行**）。两态 `uiautomator dump` 里含 `/storage` 或 `emulated/0` 的节点数都 **= 0**。
 - 核心改动：**无** —— 为什么：改的 `ui/ai/AiChatScreen.kt` 与新建/改的 `ai/AiExportCard.kt`、`ai/AiExportCardTest.kt` 都不在 `_tools/qa/_core_files.txt` 里。
 
