@@ -28,6 +28,7 @@
 | TB-03 | B | 车辆成本表的「成本合计」不等于利润表的「司机运费」：月窗口差 5952 元（8… | 可疑 | **已修复 0bcbf39** | 车辆成本表只累计「现在挂在这台车上的那位司机」的按单应付，没有挂车的司机整块不计入；利润表的司机运费是全量。同一窗口两处数… | backend/app/services/reports/vehicle_cost_que… | shots/TB_vehicle_cost_day.png（顶卡 570.96… |
 | TB-04 | B | AI 对账的结论对，但明细桥与账本侧对不齐（退货红冲笔数/金额，且漏了两张已软… | 可疑 | **已修复 0c66e21** | 让 AI 把 2026-09 的已送达订单和账本对一遍，结论正确（178 单里唯一在 9 月账本找不到的是 10-07 才… | backend/app/services/ledger_sync.py:1 | shots/TB_ai_reconcile4.png（差额说明原文）；_tmp… |
 | TB-05 | B | AI 设置页「跑工作流」开关点开就弹回：默认工具集漏了 run_workflo… | 可见 | **已修复 371d597** | AI 助手 → 设置 →「AI 能用的能力」抬头写「查询 7/8」；把「跑工作流」那条开关点开（checked=true、… | android/app/src/main/java/com/tapmoay/sorders… | 能力开关页 uiautomator dump（checkable=true 的… |
+| TB-06 | B | AI 确认卡拿不到的时候，回执把「已经写进去了」和「什么都没写」糊成了一句 | 可见 | **已修复 a87eaca** | 同一张 AI 确认卡被点了第二下、或者卡片过期后再点确认，回执都只有同一句「没写成：这次操作已经执行过、或者已经过期（确认… | android/app/src/main/java/com/tapmoay/sorders… | 改前 _tmp/tb9/tapcard_pre3_after.png ／ 改后… |
 <!-- TESTBUG:ROWS:B -->
 <!-- /TESTBUG:ROWS:B -->
 
@@ -127,6 +128,19 @@
 - 建议改法：默认集补 AiTools.RUN_WORKFLOW（常量 KDoc 的「7 个只读工具」订正为 8）＋ 单测钉住「存进 prefs 的 run_workflow 不许被筛掉」与「默认集里必须有它」—— 已立项 BUG-0022（docs/changes/BUG-0022.md）
 - 定位：`android/app/src/main/java/com/tapmoay/sorders/ai/AiKeyStore.kt:636-646`　`android/app/src/main/java/com/tapmoay/sorders/ai/AiKeyStore.kt:698-703`　`android/app/src/main/java/com/tapmoay/sorders/ai/AiTools.kt:1201-1209`
 - 补充（2026-10-09，已修复）：**提交 `371d597`（变更单 docs/changes/BUG-0022.md）**。改法：`android/app/src/main/java/com/tapmoay/sorders/ai/AiKeyStore.kt` 的 `DEFAULT_ENABLED_TOOLS` 补 `AiTools.RUN_WORKFLOW`（常量 KDoc 的「7 个只读工具」订正为 8）⇒ `resolveEnabledTools` 末尾那句 `intersect(DEFAULT_ENABLED_TOOLS)` 不再把它静默筛掉；单测 `AiEnabledToolsTest`（7 项）＋ `AiEndpointRulesTest`（6 项）钉住。反着验一次：临时删掉默认集那一行 ⇒ 13 项里 3 项当场变红（`AiEnabledToolsTest.kt:42`／`:60`、`AiEndpointRulesTest.kt:34`），源码逐字节还原。真机：抬头从「查询 7/8」变 **8/8**（`shots/88_BUG-0022_设置页_抬头8比8.png`）、开关留在开的位置（`shots/89_BUG-0022_开关留在开的位置.png`）、工作流真跑起来（`shots/90_BUG-0019_执行过程_跑工作流完成.png`）。⛔ 判据/反验两个脚本（`_tools/qa/_check_ai_workflow.py`／`_tools/qa/_reverse_verify_ai_workflow.py`）随 BUG-0019 那一笔 `0c66e21` 提交 —— 同一份文件同时含两单的节与注入。
+
+### TB-06 · AI 确认卡拿不到的时候，回执把「已经写进去了」和「什么都没写」糊成了一句
+
+- 严重度：可见　／　状态：已修复　／　记录：2026-10-10 01:17 CST　／　记录人：DSH session-bd8fe093-bbe1-4814-af6d-586e0980ff81
+- 现象：同一张 AI 确认卡被点了第二下、或者卡片过期后再点确认，回执都只有同一句「没写成：这次操作已经执行过、或者已经过期（确认卡 5 分钟内有效）。请重新发起。」—— 这句话把「其实已经写进去了」和「什么都没写」两半糊在一起，用户看不出这一笔到底出去没有。
+- 复现：App（派单员 13800000001，emulator-5556）→ AI 助手 → 新对话 → 发那条记一笔支出的英文提问（要求 preview_write 出确认卡）→ 出卡「确认：记一笔支出」→ 等满 5 分钟（卡 5 分钟有效）再点卡片底部那颗「确认：记一笔支出」⇒ 对话底部只多一句合成话（改前包，_tmp/tb9/tapcard_pre3_after.png，01:07:25 点 / 01:07:39 回执）。
+- 期望：「已经写进去了」与「什么都没写」必须分开说：写过了的要讲清这一次没有写第二遍、要改回来点撤回；没写过的要明说「这一次什么都没写」并提示重新发起。
+- 实际：改前 ai/AiWritePreviewStore.take() 返回 null 同时表示「已用过 / 已过期 / 被清掉」三种原因，AiWriteService.execute 拿不到卡时只能回那句合成话（改前 :1231-1235）。
+- 证据：改前 _tmp/tb9/tapcard_pre3_after.png ／ 改后 _tmp/tb9/p21d_post_after.png（同一句提问、同一姿势）；判据 _tools/ai/_check_ai_guardrails.py 第 2d-3b 节 +8 项（1335 项全过）；反验 _tools/ai/_reverse_verify_confirm_gate.py 9/9 都红了；单测 AiWriteTest 353 项 0 失败；反着验一次 4 项当场变红。
+- 建议改法：已修（BUG-0021）。
+- 定位：`android/app/src/main/java/com/tapmoay/sorders/ai/AiWrite.kt:384-396`　`android/app/src/main/java/com/tapmoay/sorders/ai/AiWrite.kt:473`　`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt:1236-1251`　`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt:1305`　`android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiChatViewModel.kt:312-317`
+
+- 补充（2026-10-10，已修复）：**提交 `a87eaca`（变更单 docs/changes/BUG-0021.md）**。改法：`ai/AiWrite.kt` 新增 `doneTokens`（`LinkedHashSet<String>`，只留最近 `DONE_KEEP = 8` 个、只在内存里）与 `markWritten(token)` / `hasWritten(token)`，`AiWriteOutcome.Rejected` 补第三位 `alreadyWritten`；`ai/AiWriteService.kt` 的 `execute` 改成「拿不到卡时先问 `hasWritten`」—— 写过了回「这一次已经写进去了（同一张确认卡只生效一次），没有写第二遍。要改回来的话，点上面那条「撤回」…」＋ `alreadyWritten = true`，没写过回「这张确认卡已经失效了（有效期 5 分钟，App 重启或新开对话也会清掉），这一次什么都没写。要办的话请重新发起。」，并在 `handler.commit(p.payload, "ai-" + token)` **成功之后**才 `store.markWritten(token)`（抛异常时不记，否则重试会被谎报）；`ui/ai/AiChatViewModel.kt` 按这一位换口气（ℹ️ / ⚠️ 没写成）。真机 `emulator-5556` 改前 / 改后各一次对照（`_tmp/tb9/tapcard_pre3_after.png` / `_tmp/tb9/p21d_post_after.png`）。
 
 <!-- /TESTBUG:DETAIL:B -->
 

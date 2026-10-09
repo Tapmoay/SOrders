@@ -31,6 +31,23 @@
 
 ## 进行中
 
+### [2026-10-10 00:3x → 01:2x CST 已完成] 会话：**BUG-0021 确认卡拿不到的时候，回执把「已经写进去了」和「什么都没写」糊成了一句**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`缺陷出处`：**2026-10-10 凌晨补的真机走查欠账** —— `docs/TEST_BUG_LEDGER.md:139` 方向 B 收口小结第 ③ 条原话：「AI 确认卡「5 分钟过期」只用设备上历史会话里的一条旧红字（「没写成：这次操作已经执行过、或者已经过期（确认卡 5 分钟内有效）」）作旁证，没有当场等 5 分钟复现」；用户 2026-10-10 的指令 ref **m38123**「这些全部修起来」⇒ 立项 BUG-0021，测试台账 **TB-06**（方向 B，严重度**可见**）。
+
+`病灶`：同一张确认卡被点了第二下、或者卡过期之后再点确认，回执都只有同一句 —— `ai/AiWriteService.kt:1231-1235`（改前）：`val p = store.take(token) ?: return AiWriteOutcome.Rejected("这次操作已经执行过、或者已经过期（确认卡 5 分钟内有效）。请重新发起。")`。根因是 `ai/AiWritePreviewStore.take()` 返回 null **同时**表示「已经用过 / 已经过期 / 被清掉」三种原因，而「其实已经写进去了」这个事实**在 take 之后、暂存区之外**（`handler.commit` 那一步）—— 取卡接口在类型上看不出原因，只能由服务层自己补记一位（变更单 §R4）。
+
+`改法（4 件）`：① `ai/AiWrite.kt` 新增 `private val doneTokens = LinkedHashSet<String>()`（只留最近 `DONE_KEEP = 8` 个、只在内存里）＋ `fun markWritten(token: String)`（KDoc ⛔ 只准在写成功之后调）＋ `fun hasWritten(token: String): Boolean`，`AiWriteOutcome.Rejected` 补第三位 `val alreadyWritten: Boolean = false`；② `ai/AiWriteService.kt` 的 `execute` 改成拿不到卡时**先问** `hasWritten` —— 写过了回「这一次已经写进去了（同一张确认卡只生效一次），没有写第二遍。要改回来的话，点上面那条「撤回」；没有撤回按钮就是这个动作撤不回来。」＋ `alreadyWritten = true`，没写过回「这张确认卡已经失效了（有效期 5 分钟，App 重启或新开对话也会清掉），这一次什么都没写。要办的话请重新发起。」；③ `handler.commit(p.payload, "ai-" + token)` **成功之后**才 `store.markWritten(token)`（抛异常时不记，否则重试会被谎报）；④ `ui/ai/AiChatViewModel.kt` 按这一位换口气（`alreadyWritten` ⇒ ℹ️，否则 ⚠️ 没写成）。
+
+`明确不碰`：`take()` 的「取走就没了」语义（三种原因照样不区分 —— 本单只在服务层补记「写过没有」这一位）、确认卡的 TTL 与版式、`handler.commit` 的写闸门与回滚、`candidates`（金额有歧义那一支）、prefs / 接口 / 表 / 写动作清单与提示词 / 后端 / 端点 / 权限 / 数据库 / 历史数据（Blast Radius **L1 —— AI 写闸门的一句话**）。
+
+`判据 / 反验`：`python -X utf8 _tools/ai/_check_ai_guardrails.py` ⇒ **1335 项全过**（第 2d-3b 节新增 8 项）；`python -X utf8 _tools/ai/_reverse_verify_confirm_gate.py` ⇒ **9/9 全部报红**（8 条注入 ＋ 末尾复验绿，被碰的文件逐字节还原）；单测 `gradle.bat -p android :app:compileEmuDebugKotlin :app:testEmuDebugUnitTest --tests "*AiWrite*"` ⇒ `BUILD SUCCESSFUL in 45s`，`AiWriteTest` **353 项 0 失败**（`AiWriteBatchTest` 15 / `AiWriteParamsTest` 4 / `AiWritePromptTest` 5）；反着验一次（把 `execute` 回执改回旧合成话 ＋ 删掉 `store.markWritten(token)`）⇒ 33 秒后 `BUILD FAILED`，XML 里 **tests=353 failures=4**（`过期的卡不能执行` / `取消之后不能执行` / `写失败之后同一张卡也不能再点` 各一句「应当明说没写：这次操作已经执行过、或者已经过期（确认卡 5 分钟内有效）。请重新发起。」、`连点两下确认只写一笔`「应当承认已经写进去了：…」），还原后 `还原成原样: True`。
+
+- 核心改动：`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt` —— 为什么必须动核心：拿不到卡时「这一张是不是已经写进去过」只有这个文件说得出口（`execute` 是 preview → 确认卡 → execute 的唯一执行口，卡与写动作的对齐都在它手上），补的是一位内存短记忆与两句回执，不另起一层、写路径一个字未动。
+- 状态：✅ **已完成**（2026-10-10 立项并关闭；变更单 `docs/changes/BUG-0021.md`；台账 **TB-06**（`docs/TEST_BUG_LEDGER.md`）；Blast Radius **L1 —— AI 写闸门的一句话**；提交 `a87eaca`）。
+- 真机：`emulator-5556`（派单员 13800000001，1080×2400 / density 420）—— 改前（设备上原有的旧包）：01:00:45 出卡 → 等满 5 分钟 → 01:07:25 点「确认：记一笔支出」⇒ 01:07:39 屏幕上只多 `⚠️ 没写成：这次操作已经执行过、或者已经过期（确认卡 5 分钟内有效）。请重新发起。`（`_tmp/tb9/tapcard_pre3_after.png` / `tapcard_pre3.log`，卡是过期了还是已经写进去了，这一行字里看不出来）；改后（本单树 `:app:assembleEmuDebug` 产物装同一台机、同一句提问）：01:09:25 出卡 → 01:15:23 点同一颗按钮 ⇒ 01:15:35 `⚠️ 没写成：这张确认卡已经失效了（有效期 5 分钟，App 重启或新开对话也会清掉），这一次什么都没写。要办的话请重新发起。`（`_tmp/tb9/p21d_post_after.png` / `p21d_post.log`）。⛔ 另一种说法（「已经写进去了」那一支）真机上抓不到：`confirmWrite` 开头 `if (writeBusy != null) return` 吞掉第二下、写成功后 `refreshPendingWrites` 立刻撤卡 ⇒ 它是服务层的防御支，只由单测与判据钉住（变更单 §⑨ 已知局限照实写了）。
+- ⚠️ 工具坑（照实记）：改前那一次点击是 `_tmp/tb9/tapcard.py` 补点的 —— `p21d.py` 原来的 `confirm_btn()` 用 `text.startswith("确认")` 认按钮，把 AI 回复气泡「确认卡发给你了…」当成按钮点了（点在对话上方、什么都没发生，卡还留在屏上）；已改成只认 `确认：` 开头且 `box[1] > 1400` 的节点。
+
 ### [2026-10-10 00:0x → ⏳ CST 进行中] 会话：**CHG-0101 整套配色换成用户画的那套「低饱和红棕 / 雾感」色，但不许整体发灰**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
 
 `用户口径`：ref **m02474**（逐字）「按照它的配色方案进行一下修改以及我给你的那个照片」；ref **m02545**（逐字）「这是新任务吼也就是改我途中给你发的那些样式」；ref **m02547**（逐字）「继续」；ref **m02683**（逐字）「继续继续，但**我不希望整体太过于灰**啊」。三张参考图：`_tmp/ref_palette.png`（7 个语义色规范）／`_tmp/ref_modules.png`（21 格模块身份色，实测量测）／`_tmp/ref_card.png`（订单卡：商品块红棕 `#B5726B` ＋ 确认接单深红棕 `#8B4A4A`）。台账 **L-64**。
