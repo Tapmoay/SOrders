@@ -22,7 +22,7 @@
 | TA-01 | A | 订单管理默认停在「派单中」页签：搜一个已派单的完整单号返回「没有匹配的订单」，… | 可疑 | **已修复 74a6ade** | 进入 工作台→订单管理，页面默认停在「派单中」页签（不是「全部」）；在搜索框输入一个确实存在、状态为已派单的单号再点搜索，… | android/app/src/main/java/com/tapmoay/sorders… | shots/TA26_search_pending_tab.png |
 | TA-02 | A | 测试文档写的账号密码与库里的实际密码不一致（05_TESTING.md 写 p… | 可见 | **已修复 74a6ade** | docs/PROJECT_MAP/05_TESTING.md:19-21 写「账号密码均 pass12345」，但拿 pa… | docs/PROJECT_MAP/05_TESTING.md:19-21<br>docs/… | 命令原文：python -X utf8 _tmp/ta_api.py --as… |
 | TA-03 | A | 商品删除后没有任何恢复入口：弹窗承诺的「列表顶端回收站」在界面上不存在 | 可见 | 已复现 | 商品管理里删除商品（编辑页「删除商品」或 批量操作→删除）后，弹窗都承诺「列表顶端的『回收站』里可以把它恢复回来」，但商品… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A8_no_recycle_bin_evid… |
-| TA-04 | A | 司机端「进行中」列表被实时推送打断后整页报 StandaloneCorouti… | 可见 | 已复现 | 司机端「进行中」页在一次取数在途时收到实时推送（新派单等），整页被错误态顶掉，文案是协程取消的原始异常串 Standalo… | android\app\src\main\java\com\tapmoay\sorders… | _tmp\test_round3\evidence_a4_list_error… |
+| TA-04 | A | 司机端「进行中」列表被实时推送打断后整页报 StandaloneCorouti… | 可见 | **已修复 f7f31f2** | 司机端「进行中」页在一次取数在途时收到实时推送（新派单等），整页被错误态顶掉，文案是协程取消的原始异常串 Standalo… | android\app\src\main\java\com\tapmoay\sorders… | _tmp\test_round3\evidence_a4_list_error… |
 | TA-05 | A | 删除/恢复在途单不产生实时推送：司机端刷新前无变化、刷新后静默消失/静默回归（… | 可疑 | **已修复 db7b3a4** | 派单员 DELETE /orders/{id}（司机已接单的在途单）与 POST /{id}/restore 都只写 op… | backend\app\api\v1\orders_lifecycle.py:45<br>… | _tmp\test_round3\evidence_del_restore.md |
 | TA-06 | A | 派单员软删在途单后，司机端旧卡片仍可点开：详情页只显示「订单不存在」+「重试」… | 可见 | **已修复 db7b3a4** | 派单员软删一张已派给司机的单（DELETE /orders/{id} → 204）后，司机端「进行中」列表里的卡片不会消失… | backend/app/api/v1/orders_lifecycle.py:45<br>… | _tmp/test_round3/evidence_del_stale_car… |
 | TA-07 | A | 预订单模板表单：点「保存」后没有任何可见反馈（校验红字排在视口外，不滚动也不提… | 可见 | 已复现 | 新建预订单时只填名字、不选商品，点底部「保存」后界面完全不动：没有红字、没有 toast、也没跳走，看起来像按钮坏了。把表… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A13_tpl_save_no_feedba… |
@@ -85,13 +85,15 @@
 
 ### TA-04 · 司机端「进行中」列表被实时推送打断后整页报 StandaloneCoroutine was cancelled
 
-- 严重度：可见　／　状态：已复现　／　记录：2026-10-10 03:25 CST
+- 严重度：可见　／　状态：**已修复 f7f31f2**　／　记录：2026-10-10 03:25 CST
 - 现象：司机端「进行中」页在一次取数在途时收到实时推送（新派单等），整页被错误态顶掉，文案是协程取消的原始异常串 StandaloneCoroutine was cancelled，只留一个「重试」按钮；点重试或等下一次推送才恢复。
 - 复现：5558 / 13900000013 登录司机端停在「进行中」→ 点顶部「刷新」(74,212) 后 1 秒内用派单员 13900000012 的 token POST /orders/{id}/assign 派新单给 driver_id=128（或任何触发 socket refreshOrders 的动作）→ 列表被整页错误态替换。
 - 期望：推送触发的重载应静默完成；被新请求取消的旧请求不应写页面级 error（取消不是失败）。
 - 实际：页面级 error 被写入 CancellationException 文案（StandaloneCoroutine was cancelled），列表被 ErrorView 整页替换。
 - 证据：_tmp\test_round3\evidence_a4_list_error.md
 - 定位：`android\app\src\main\java\com\tapmoay\sorders\ui\driver\DriverOrdersViewModel.kt:305`　`android\app\src\main\java\com\tapmoay\sorders\ui\driver\DriverOrdersViewModel.kt:326-327`　`android\app\src\main\java\com\tapmoay\sorders\ui\driver\DriverOrdersScreen.kt:104`
+
+- 补充（2026-10-10，已修复）：**提交 `f7f31f2`（变更单 docs/changes/BUG-0026.md）**。改法：① 取数收成构造接缝 `fetchOrders`（默认 lambda 逐字等于原取数，只为 JVM 单测可注入）；② `catch (e: CancellationException) { throw e }` 排在 `catch (e: Exception)` **之前**（取消不是失败，与 `ui/shipper/ShipperOrdersViewModel.kt:188`、`ui/dispatcher/ReportCenterViewModel.kt:197` 同规矩）；③ 取数世代号 `loadSeq`（挂起点之前 `val mySeq = ++loadSeq`）＋ 成功路径 / 失败路径 / finally 三处 `if (mySeq != loadSeq) return@launch` 守卫 ⇒ 只有当前这一趟取数能写 `orders` / `ordersTab` / `error` / `loading` / `refreshing`，过期那趟（含被取消那趟）一个状态都不写（不靠 Job 同一性判：`Main.immediate` 下 launch 体可能内联先跑、此时 `loadJob` 还是旧 Job）。单测 `android/app/src/test/java/com/tapmoay/sorders/ui/driver/DriverOrdersLoadCancelTest.kt` 3 档（被取消的取数不写错误页也不收加载态 / 真失败仍然显示错误页 / 失败之后重试成功错误页让位给列表），改前 1 failed / 2 passed → 改后 3 passed；判据 `_tools/qa/_check_cancellation_not_error.py` 23 项全过；反验 `_tools/qa/_reverse_verify_cancellation_not_error.py` 13/13 都红了（被碰文件逐字节还原）。⛔ 本单只动司机端这一处；同类点位另外 4 文件 5 处（`ui/dispatcher/DispatcherOrdersViewModel.kt:171`、`ui/dispatcher/DispatcherPoolViewModel.kt:145` / `:177`、`ui/shipper/ShipperOrdersViewModel.kt:164`、`ui/common/ReturnRequestsViewModel.kt:130`）一个都没动。
 
 ### TA-05 · 删除/恢复在途单不产生实时推送：司机端刷新前无变化、刷新后静默消失/静默回归（无任何提示）
 

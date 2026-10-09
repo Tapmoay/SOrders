@@ -31,6 +31,21 @@
 
 ## 进行中
 
+### [2026-10-10 立项 → 2026-10-10 已完成] 会话：**BUG-0026 司机端「进行中」列表被实时推送打断后整页报 StandaloneCoroutine was cancelled**（DSH `session-4f7d4be2-273e-4b95-bb10-d9f28eaa106a`）
+
+`用户口径`：测试台账 **TA-04**（方向 A 测试 2026-10-10 03:25 CST 在 `emulator-5558` + 隔离后端 8010 上复现 ≥3 次，严重度 **可见**）—— 司机端停在「进行中」，点顶部「刷新」后 1 秒内用派单员 token `POST /orders/{id}/assign` 给 driver_id=128 ⇒ 整页被错误态顶掉，文案是协程取消的原始异常串 `StandaloneCoroutine was cancelled`，只剩一个「重试」。
+
+`病灶`：`android/app/src/main/java/com/tapmoay/sorders/ui/driver/DriverOrdersViewModel.kt:304-333`（HEAD）的 `fun load()` = `loadJob?.cancel()` ＋ `catch (e: Exception) { error = toApiException(e).message }` —— `CancellationException` 是 `Exception` 的子类，被吞成页面级 error；被取消那趟的 catch/finally 落笔排在**新一趟** `error = null` 之后（取数跨调度器挂起时，探针 `_tmp/test_round3/probe_out.txt` 的 P2 形状），屏上就留下那串异常；`ui/driver/DriverOrdersScreen.kt:104` 的 `vm.error != null -> ErrorView(...)` 把整页顶掉。
+
+`改法`：① 构造接缝 `fetchOrders: suspend (wanted: Int, from: String?, to: String?) -> List<OrderDto>`（默认 lambda 逐字等于原取数，只为 JVM 单测能注入 —— 仓库既有先例 `AiAgentLoopTest` 靠构造接缝注入 FakeTransport）；② `catch (e: CancellationException) { throw e }` 排在通用 catch **之前**；③ 取数世代号 `loadSeq`（挂起点之前 `val mySeq = ++loadSeq`）＋ 成功路径 / 失败路径 / finally 三处守卫 —— 只有当前这一趟能写状态（不靠 Job 同一性：`Main.immediate` 下 launch 体可能内联先跑）。
+
+`明确不碰`：同类点位另外 4 文件 5 处（`ui/dispatcher/DispatcherOrdersViewModel.kt:171`、`ui/dispatcher/DispatcherPoolViewModel.kt:145` / `:177`、`ui/shipper/ShipperOrdersViewModel.kt:164`、`ui/common/ReturnRequestsViewModel.kt:130`）、`ui/driver/DriverOrdersScreen.kt`（并行配色会话在飞）、渲染门顺序、后端 / 接口 / 权限 / 数据库 / 历史数据、`ui/common/ProductCardKit.kt`。
+
+`判据 / 反验`：`_tools/qa/_check_cancellation_not_error.py` **23 项全过**（改前源码上跑 = 10 项未通过 / 通过 13 项，全落在 §1 与 §3）；反验 `_tools/qa/_reverse_verify_cancellation_not_error.py` **13/13 都红了**（被碰文件逐字节还原）；单测 `DriverOrdersLoadCancelTest`（`android/app/src/test/java/com/tapmoay/sorders/ui/driver/DriverOrdersLoadCancelTest.kt`）改前 1 failed / 2 passed → 改后 3 passed。
+
+- 状态：✅ **已完成**（2026-10-10 立项 · 2026-10-10 关闭；变更单 `docs/changes/BUG-0026.md`；台账 **TA-04**；Blast Radius **L1 —— 表现 / 单一页面**（页面状态写入权）；提交 `f7f31f2`）。
+- 核心改动：**无** —— 为什么：`_tools/qa/_core_files.txt` 里没有本单任何文件（该清单里唯一的 Kotlin 文件是 `ai/AiWriteService.kt`，本单只动 `ui/driver/DriverOrdersViewModel.kt` 与新增单测、`_tools/qa/` 两个脚本）。
+
 ### [2026-10-10 05:3x → 06:0x CST 已完成] 会话：**BUG-0029 客户收款登记之后没有任何撤销/红冲入口（TB-09）**（DSH `625da590-1164-4807-ab86-106e24c84559`）
 
 `用户口径`：测试台账 **TB-09**（方向 B 测试 2026-10-10 03:03 CST 在 8020 副本库上实测；严重度 **可疑**）—— 派单员登记一笔客户收款（`POST /api/v1/ledger/receipts`）一次写四个落点：`shipper_receipts` 一行 ＋ `cash_flows`(`RECEIPT_CASH`) 一行 ＋ `orders.paid=true` ＋（由前两者算出来的）`turnover.collected/arrears` 与 `customer-balances`；而 `DELETE|PATCH /ledger/receipts/{id}`、`POST /{id}/restore`、`/{id}/cancel`、`DELETE|POST /cash-flows/{id}[/restore]` **全部 404**，App 侧只有 list/create。系统自己知道：`backend/app/api/v1/orders_payment.py:199` 的报错原文写「系统目前**没有撤销收款的入口**…请联系管理员在账上冲正」—— 而管理员同样没有任何入口。用户 2026-09-20 的硬规矩是「所有删除一律软删 ＋ 必须有恢复路径」，第④条明确「**界面要有一个手边的撤销入口**（不要只把恢复藏在 AI 撤回卡里）」，本单踩的正是这一条。
