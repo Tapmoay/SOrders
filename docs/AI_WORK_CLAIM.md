@@ -47,7 +47,7 @@
 - 状态：⏳ **进行中**（2026-10-10 立项；变更单 `docs/changes/BUG-0034.md`；台账 **TA-16**；Blast Radius **L2**；提交 `4beb4be`（实现）＋ `225cb77`（文书）＋ `ca95ac5`（反验自检修正 17/19 → 19/19））。
 - 核心改动：backend/app/core/schema_bootstrap.py —— 为什么必须动核心：`expenses` 的 `is_deleted/deleted_at` 两列只有这一个幂等自愈段能加（不跑版本化迁移的那一半历史库靠它补列），不加这两列「撤销」就只能做成物理删，违反用户 2026-09-20「所有删除一律软删」的硬规矩。
 - 核心改动：backend/app/models/enums.py —— 为什么必须动核心：`EXPENSE_DELETE`/`EXPENSE_RESTORE` 两个审计动作码是 `OperationAction` 这个领域词汇表里的新取值（全项目共用），不写在这里撤销与恢复就是两笔无名账。
-### [2026-10-10 立项 → ⏳ CST 进行中] 会话：**BUG-0035 商品删除弹窗承诺的「列表顶端回收站」在 App 里从未实现**（DSH `697703dd-9e74-4937-b04d-7e9ba5a29a38`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+### [2026-10-10 立项 → 2026-10-10 已完成] 会话：**BUG-0035 商品删除弹窗承诺的「列表顶端回收站」在 App 里从未实现**（DSH `697703dd-9e74-4937-b04d-7e9ba5a29a38`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径`：测试台账 **TA-11 / TA-03**（方向 A 测试 2026-10-10 03:22 CST 在 5556 上复现，第 4 轮 10:58 CST 升级为**堵死**）—— 商品管理里删除商品（编辑页「删 除」或 批量操作→删除），确认弹窗都写着「列表顶端的『回收站』里可以把它恢复回来」，而商品管理页顶部（标题 / 单位换算 / 排序 / 搜索框）与底部（分类管理 / 商品新增 / 批量操作）**都没有那个回收站**；`ProductsScreen.kt` 里「回收站」零命中。用户 2026-09-20 的硬规矩是「所有删除一律软删 + 界面上要有一个手边的恢复入口」—— 商品这一格是欠账。
 
@@ -59,9 +59,9 @@
 
 **明确不碰**：既有的 `POST /products/{id}/restore` 与 `DELETE /products/{id}`（含 `was_active` 回填与两条审计日志）；`include_inactive` 的语义与描述文字（被 API 快照与 `_check_wording_consistency.py:345` 钉着）；`AppRepository.products(includeInactive: Boolean = true)` 的签名与默认值（`_check_sold_out_block.py:447-451` 逐字钉着）与两处 `products(includeInactive = false)`；订单详情 / 派单池改行；商品批量删除与批量操作页的既有动作；表结构与迁移（⛔ 不碰 `backend/app/core/schema_bootstrap.py`）；AI 读目录与 AI 写能力的既有动作集（`ai/**` 一个字节不改）；`_tmp/wt_head` 与别的会话的块；模拟器 5554。
 
-`判据 / 反验`：`_tools/qa/_check_product_recycle_bin.py`（≥15 项：参数语义 / 只列已删 / 缺省不含已删 / 403 门 / App 真的调到 restore / 顶部那一排存在且文案与实现一致）＋ 反验 `_tools/qa/_reverse_verify_product_recycle_bin.py`（≥6 条注入，逐字节还原）＋ 单测 `backend/tests/test_product_recycle_bin.py`。__EVIDENCE__
+`判据 / 反验`：`_tools/qa/_check_product_recycle_bin.py`（≥15 项：参数语义 / 只列已删 / 缺省不含已删 / 403 门 / App 真的调到 restore / 顶部那一排存在且文案与实现一致）＋ 反验 `_tools/qa/_reverse_verify_product_recycle_bin.py`（≥6 条注入，逐字节还原）＋ 单测 `backend/tests/test_product_recycle_bin.py`。单测 7 passed（PYTEST_EXIT=0）；判据 _tools/qa/_check_product_recycle_bin.py 48 项全过（在改前源码 worktree HEAD 26a8d69 上 39 项不成立）；反验 _reverse_verify_product_recycle_bin.py 9/9 全红且逐字节还原；真机 emulator-5556 六张截图 _tmp/fix_round5/shots/01..06（入口在列表顶端 / 回收站列表 / 确认弹窗新文案 / 刚删的在第一行 / 恢复后回「在用」并提示「「海南香蕉」已恢复到商品列表（上架）」）
 
-- 状态：⏳ **进行中**（2026-10-10 立项；变更单 `docs/changes/BUG-0035.md`；台账 **TA-11 / TA-03**；Blast Radius **L2 —— 契约（既有只读端点新增两个可选查询参数）＋ L0 展示层**；提交 `__`）。
+- 状态：✅ **已完成**（2026-10-10 立项 · 2026-10-10 关闭；变更单 `docs/changes/BUG-0035.md`；台账 **TA-11 / TA-03**；Blast Radius **L2 —— 契约（既有只读端点新增两个可选查询参数）＋ L0 展示层**；提交 `d819510`）。一句话结论：**删除弹窗承诺的那个「列表顶端的回收站」真的做出来了** —— 后端两个查询参数（只回已删 / 连回收站一起看，缺省一个已删商品都不回），App 在商品管理页内容区最上面加一排「在用 / 回收站」，回收站里每行「恢复」调既有 POST /products/{id}/restore，恢复后自动切回「在用」并提示「「X」已恢复到商品列表（上架 / 沽清）」。
 - 核心改动：**无** —— 为什么：`_tools/qa/_core_files.txt` 里没有本单任何文件；`products` 表早就有 `is_deleted/deleted_at`（本单不加列、不写迁移），因此**不碰** `backend/app/core/schema_bootstrap.py`。
 
 
@@ -6896,6 +6896,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-10-10 14:0x | **BUG-0035 商品回收站**（我，子会话 `697703dd-9e74-4937-b04d-7e9ba5a29a38`） | `android/.../data/remote/api/Apis.kt`、`android/.../data/repo/AppRepository.kt` | ⚠️ 我在这两个文件里的改动（@Query(deleted_only) deletedOnly、suspend fun deletedProducts()）被**别的会话的提交 4beb4be（BUG-0034 开销挂软删）**一起 git add 进了历史 —— 那条提交的 git add 范围覆盖到了我这两个在途文件。处理：本单的实现提交 `d819510` 里**没有**这两个文件（内容已在 4beb4be 里），不重写历史、不重复提交；本行即交叉点登记，供下一个人核对「这两处改动是谁的、在哪条提交里」。 |
 | 2026-10-10 05:3x | **BUG-0029 客户收款撤销/恢复**（我，`625da590`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/changes/BUG-0029.md`（新建，两文件同一次提交） | 在表尾追加 BUG-0029 登记行（**只碰我这一行**，CHG-0101/0103/0104/0105 那几行一个字符不动）；BUG-0029.md 按九节模板写全（体例照 BUG-0027.md）。 |
 | 2026-10-10 05:3x | **BUG-0029 客户收款撤销/恢复**（我，`625da590`） | `android/.../data/remote/api/Apis.kt`、`data/repo/AppRepository.kt`、`data/remote/dto/Dtos.kt`、`ui/dispatcher/ReportCenter.kt`、`ai/AiRevert.kt`（**五个多会话共写的共享文件**） | 全部**追加式**：`Apis.kt` 三只 Retrofit 函数（收款记录带 `includeDeleted`、`cancelReceipt`、`restoreReceipt`）、`AppRepository.kt` 三个包装、`Dtos.kt` 的 `ReceiptDto` 加两个字段（`isDeleted`/`deletedAt`，默认值 = 老后端照旧）、`ReportCenter.kt` 的 `actionLabel` 加两行中文名（`RECEIPT_CANCEL`/`RECEIPT_RESTORE`）、`AiRevert.kt:593` **同一行内**把那句「撤回来等于把账抹掉」改成指向真实入口（不动行数，别人的锚点不位移）。⚠️ 改前已重读最新内容；`AiChatScreen.kt` / `Money.kt` / `ProductsScreen.kt` 等并行会话正在改的文件**一概不碰**。 |
 | 2026-10-10 05:3x | **BUG-0029 客户收款撤销/恢复**（我，`625da590`） | `_tools/qa/_core_files.txt` 里登记的两个核心文件（`backend/app/models/enums.py`、`backend/app/core/schema_bootstrap.py`） | 已在上面「进行中」按 `_check_core_freeze.py` 的格式写了两行 `核心改动：…`。enums 是**纯追加两个动作码**；schema_bootstrap 是照 `cash_flows` 那一期的**幂等 DDL 体例**给 `shipper_receipts` 补两列 ＋ 索引 ＋ 回填。⛔ 既有一行 DDL、既有枚举取值一个字节未动。 |

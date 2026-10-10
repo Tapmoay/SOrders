@@ -21,7 +21,7 @@
 |---|---|---|---|---|---|---|---|
 | TA-01 | A | 订单管理默认停在「派单中」页签：搜一个已派单的完整单号返回「没有匹配的订单」，… | 可疑 | **已修复 74a6ade** | 进入 工作台→订单管理，页面默认停在「派单中」页签（不是「全部」）；在搜索框输入一个确实存在、状态为已派单的单号再点搜索，… | android/app/src/main/java/com/tapmoay/sorders… | shots/TA26_search_pending_tab.png |
 | TA-02 | A | 测试文档写的账号密码与库里的实际密码不一致（05_TESTING.md 写 p… | 可见 | **已修复 74a6ade** | docs/PROJECT_MAP/05_TESTING.md:19-21 写「账号密码均 pass12345」，但拿 pa… | docs/PROJECT_MAP/05_TESTING.md:19-21<br>docs/… | 命令原文：python -X utf8 _tmp/ta_api.py --as… |
-| TA-03 | A | 商品删除后没有任何恢复入口：弹窗承诺的「列表顶端回收站」在界面上不存在 | 可见 | 已复现 | 商品管理里删除商品（编辑页「删除商品」或 批量操作→删除）后，弹窗都承诺「列表顶端的『回收站』里可以把它恢复回来」，但商品… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A8_no_recycle_bin_evid… |
+| TA-03 | A | 商品删除后没有任何恢复入口：弹窗承诺的「列表顶端回收站」在界面上不存在 | 可见 | **已修复 d819510** | 商品管理里删除商品（编辑页「删除商品」或 批量操作→删除）后，弹窗都承诺「列表顶端的『回收站』里可以把它恢复回来」，但商品… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A8_no_recycle_bin_evid… |
 | TA-04 | A | 司机端「进行中」列表被实时推送打断后整页报 StandaloneCorouti… | 可见 | **已修复 f7f31f2** | 司机端「进行中」页在一次取数在途时收到实时推送（新派单等），整页被错误态顶掉，文案是协程取消的原始异常串 Standalo… | android\app\src\main\java\com\tapmoay\sorders… | _tmp\test_round3\evidence_a4_list_error… |
 | TA-05 | A | 删除/恢复在途单不产生实时推送：司机端刷新前无变化、刷新后静默消失/静默回归（… | 可疑 | **已修复 db7b3a4** | 派单员 DELETE /orders/{id}（司机已接单的在途单）与 POST /{id}/restore 都只写 op… | backend\app\api\v1\orders_lifecycle.py:45<br>… | _tmp\test_round3\evidence_del_restore.md |
 | TA-06 | A | 派单员软删在途单后，司机端旧卡片仍可点开：详情页只显示「订单不存在」+「重试」… | 可见 | **已修复 db7b3a4** | 派单员软删一张已派给司机的单（DELETE /orders/{id} → 204）后，司机端「进行中」列表里的卡片不会消失… | backend/app/api/v1/orders_lifecycle.py:45<br>… | _tmp/test_round3/evidence_del_stale_car… |
@@ -29,7 +29,7 @@
 | TA-08 | A | 商品列表卡的单价与改价弹窗口径不一致：0.005 在卡片上显示成 ¥0.01 | 可见 | **已修复 6db304e** | 商品 id=76（T1-prod-frac，库 default_unit_price=0.005，单位 箱）在商品管理列表… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A8_price_frac_display.… |
 | TA-09 | A | 改价弹窗输入负数被静默过滤成正数并保存（-3 存成 3，无提示） | 可疑 | **已修复 6db304e** | 商品改价弹窗（改默认售价）里输入 -3，输入框当场变成 3 —— 负号被输入规则悄悄丢掉，没有任何提示；点保存后库里就是 … | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A8_price_negative_filt… |
 | TA-10 | A | 联系人电话栏输入字母被静默清空，仍能保存出「没有电话」的联系人 | 可疑 | **已修复 6db304e** | 添加联系人时电话栏填 abc，点「添加」直接成功，列表里出现这条联系人，但库里 phone 是空的，没有任何校验提示。同一… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A9_contact_phone_filte… |
-| TA-11 | A | 商品删除弹窗承诺的「列表顶端回收站」在 App 里从未实现（TA-03 第4轮… | 堵死 | 已复现 | 商品管理里删除商品（编辑页「删 除」或 批量操作→删除）的确认弹窗都写着「列表顶端的『回收站』里可以把它恢复回来」，但商品… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round4/a_evidence_sweep1.txt |
+| TA-11 | A | 商品删除弹窗承诺的「列表顶端回收站」在 App 里从未实现（TA-03 第4轮… | 堵死 | **已修复 d819510** | 商品管理里删除商品（编辑页「删 除」或 批量操作→删除）的确认弹窗都写着「列表顶端的『回收站』里可以把它恢复回来」，但商品… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round4/a_evidence_sweep1.txt |
 | TA-12 | A | 九类名册删除是物理删除、后端无 restore，App 只有删完当场那一下「撤… | 堵死 | 已复现 | 商品分类/联系人分类/地点分类/线路分类/运费分类/开销分类/预订单分类/账号分类/车辆分类，这九类「名册」的 DELET… | backend/app/api/v1/product_categories.py:299<… | _tmp/test_round4/a_evidence_sweep1.txt |
 | TA-13 | A | 账本行 DELETE 是物理删除且没有 restore 端点（删钱的行只能靠审… | 堵死 | 已复现 | DELETE /api/v1/ledger/entries/{id} 走的是 db.delete(row)，行直接从 le… | backend/app/api/v1/ledger.py:603 | _tmp/test_round4/a_evidence_sweep1.txt |
 | TA-14 | A | 常用地址恢复后丢失「默认」标记：删前是默认地址，恢复回来不再是 | 可见 | **已修复 947cef9** | POST /shipper/addresses/{id}/restore 只清 is_deleted/deleted_at… | backend/app/api/v1/shipper.py:189<br>backend/… | _tmp/test_round4/a_evidence_sweep1.txt |
@@ -98,6 +98,7 @@
 - 实际：界面上不存在该入口：ProductFormScreen.kt:325/412 与 ProductBatchScreen.kt:290 只有「列表顶端的『回收站』…」这句文案；ProductsViewModel.kt 里没有任何列出已删商品的开关；AppRepository.kt:708 restoreProduct 的唯一调用点是 ai/AiWriteDataSource.kt:2383（AI 写入通道），ui/dispatcher 下 0 处调用。
 - 证据：_tmp/test_round3/A8_no_recycle_bin_evidence.txt
 - 定位：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductFormScreen.kt:325,412；ProductBatchScreen.kt:290；ProductsViewModel.kt（无 include_deleted）；AppRepository.kt:708；ai/AiWriteDataSource.kt:2383`
+- 补充（2026-10-10，已修复）：**提交 `d819510`（变更单 `docs/changes/BUG-0035.md`）**。（TA-03 与 TA-11 是同一条缺陷的两次复现，一起关）改法：① 后端 GET /api/v1/products 加 deleted_only（只回回收站、按 deleted_at 倒序）与 include_deleted（连回收站一起看、已删的殿后）两个查询参数，门 = 既有 product:manage（其余角色 403「无权查看回收站」，**不静默降级**）—— ⛔ 回收站分支不许再套 is_active（删除强制下架，套上去回收站恒空）；② App 商品管理页**内容区最上面**（搜索框之上）一排 SegmentedPicker(在用 / 回收站)，回收站里每行「恢复」调既有 POST /products/{id}/restore，成功后自动切回「在用」并提示「「X」已恢复到商品列表（上架 / 沽清）」（状态由后端读删除日志算）；③ 三处承诺文案改成写清位置「商品管理页最上面那一排的『回收站』」，并修掉 ProductFormViewModel.kt 里那段引用不存在的 undoDelete 的过期 KDoc。证据：单测 backend/tests/test_product_recycle_bin.py 7 passed；判据 _tools/qa/_check_product_recycle_bin.py 48 项（改前 39 项不成立）；反验 _tools/qa/_reverse_verify_product_recycle_bin.py 9/9 红 + 逐字节还原；真机 5556：_tmp/fix_round5/shots/01..06。
 
 ### TA-04 · 司机端「进行中」列表被实时推送打断后整页报 StandaloneCoroutine was cancelled
 
@@ -186,6 +187,7 @@
 - 实际：App 侧完全没有实现：ProductsScreen.kt 零个「回收站」；listProducts 连 deleted_only 参数都没有，客户端取不回被删商品。删除后商品在界面上永久消失，只能靠后端接口手工恢复。
 - 证据：_tmp/test_round4/a_evidence_sweep1.txt
 - 定位：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductFormScreen.kt:412`　`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductBatchScreen.kt:290`　`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductsScreen.kt:1`
+- 补充（2026-10-10，已修复）：**提交 `d819510`（变更单 `docs/changes/BUG-0035.md`）**。（与 TA-03 一起关）改法：① 后端 GET /api/v1/products 加 deleted_only（只回回收站、按 deleted_at 倒序）与 include_deleted（连回收站一起看、已删的殿后）两个查询参数，门 = 既有 product:manage（其余角色 403「无权查看回收站」，**不静默降级**）—— ⛔ 回收站分支不许再套 is_active（删除强制下架，套上去回收站恒空）；② App 商品管理页**内容区最上面**（搜索框之上）一排 SegmentedPicker(在用 / 回收站)，回收站里每行「恢复」调既有 POST /products/{id}/restore，成功后自动切回「在用」并提示「「X」已恢复到商品列表（上架 / 沽清）」（状态由后端读删除日志算）；③ 三处承诺文案改成写清位置「商品管理页最上面那一排的『回收站』」，并修掉 ProductFormViewModel.kt 里那段引用不存在的 undoDelete 的过期 KDoc。证据：单测 backend/tests/test_product_recycle_bin.py 7 passed；判据 _tools/qa/_check_product_recycle_bin.py 48 项（改前 39 项不成立）；反验 _tools/qa/_reverse_verify_product_recycle_bin.py 9/9 红 + 逐字节还原；真机 5556：_tmp/fix_round5/shots/01..06。
 
 ### TA-12 · 九类名册删除是物理删除、后端无 restore，App 只有删完当场那一下「撤销」（且是重建、编号会变）
 
