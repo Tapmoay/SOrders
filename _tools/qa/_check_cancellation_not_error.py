@@ -26,6 +26,14 @@
 
 配套：python _tools/qa/_reverse_verify_cancellation_not_error.py（13 种破坏方式全被抓）
 
+R4-BOUNDARY-JUSTIFICATION: 这一单**只改核心区的一条既有取数链路**（DriverOrdersViewModel.load 的异常分支），
+没有加扩展点：不新增端点、不动接口、错误页与「重试」的接线原样保留。边界解决不了 ——
+CancellationException **正是 Exception 的子类**，所以「取消」在类型系统里与「失败」不可区分，
+编译器、lint、契约都拦不住 catch (e: Exception) 把它一起收走；更难的是**时序**：取数从网络线程
+续回主线程，那个 catch 会排在新一趟的 error = null 之后才落地。两件事叠起来的后果是
+一次正常的刷新把整个列表顶成 4 行错误页。所以必须有一条机器判据（剥注释后只扫 load() 那一段）
+钉住「取消分支在前且重抛、失败路径照旧、三处写状态都让世代号」，并有 13 种破坏方式的反向验证。
+
 用法：python _tools/qa/_check_cancellation_not_error.py
 '''
 from __future__ import annotations

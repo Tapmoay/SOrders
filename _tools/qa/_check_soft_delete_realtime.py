@@ -28,6 +28,15 @@
 ⚠️ 本判据**只管"接得通、说得对"**；软删的状态机与 `deleted_at` 语义、已送达撤单 422 的闸、钱/账本一律不碰
 （那是 `_check_soft_delete_guards.py` 与后端测试的活）。
 
+R4-BOUNDARY-JUSTIFICATION: 这一单加的是**一个新的扩展点**（软删/恢复两个事件进 outbox ＋ 两条推送支路），
+核心区只碰纯追加（orders_lifecycle 两处 enqueue、outbox 的 AGGREGATE_KEY 与 deliver 各一支、
+message_center 的发布器），软删的状态机、deleted_at 的语义、已送达撤单 422 的闸、钱与账本一律没动。
+边界解决不了 —— 病灶是**「发了 no 事件」**：一次静默的缺失，编译过、单测过、接口返回 200，
+只有在真机上「派单员删单 → 司机端一动不动」才看得见；而链路上有四个必须同时成立的接点
+（enqueue 在 commit 前 / deliver 真调了 push_events / message_center 两路都发 / RealtimeHub 分支
+删除刷新+播报、恢复只刷新），任何一处「登记了空壳」都同样安静。所以必须有一条机器判据把四端
+逐点钉住，再加上「两边文案一字不差」与司机端不许静默的断言。
+
 用法：
     python _tools/qa/_check_soft_delete_realtime.py            # 直接跑（_check_all.py 会带上它）
     python _tools/qa/_check_soft_delete_realtime.py --list      # 只列每条判据的结果

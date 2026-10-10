@@ -27,6 +27,13 @@ GET /reports/vehicle-cost 的 expense_total=5598.50 不认它（5606.27 − 7.77
    models/expense.py 没有加 ForeignKey（既有孤儿历史行不能被约束卡住）、报表层仍然只读、
    安卓的车辆成本 DTO 仍带 notes（说明行到得了用户眼前）。
 
+R4-BOUNDARY-JUSTIFICATION: 这一单加的是**两道新的闸门**（写入侧的关联存在性守卫 ＋ 报表侧的三桶归集），
+核心区只碰了两处纯追加（accounting_service 的守卫函数、reports 的六个出参字段），既有的金额口径、
+create_expense 的其余校验、VehicleCostReportOut 老字段的语义一个字都没动。边界上解决不了 ——
+「999999 落了库」不是类型/契约问题（ForeignKey 会连历史孤儿行一起卡住，所以刻意不加），
+而「一张表认、一张表不认」是**两份取数实现各写各的**：两边单跑都不报错，只有把两张报表放在一起
+对账才看得见那 7.77 元。所以必须有一条机器判据同时钉住「写入闸门只有一份」与「报表三桶相加等于总额」。
+
 用法：python _tools/finance/_check_expense_links.py
 """
 from __future__ import annotations

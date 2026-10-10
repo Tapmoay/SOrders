@@ -20,6 +20,14 @@
 UI 文件从 `android/app/src/main/java/com/tapmoay/sorders/ui` 现 glob，再逐条正则扫。
 数不到下限（`MIN_UI_FILES`）先报红 —— 目录被搬走时不许"全绿"。
 
+R4-BOUNDARY-JUSTIFICATION: 这一单加的是**一个新的扩展点**（GET /products?deleted_only= 一个查询参数 ＋
+App 侧一排入口），核心区只碰既有端点的取数分支，商品的价格/库存/上下架语义一条都没改。边界解决不了 ——
+弹窗那句承诺（「列表最上面那一排的『回收站』」）是**文案与实现分居两处**的一致性：后端加了参数、
+App 画了入口，两边各自都「对」，只有把「承诺的位置」与「真的调了 restoreProduct」放在一起看
+才知道做没做；而「做了一半」的四种形态（缺省查询漏进普通列表、回收站顺手套 is_active 恒空、
+入口不接线、位置与承诺不符）在编译与单测里都不存在对应物。所以必须有一条机器判据：
+UI 文件现 glob、三处承诺文案同源、入口必须在顶端。
+
 用法：python -X utf8 _tools/qa/_check_product_recycle_bin.py [仓库根]
 """
 import re

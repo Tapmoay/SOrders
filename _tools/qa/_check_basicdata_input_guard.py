@@ -29,6 +29,14 @@
 - `android/app/src/test/java/com/tapmoay/sorders/ui/common/ProductCardKitTest.kt`（子分价那一条）
 本脚本顺带钉住这两条断言**还在**（锚点被删掉 = 行为的证据没了）。
 
+R4-BOUNDARY-JUSTIFICATION: 这一单加的是**一个新的扩展点**（InputRules 里那两句 note 文案 ＋ 三个调用点的
+「改了就说」），核心区只碰展示层：不新增端点、不动库结构、Numeric(12,2) / Numeric(14,4) 的列精度
+一个字节都没改。边界解决不了 —— 三类毛病的共同点是**不报错、不崩、只有用户自己发现**：
+priceInput(it) 那一行把「过滤」和「告诉用户」合成了一件事，过滤完就没人知道值被改过，
+而这在类型上完全合法；电话填 abc 存成 NULL 也是合法状态（CHG-0010 不要求必填），合法 ≠ 可以静默。
+所以必须有一条机器判据钉住「note 文案还在、别再退回静默过滤、卡片/弹窗/库三处同一个数」，
+外加两条行为单测（InputRulesRewriteTest / ProductCardKitTest）作为「用户真看得见」的证据。
+
 用法：
     python _tools/qa/_check_basicdata_input_guard.py
     python _tools/qa/_check_basicdata_input_guard.py --list   # 只列锚点清单

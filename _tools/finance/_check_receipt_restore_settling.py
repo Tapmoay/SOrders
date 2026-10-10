@@ -7,6 +7,13 @@
   3. 找不到名单时返回空集（宁可让用户再收一次，也不要"欠着钱却显示已收"）；
   4. 三个单测钉着：部分核销撤销→恢复仍欠着、全额核销回到已收、撤销期间被别人收清的由门③拦。
 
+R4-BOUNDARY-JUSTIFICATION: 这一单**只改核心区的一条既有链路**（恢复收款时翻哪些订单），没有加扩展点：
+不新增端点、不新增列、不动收款金额与 settle_mode 的两种语义。边界解决不了 —— 撤销那一步翻过的订单
+**没有写在数据里**（shipper_receipts 只有标记列），只存在于审计 RECEIPT_CANCEL 的 payload 里，
+所以「该翻谁」是一段跨表、跨时间的推理，任何类型/契约都表达不了；而错法的两种表现
+（部分核销的单被恢复成已收 / 全额核销的单仍欠着）在界面上都长得像成功。因此必须有一条机器判据
+钉住「先取名单、按 receipt_id 精确匹配、取不到就返回空集」，外加三个行为单测。
+
 用法：
   python _tools/finance/_check_receipt_restore_settling.py             # 主工作树
   python _tools/finance/_check_receipt_restore_settling.py <另一棵树>   # 跑「改前必红」

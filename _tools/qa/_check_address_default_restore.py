@@ -7,6 +7,14 @@
   3. 删除时**仍然**把 is_default 清掉（R11-F4：默认标记不能留在看不见的行上）；
   4. 三件事都要有单测钉着（backend/tests/test_address_default_restore.py 的核心用例）。
 
+R4-BOUNDARY-JUSTIFICATION: 这一单加的是**一个新的扩展点**（恢复路径上的一个默认标记回填），
+核心区只碰一个既有端点内的纯追加分支（restore_address 里多查一次；delete_address 的清理保持原样），
+地址归属、隔离语义、接口形状一条都没改。边界解决不了 —— 病是「软删时清掉的标记没人还回来」，
+而正解的另一半是**时间语义**：只有这段期间没人当上默认才设回去（否则就抢了别人后来的选择）。
+「别人当没当默认」是运行时状态，不是类型属性；写成 service 层的通用规则又会把「谁先谁后」藏起来，
+所以只能靠一条机器判据把五个条件（计数 / is_default / is_deleted / id != 自己 / shipper_id 隔离）
+连同三个单测一起钉在 restore_address 那一段里。
+
 用法：
   python _tools/qa/_check_address_default_restore.py             # 查主工作树
   python _tools/qa/_check_address_default_restore.py <另一棵树>   # 用来跑「改前必红」

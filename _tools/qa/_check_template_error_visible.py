@@ -6,6 +6,15 @@
   2. LazyColumn 必须接 state = listState，且存在 LaunchedEffect(vm.error) 在出错时滚到末尾那一行；
   3. 末尾那一行 item { FormErrorLine(vm.error) } 仍在（列表内同款提示，滚过去还能看到）；
   4. 行为复刻：给一段「可视区到 y=2252 / 红字原位置 y=2794」的坐标，断言底栏版本落在可视区内。
+
+R4-BOUNDARY-JUSTIFICATION: 这一单加的是**一个新的扩展点**（底栏那一行 FormErrorLine ＋ 出错时滚到末尾），
+核心区只碰一个既有表单页的布局（不动保存接口、不动 vm.error 的语义、不动列表里的同款提示）。
+边界解决不了 —— 病是**位置**：表单长到 2700 多像素时，红字落在视口外（可视区到 y=2252、
+红字原位 y=2794），代码上「有错误提示」与「错误提示看不见」是同一个东西；Compose 的类型系统
+只能表达「这一行画出来了」，表达不了「用户抬头就能看见」。所以必须有一条机器判据同时钉住
+结构（bottomBar 里有那一行、LazyColumn 接了 listState、LaunchedEffect(vm.error) 滚到末尾）
+与一段行为复刻（底栏版本的坐标落在可视区内）。
+
 """
 import sys
 
