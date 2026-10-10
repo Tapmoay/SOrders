@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from pathlib import Path
 from uuid import uuid4
 
@@ -196,6 +196,23 @@ def restore_address(address_id: int, current: ShipperOrDispatcher, db: Session =
         raise HTTPException(status_code=400, detail="这条地址没有被删除，不需要恢复")
     a.is_deleted = False
     a.deleted_at = None
+    # 2026-10-10（BUG-0032 / 测试台账 TA-14）：删的时候顺手把「默认」清了（理由见
+    # services/soft_delete.ensure_alive：默认标记不能留在看不见的行上），恢复时如果
+    # **这期间没有任何人当上默认**，就把用户原来那条偏好还回去 —— 不还的话用户得手动
+    # 再设一次（第 4 轮实测：删一条默认地址再恢复，diff = {"is_default":[1,0]}）。
+    # ⛔ 不抢别人的默认：被删期间别人被设成了默认，就保持不动（那是用户后来的选择）。
+    others_default = db.scalar(
+        select(func.count())
+        .select_from(ShipperAddress)
+        .where(
+            ShipperAddress.shipper_id == current.id,
+            ShipperAddress.is_deleted.is_(False),
+            ShipperAddress.is_default.is_(True),
+            ShipperAddress.id != a.id,
+        )
+    )
+    if not others_default:
+        a.is_default = True
     db.commit()
     db.refresh(a)
     return a
