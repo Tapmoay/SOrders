@@ -130,8 +130,11 @@ CASES: list[tuple[str, str, str, str, str, int | str]] = [
     (
         "⑧ SQL 里又把没挂车的行过滤掉（改前那一刀回来了）",
         VC,
-        "        .where(Expense.exp_date >= start, Expense.exp_date <= end)\n",
-        "        .where(Expense.exp_date >= start, Expense.exp_date <= end, Expense.vehicle_id.isnot(None))\n",
+        "            Expense.exp_date >= start,\n"
+        "            Expense.exp_date <= end,\n",
+        "            Expense.exp_date >= start,\n"
+        "            Expense.vehicle_id.isnot(None),\n"
+        "            Expense.exp_date <= end,\n",
         "2-3 分桶不再把没挂车", 1,
     ),
     (

@@ -30,7 +30,8 @@
 
 0. **反空转**：查询 / schema / 路由 / 导出 / Android 那一页都在（截空即红）；
 1. **只相减、不重算**：前四格全部取营业纵览的同一批聚合数，本文件一个原始金额都不自己算；
-2. **窗口只有一处**：期间费用按业务发生日（`exp_date`）落窗口、不加软删过滤（这张表没有软删列）；
+2. **窗口只有一处**：期间费用按业务发生日（`exp_date`）落窗口、并排除已撤销的开销
+   （`Expense.is_deleted.is_(False)` —— 2026-10-10 BUG-0034 给 expenses 挂上了软删列）；
 3. **不知道就说不知道**：税金恒 0 且原因进 notes、未覆盖收入单列、口径说明五条齐全；
 4. **接口与导出**：`GET /reports/profit` 四件套（窗口下推到 `_span`、只读权限、pop `_window`、schema），
    导出第 7 个 kind 里**带着覆盖率与口径说明**一起写进表；
@@ -246,10 +247,10 @@ def main() -> int:
     print("")
     print("== 2. 期间费用的窗口与口径 ==")
     c.present("期间费用按业务发生日落地（exp_date），不是按钱什么时候付（flow_date）",
-              fn, r"Expense\.exp_date >= start, Expense\.exp_date <= end")
+              fn, r"Expense\.exp_date >= start,\s*Expense\.exp_date <= end")
     c.absent("没有用 flow_date 取费用（资金口径与经营口径是两件事）", q, r"flow_date")
-    c.absent("没有加 is_deleted 过滤（expenses 表没有软删列，加了会直接报错）",
-             q, r"Expense\.is_deleted|is_deleted\.is_\(False\)")
+    c.present("期间费用排除了已撤销的开销（撤销的那一笔不算期间费用 —— 2026-10-10 BUG-0034）",
+              q, r"Expense\.is_deleted\.is_\(False\)")
     c.present("空分类兜到「未分类」", fn, r'or "未分类"')
     c.present("服务端定序（金额降序、同额按分类名 —— 界面与导出不再各自排一遍）",
               fn, r'expenses\.sort\(key=lambda r: \(-r\["amount"\], r\["category"\]\)\)')

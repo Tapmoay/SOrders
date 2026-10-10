@@ -30,6 +30,8 @@
 | ⑰ | 声明页里核心改动的路径被写坏 | 路径抄错一个字符（判据只认确切那一条） |
 | ⑱ | 变更单头部的 ID 行被改掉 | 复制模板忘了改 ID |
 | ⑲ | 变更单索引里的链接被摘掉 | 少那个链接 _check_dev_spec.py 会红 |
+| ⑳ | 默认口径翻成「连已撤销的也一起取」 | 默认不安全：忘传参数就把藏起来的流水又算进钱 |
+| ㉑ | 撤销/恢复不再显式声明 include_deleted | 被标记的那一行再也翻不动 |
 
 ⚠️ 与仓库里其它 _reverse_verify_*.py 同一套纪律：按字节备份 / 还原、跑完逐文件核对哈希、
 全程不碰 git checkout --（那会在真有改动时抹掉工作）。
@@ -223,6 +225,20 @@ CASES: list[tuple[str, str, str, str, str, int | str]] = [
         "](BUG-0034.md)",
         "](BUG-0034)",
         "docs/changes/README.md 里那一行带 ](BUG-0034.md) 链接", 1,
+    ),
+    (
+        "⑳ 默认口径翻成「连已撤销的也一起取」（忘传参数就把藏起来的流水又算进钱）",
+        API,
+        "def _expense_flows(db: Session, expense_id: int, *, include_deleted: bool = False) -> list[CashFlow]:\n",
+        "def _expense_flows(db: Session, expense_id: int, *, include_deleted: bool = True) -> list[CashFlow]:\n",
+        "默认口径是「只看还活着的流水」", 1,
+    ),
+    (
+        "㉑ 撤销/恢复不再显式声明 include_deleted（被标记的那一行再也翻不动）",
+        API,
+        "    flows = _expense_flows(db, e.id, include_deleted=True)\n",
+        "    flows = _expense_flows(db, e.id, include_deleted=False)\n",
+        "两条路都显式 include_deleted=True", "all",
     ),
 ]
 

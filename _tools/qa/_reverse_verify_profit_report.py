@@ -13,7 +13,7 @@
   因为那意味着这条注入已经**证明不了任何事**，而不是「通过」；
 * 全程拿着 `lock_reverse_verify`：注入期间别的检查看这份工作区会得到不可信的结论。
 
-这 24 条对应的正是这张表最容易被改坏的地方 —— 它们有个共同点：**改完都能编译、接口也照样 200**，
+这 26 条对应的正是这张表最容易被改坏的地方 —— 它们有个共同点：**改完都能编译、接口也照样 200**，
 只有把这些数拿去和营业纵览对一遍才会发现：
 
 1-6   后端查询：毛利换了收入侧、营业利润少减一项、税金编出一个税率、期间费用丢了上界、
@@ -28,6 +28,9 @@
 23-24 真机实测补上的两条（2026-10-04，模拟器截图上先看见的）：
       利润构成里删掉「算不出成本的收入」那一行（链条又变成 7020.2 − 186 = 60.4，看着像算错）、
       口径说明里塞回 markdown 星号（手机上原样显示 **偏高**）。
+25-26 后端补的两条（2026-10-10，BUG-0034 给 expenses 挂上软删列那一轮）：
+      口径说明整块被包进 Hint 开关、
+      期间费用又不过滤已撤销的开销（撤销掉的那一笔不该继续算进营业利润）。
 """
 from __future__ import annotations
 
@@ -96,7 +99,15 @@ def _tax_invents_a_rate(s: str) -> str:
 
 def _expense_window_loses_upper_bound(s: str) -> str:
     """期间费用只剩左边界（这个窗口之后的开销也会被算进来）。"""
-    return s.replace('Expense.exp_date >= start, Expense.exp_date <= end', 'Expense.exp_date >= start')
+    return s.replace(
+        '            Expense.exp_date >= start,\n            Expense.exp_date <= end,\n',
+        '            Expense.exp_date >= start,\n',
+    )
+
+
+def _expense_keeps_cancelled(s: str) -> str:
+    """期间费用又不过滤已撤销的开销（撤销掉的那一笔继续算进营业利润）。"""
+    return s.replace('            Expense.is_deleted.is_(False),\n', '')
 
 
 def _query_recomputes_money_itself(s: str) -> str:
@@ -247,6 +258,7 @@ CASES = [
     ("㉓ 利润构成里删掉「算不出成本的收入」那一行", CENTER, _chain_loses_uncovered_row, "利润构成是一条能自己算通的链"),
     ("㉔ 口径说明里塞回 markdown 星号", QUERY, _notes_gain_markdown, "口径说明里不许出现 markdown 星号"),
     ("㉕ 口径说明整块被包进 Hint 开关", CENTER, _notes_wrapped_in_hint, "口径说明没有被包进 Hint 开关"),
+    ("㉖ 期间费用又不过滤已撤销的开销", QUERY, _expense_keeps_cancelled, "期间费用排除了已撤销的开销"),
 ]
 
 

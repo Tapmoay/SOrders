@@ -292,6 +292,16 @@ def main() -> int:
     c.ok("恢复把两处标记都摘掉（开销单 + 流水）",
          "e.is_deleted = False" in api_code and "e.deleted_at = None" in api_code
          and "f.is_deleted = False" in api_code and "f.deleted_at = None" in api_code, "")
+    c.ok("_expense_flows 的默认口径是「只看还活着的流水」",
+         "include_deleted: bool = False" in api_code,
+         "默认不带过滤，将来谁少传一个参数，就把已撤销的流水又算进钱了")
+    c.ok("撤销/恢复两条路都显式 include_deleted=True（它们的活儿正是翻已经藏起来的那一行）",
+         api_code.count("_expense_flows(db, e.id, include_deleted=True)") >= 2,
+         "少一处就翻不动被标记的流水：撤销打不上标记、恢复也摘不掉")
+    c.ok("这个文件读 cash_flows 的每一处都显式声明了软删（默认就带 is_(False) 过滤）",
+         api_code.count("select(CashFlow)") <= api_code.count("CashFlow.is_deleted.is_("),
+         "全库红线 `_tools/qa/_check_supplier_payables.py`：每一处读 cash_flows 都要带软删过滤 —— "
+         "本判据第一版只扫了「读 Expense」的函数，漏掉这一条（两层都要盯着）")
     fns = fn_sources(API)
     for name, allowed in (("cancel_expense", FLAG_FIELDS), ("restore_expense", FLAG_FIELDS)):
         body = fns.get(name, "")
