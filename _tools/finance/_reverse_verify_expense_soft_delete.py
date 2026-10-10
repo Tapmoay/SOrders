@@ -116,12 +116,12 @@ CASES: list[tuple[str, str, str, str, str, int | str]] = [
     (
         "⑥ 恢复只摘开销单、不摘流水上的标记（收支页里那笔钱还是不算）",
         API,
-        "    flows = _expense_flows(db, e.id)\n"
+        "    flows = _expense_flows(db, e.id, include_deleted=True)\n"
         "    for f in flows:\n"
         "        f.is_deleted = False\n"
         "        f.deleted_at = None\n"
         "    e.is_deleted = False\n",
-        "    flows = _expense_flows(db, e.id)\n"
+        "    flows = _expense_flows(db, e.id, include_deleted=True)\n"
         "    e.is_deleted = False\n",
         "恢复把两处标记都摘掉", 1,
     ),

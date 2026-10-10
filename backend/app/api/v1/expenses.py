@@ -33,21 +33,25 @@ from app.schemas.accounting_v2 import ExpenseCreate, ExpenseOut
 router = APIRouter(prefix="/expenses", tags=["expenses"])
 
 
-def _expense_flows(db: Session, expense_id: int) -> list[CashFlow]:
+def _expense_flows(db: Session, expense_id: int, *, include_deleted: bool = False) -> list[CashFlow]:
     """这条开销写下的资金流水。
 
     **唯一判据**：`party_type='expense'` + `party_id=expenses.id` —— 与
     `services/accounting_service.py::write_expense_cash_flow` 的写入形状是同一处事实的两面。
     ⛔ 不许改成"按金额 + 日期猜"：同一天同金额的两笔油费会被配错，那比不撤更糟。
+
+    默认**只看还活着的流水**（与 `_tools/qa/_check_supplier_payables.py` 的红线一致：
+    凡是"拿 cash_flows 算给人看的钱"的地方都要带 `is_deleted` 过滤）；
+    只有**撤销/恢复**这两条路要 `include_deleted=True` —— 它们的活儿正是把已经藏起来的那一行
+    再翻一遍（撤销打成 1、恢复打回 0），过滤掉就永远翻不动（2026-10-10，BUG-0034 复核）。
     """
-    return list(
-        db.scalars(
-            select(CashFlow).where(
-                CashFlow.party_type == "expense",
-                CashFlow.party_id == expense_id,
-            )
-        ).all()
+    stmt = select(CashFlow).where(
+        CashFlow.party_type == "expense",
+        CashFlow.party_id == expense_id,
     )
+    if not include_deleted:
+        stmt = stmt.where(CashFlow.is_deleted.is_(False))
+    return list(db.scalars(stmt).all())
 
 
 def _link_kinds(db: Session) -> dict[str, str]:
@@ -188,7 +192,7 @@ def cancel_expense(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="这笔开销不存在")
     if e.is_deleted:
         raise HTTPException(status_code=400, detail=f"这笔开销（#{e.id}）已经撤销过了，不用再撤一次")
-    flows = _expense_flows(db, e.id)
+    flows = _expense_flows(db, e.id, include_deleted=True)
     now = utc_now_naive()
     for f in flows:
         f.is_deleted = True
@@ -233,7 +237,7 @@ def restore_expense(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="这笔开销不存在")
     if not e.is_deleted:
         raise HTTPException(status_code=400, detail=f"这笔开销（#{e.id}）没有被撤销，不需要恢复")
-    flows = _expense_flows(db, e.id)
+    flows = _expense_flows(db, e.id, include_deleted=True)
     for f in flows:
         f.is_deleted = False
         f.deleted_at = None
