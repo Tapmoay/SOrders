@@ -34,7 +34,7 @@
 | TA-13 | A | 账本行 DELETE 是物理删除且没有 restore 端点（删钱的行只能靠审… | 堵死 | 已复现 | DELETE /api/v1/ledger/entries/{id} 走的是 db.delete(row)，行直接从 le… | backend/app/api/v1/ledger.py:603 | _tmp/test_round4/a_evidence_sweep1.txt |
 | TA-14 | A | 常用地址恢复后丢失「默认」标记：删前是默认地址，恢复回来不再是 | 可见 | **已修复 947cef9** | POST /shipper/addresses/{id}/restore 只清 is_deleted/deleted_at… | backend/app/api/v1/shipper.py:189<br>backend/… | _tmp/test_round4/a_evidence_sweep1.txt |
 | TA-15 | A | AI 卡片说共享地点「删掉就没了、没有回收站、恢复不了」，实际后端是软删且能恢复 | 可见 | 已复现 | AI 写能力的卡片文案与实现相反：blurb 明说「从共享库里删掉一个地点（谁都选不到了）。删掉就没了，没有回收站。」并在… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round4/a_evidence_sweep1.txt |
-| TA-16 | A | 开销（expenses）全系统没有任何删除或修改入口：记错一笔永久留在账上 | 堵死 | 已复现 | 开销只有 GET 与 POST 两个端点，没有 DELETE 也没有 PATCH/PUT；App 侧没有任何 delete… | backend/app/api/v1/expenses.py:17<br>android/… | _tmp/test_round4/a_evidence_sweep1.txt |
+| TA-16 | A | 开销（expenses）全系统没有任何删除或修改入口：记错一笔永久留在账上 | 堵死 | **已修复 4beb4be** | 开销只有 GET 与 POST 两个端点，没有 DELETE 也没有 PATCH/PUT；App 侧没有任何 delete… | backend/app/api/v1/expenses.py:17<br>android/… | _tmp/test_round4/a_evidence_sweep1.txt |
 | TA-17 | A | 客户合并把被并档案物理删除，不可逆（customers 表连软删列都没有） | 可疑 | 已复现 | POST /api/v1/customers/merge 把引用搬到保留的那一条上，然后把被并档案从库里物理删除；cust… | backend/app/api/v1/customers.py:219<br>backen… | _tmp/test_round4/a_evidence_sweep1.txt |
 | TA-18 | A | 车辆与客户没有任何删除入口（车只能停用、客户档案无法清理） | 可疑 | 已复现 | 车辆与客户这两个实体连 DELETE 路由都没有：车辆只能改 is_active 停用（车仍然留在列表里），客户档案一旦建… | backend/app/api/v1/vehicles.py:281<br>backend… | _tmp/test_round4/a_evidence_sweep1.txt |
 | TA-19 | A | 司机备注（driver-note）零推送：派单员端订单详情停在旧「内部备注」，… | 可见 | 已复现 | 司机在司机端写现场备注后，后端只把文本以「[司机 时间] 」前缀追加进 orders.internal_notes，全程没… | backend/app/api/v1/orders_delivery.py:125 | _tmp/test_round4/shots/f1_detail_before… |
@@ -237,6 +237,7 @@
 - 实际：开销进了库就再也动不了：金额填错、记重一笔都只能永久留在账上并进入成本与报表。界面上也没有一句「记错了怎么办」的说明。
 - 证据：_tmp/test_round4/a_evidence_sweep1.txt
 - 定位：`backend/app/api/v1/expenses.py:17`　`android/app/src/main/java/com/tapmoay/sorders/data/remote/api/Apis.kt:1598`
+- 补充（2026-10-10，已修复）：`expenses` 挂软删（`is_deleted` / `deleted_at` ＋ `schema_bootstrap.py` 幂等自愈段补列 ＋ `ix_expenses_is_deleted` ＋ 回填 0）；新增 `DELETE /api/v1/expenses/{id}`（204 软删：开销单与它写下的那条 `cash_flows`（`party_type="expense"` ＋ `party_id`）一起打标记，审计 `EXPENSE_DELETE`）与 `POST /api/v1/expenses/{id}/restore`（200 原样放回，审计 `EXPENSE_RESTORE`）；五处取数处（分类名册在用笔数 / 名册外兜底 / 删分类守卫、利润表期间费用、车辆成本表开销桶、报表导出、回填脚本）全部排除已撤销；`GET /expenses` 加 `deleted_only` 二选一档；App 开销页行上「撤销」（二次确认）＋ 标题栏「显示已撤销」档里的「恢复」＋ 撤销后 snackbar「撤回」。⛔ 金额算法一个字节没改：撤销后 利润表期间费用 / 车辆成本表窗口开销 / 收支页 三处合计都满足「删前 − 这一笔 = 删后」。证据：判据 `_tools/finance/_check_expense_soft_delete.py` 78 项 ＋ 反验 19 条注入全红且逐字节还原 ＋ `backend/tests/test_expense_soft_delete.py` 10 passed；提交 `4beb4be`。`
 
 ### TA-17 · 客户合并把被并档案物理删除，不可逆（customers 表连软删列都没有）
 

@@ -44,7 +44,7 @@
 
 `判据 / 反验`：`_tools/finance/_check_expense_soft_delete.py`（**78 项**：端点存在 / 软删不是物理删 / 恢复逐字段原样 / 取数处都过滤（清单由脚本自己扫出 N 个取数函数）/ 审计 / 权限 / App 手边入口 / 文书接线）＋ 反验 `_tools/finance/_reverse_verify_expense_soft_delete.py`（**19 条注入**，逐字节还原）＋ 单测 `backend/tests/test_expense_soft_delete.py`（**10 条**：建→撤销→恢复三态 ＋「删前 − 这一笔 = 删后」的等式）。
 
-- 状态：⏳ **进行中**（2026-10-10 立项；变更单 `docs/changes/BUG-0034.md`；台账 **TA-16**；Blast Radius **L2**；提交 `__`）。
+- 状态：⏳ **进行中**（2026-10-10 立项；变更单 `docs/changes/BUG-0034.md`；台账 **TA-16**；Blast Radius **L2**；提交 `4beb4be`）。
 - 核心改动：backend/app/core/schema_bootstrap.py —— 为什么必须动核心：`expenses` 的 `is_deleted/deleted_at` 两列只有这一个幂等自愈段能加（不跑版本化迁移的那一半历史库靠它补列），不加这两列「撤销」就只能做成物理删，违反用户 2026-09-20「所有删除一律软删」的硬规矩。
 - 核心改动：backend/app/models/enums.py —— 为什么必须动核心：`EXPENSE_DELETE`/`EXPENSE_RESTORE` 两个审计动作码是 `OperationAction` 这个领域词汇表里的新取值（全项目共用），不写在这里撤销与恢复就是两笔无名账。
 ### [2026-10-10 立项 → 2026-10-10 已完成] 会话：**BUG-0026 司机端「进行中」列表被实时推送打断后整页报 StandaloneCoroutine was cancelled**（DSH `session-4f7d4be2-273e-4b95-bb10-d9f28eaa106a`）
