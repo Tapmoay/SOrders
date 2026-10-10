@@ -398,6 +398,24 @@ private fun BottomCell(
  * ⛔ **成本价与分类都不在卡上**（都是用户 2026-09-19 明确要求去掉的）：
  * 成本是内部数、不参与对客户报价，只在「⋮ → 编辑」里看和改；
  * 分类已经由**左边那根导航条**表达，同一件事在一屏说两遍只占地方。
+ *
+ * ## 沽清的商品：**整张卡变灰**，而且三个动作一起点不动（2026-10-10，CHG-0103）
+ * 用户原话（ref `m05399`，逐字）：
+ * > 「顺便参考他这个样式啊，我们现在的商品管理。如果估清了。他那个卡片只会有一个沽清的状态，
+ * >  但是并没有整体变灰的样式啊参考。他的样式啊，他当时就有一个整体变灰的变动啊啊，改一下吧。」
+ *
+ * 在这之前这张卡上**只有一枚「已沽清」角标**：卡还是白的、按钮还是亮的 ——
+ * 同一件事在下单页选品弹层里已经是「整卡变灰 ＋ 点不动」（`BUG-0017` / 台账 L-35，
+ * 用户 `m01347`：「灰掉了之后**就不能点**的哈……就是**整卡变灰**嘛」），两个页面说法不一样。
+ *
+ * 所以这一页现在也走**同一条口径与同一套数值**：灰底与内容变暗两个数字住在
+ * `ui/common/ProductSoldOutScrim.kt`（`ProductSoldOutCard` / `PRODUCT_SOLD_OUT_*`），
+ * ⛔ **不要在这一页里另写一套透明度**。
+ *
+ * ⚠️ **角标留着，而且与灰卡是同一件事的两种说法，不是"两个状态两个词"**：
+ * 灰卡说"这一条现在不能动"，角标说"**为什么**"（沽清）—— 参考图里那张卡也是灰底 ＋ 印章并存。
+ * 它仍然是共用件 `ProductSoldOutBadge`（文案只有「已沽清」、⛔ 不参数化），
+ * 选品页那一处用的也是它（见 `:421` 上面那段"同一个状态两个词两种颜色"的教训）。
  */
 @Composable
 private fun ProductCard(
@@ -408,71 +426,77 @@ private fun ProductCard(
     onQuickPrice: () -> Unit,
     onShowImage: (String) -> Unit,
 ) {
-    SectionCard {
-        // ---- 大图 + 名称 + **售价** + **库存**（库存在售价的正下方）----
-        // 用户 2026-09-21 第一轮：「图片要大一点、卡片大点…售价在上面的」；
-        // 第二轮：「你还是把**库存**给移到**现在的那个售价的下面**啊，这样子**美观一点**」
-        //          （原来是"图片下面横跨整卡"，读起来要先横着跳一次、再竖着找一次）。
-        //
-        // ⛔ 这一段**没有一个字是这一页自己写的**：图 / 名称色 / 事实 / 两行的先后
-        //    全部来自 `ui/common/ProductCardKit.kt`（`ProductLine` + `productFacts`）。
-        //    另外四个页面（库存 / 批量 / 排序 / 选品）同源 —— 下次改"显示哪两个数字、什么顺序"，
-        //    改的是那个文件里的 `productFacts`，不是这一页。
-        // 「已沽清」角标也是**共用的那一个**（`ProductSoldOutBadge`）：这一轮之前
-        // 卡片上写「已沽清」（灰底）、选品页写「已下架」（红字）—— 同一个状态两个词两种颜色。
-        val soldOut: (@Composable () -> Unit)? = if (p.isActive) null else ({ ProductSoldOutBadge() })
-        ProductLine(
-            name = p.name,
-            nameColor = p.nameColor,
-            facts = productFacts(p.defaultUnitPrice, p.unit, p.stock, p.lowStockAlert),
-            thumb = {
-                ProductThumb(
-                    imageUrl = p.imageUrl,
-                    nameColor = p.nameColor,
-                    size = 88.dp,
-                    // 点图＝看这一张的大图（台账 L-37；没图就不给热区，规则在 ProductCardKit）
-                    modifier = Modifier.productImageClickable(p.imageUrl) { p.imageUrl?.let(onShowImage) },
-                    shape = MaterialTheme.shapes.medium,
+    ProductSoldOutCard(soldOut = !p.isActive) {
+        SectionCard {
+            // ---- 大图 + 名称 + **售价** + **库存**（库存在售价的正下方）----
+            // 用户 2026-09-21 第一轮：「图片要大一点、卡片大点…售价在上面的」；
+            // 第二轮：「你还是把**库存**给移到**现在的那个售价的下面**啊，这样子**美观一点**」
+            //          （原来是"图片下面横跨整卡"，读起来要先横着跳一次、再竖着找一次）。
+            //
+            // ⛔ 这一段**没有一个字是这一页自己写的**：图 / 名称色 / 事实 / 两行的先后
+            //    全部来自 `ui/common/ProductCardKit.kt`（`ProductLine` + `productFacts`）。
+            //    另外四个页面（库存 / 批量 / 排序 / 选品）同源 —— 下次改"显示哪两个数字、什么顺序"，
+            //    改的是那个文件里的 `productFacts`，不是这一页。
+            // 「已沽清」角标也是**共用的那一个**（`ProductSoldOutBadge`）：这一轮之前
+            // 卡片上写「已沽清」（灰底）、选品页写「已下架」（红字）—— 同一个状态两个词两种颜色。
+            val soldOut: (@Composable () -> Unit)? = if (p.isActive) null else ({ ProductSoldOutBadge() })
+            ProductLine(
+                name = p.name,
+                nameColor = p.nameColor,
+                facts = productFacts(p.defaultUnitPrice, p.unit, p.stock, p.lowStockAlert),
+                thumb = {
+                    ProductThumb(
+                        imageUrl = p.imageUrl,
+                        nameColor = p.nameColor,
+                        size = 88.dp,
+                        // 点图＝看这一张的大图（台账 L-37；没图就不给热区，规则在 ProductCardKit）
+                        modifier = Modifier.productImageClickable(p.imageUrl) { p.imageUrl?.let(onShowImage) },
+                        shape = MaterialTheme.shapes.medium,
+                    )
+                },
+                badge = soldOut,
+            )
+
+            Spacer(Modifier.height(10.dp))
+
+            // ---- 第三行：三个等宽大按钮（用户 2026-09-21：「改价…也是个很大的按钮，
+            //      还有一个沽清、还有一个编辑」）----
+            //
+            // ⛔ 这一版**把右上角的「⋮」整个删掉了**：用户要求那三点里的功能
+            //    （各批发商价格 / 成本价历史 / 删除）搬进**编辑页**，卡片上只留这三个动作。
+            //    （原来那套"三个以上收进 ⋮"是用户 2026-09-19 定的；这一轮他改了主意，
+            //     设计规范 §4.2 已同步改成"卡片上是几个明确的动作按钮、其余进编辑页"。）
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CardAction(
+                    label = "改价",
+                    icon = Icons.Default.CurrencyYuan,
+                    color = Color(QuickPriceGreen),
+                    // 沽清 = 整卡变灰（CHG-0103）：三个动作**一起**点不动。
+                    // 只灰不拦的话，手还能点"改价"把一件已经不能卖的商品改个价再卖出去，
+                    // 而屏幕上"看起来不能点"正是灰卡给用户的承诺。
+                    enabled = !acting && p.isActive,
+                    onClick = onQuickPrice,
+                    modifier = Modifier.weight(1f),
                 )
-            },
-            badge = soldOut,
-        )
-
-        Spacer(Modifier.height(10.dp))
-
-        // ---- 第三行：三个等宽大按钮（用户 2026-09-21：「改价…也是个很大的按钮，
-        //      还有一个沽清、还有一个编辑」）----
-        //
-        // ⛔ 这一版**把右上角的「⋮」整个删掉了**：用户要求那三点里的功能
-        //    （各批发商价格 / 成本价历史 / 删除）搬进**编辑页**，卡片上只留这三个动作。
-        //    （原来那套"三个以上收进 ⋮"是用户 2026-09-19 定的；这一轮他改了主意，
-        //     设计规范 §4.2 已同步改成"卡片上是几个明确的动作按钮、其余进编辑页"。）
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CardAction(
-                label = "改价",
-                icon = Icons.Default.CurrencyYuan,
-                color = Color(QuickPriceGreen),
-                enabled = !acting,
-                onClick = onQuickPrice,
-                modifier = Modifier.weight(1f),
-            )
-            CardAction(
-                label = if (p.isActive) "沽清" else "上架",
-                icon = if (p.isActive) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                color = if (p.isActive) MaterialTheme.colorScheme.error else com.tapmoay.sorders.ui.theme.Success,
-                enabled = !acting,
-                onClick = onToggle,
-                modifier = Modifier.weight(1f),
-            )
-            CardAction(
-                label = "编辑",
-                icon = Icons.Default.Edit,
-                color = Color(ProductPurple),
-                filled = true,
-                enabled = !acting,
-                onClick = onEdit,
-                modifier = Modifier.weight(1f),
-            )
+                CardAction(
+                    label = if (p.isActive) "沽清" else "上架",
+                    icon = if (p.isActive) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                    color = if (p.isActive) MaterialTheme.colorScheme.error else com.tapmoay.sorders.ui.theme.Success,
+                    enabled = !acting,
+                    onClick = onToggle,
+                    modifier = Modifier.weight(1f),
+                )
+                CardAction(
+                    label = "编辑",
+                    icon = Icons.Default.Edit,
+                    color = Color(ProductPurple),
+                    filled = true,
+                    // 编辑是灰卡上**唯一还点得动**的动作 —— 沽清不是终点，改完再上架要走这里。
+                    enabled = !acting,
+                    onClick = onEdit,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
 }
