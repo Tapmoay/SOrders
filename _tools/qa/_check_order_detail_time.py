@@ -80,8 +80,15 @@ HANDLED_TIME_GATE = "val at = formatDateTimeFull(req.handledAt)"
 #: 流转记录那一块：从标题到 TimeRow 的定义为止（TimeRow 本体另有判据钉）。
 TIMELINE_A = chr(34) + "流转记录" + chr(34)
 TIMELINE_B = "private fun TimeRow("
-#: 允许出现带年份那一档的两个文件（其余 .kt 里出现＝顺手改到别处了）。
-ALLOWED = {"util/TimeFmt.kt", "ui/order/OrderDetailScreen.kt"}
+#: 允许出现带年份那一档的文件（其余 .kt 里出现＝顺手改到别处了）。
+#:
+#: 2026-10-11（FEAT-0018）：多了第三个 —— `ui/dispatcher/AccountManageViewModel.kt`。用户 2026-10-11 要的
+#: 「账户管理 → 编辑 → 绑定设备」里，每一台设备要显示**绑定时间**与**最后活跃**（`deviceMeta()`），
+#: 而且这一档是**专门挑的**：一台设备可能绑了大半年（名额有 6 个月冷却），只印 `MM-dd HH:mm`
+#: 在跨年那几天分不清是哪一年 —— 判据的**用途**是「不许在没说过的地方顺手把带年份这一档铺开」，
+#: 不是「全库只许两个文件用」（设备行这一处有单测 `DeviceCountTextTest.deviceMeta` 并排钉着）。
+#: ⛔ 别的页面照样一处都不许用：下面那条 stray 断言一个字没放宽。
+ALLOWED = {"util/TimeFmt.kt", "ui/order/OrderDetailScreen.kt", "ui/dispatcher/AccountManageViewModel.kt"}
 REQUIRED_FILES = [UTIL, DETAIL, TEST, CHG, README, CLAIM, REVERSE]
 
 
@@ -182,9 +189,11 @@ def main() -> int:
          REQ_TIME_GATE in detail_code and HANDLED_TIME_GATE in detail_code,
          "这一块就在同一张详情页上，和「创建于」一起被用户看到的")
 
-    c.section("5. 调用点清单：定义 1 ＋ 订单详情 3，别的 .kt 一处都没有")
+    c.section("5. 调用点清单：定义 1 ＋ 订单详情 3 ＋ 设备行 2，别的 .kt 一处都没有")
     n_full = sum(codes[f].count(FULL_CALL) for f in kts)
-    c.ok("调用点清单对得上（定义 1 ＋ 详情页 3 ＝ 4 处）", n_full == 4,
+    # 2026-10-11（FEAT-0018）：4 → 6、3 → 5 —— 设备行那两处是上面 ALLOWED 里写了理由的新增调用点，
+    # 不是在别处顺手铺开（stray 那条照旧把所有别的页面挡住）。
+    c.ok("调用点清单对得上（定义 1 ＋ 详情页 3 ＋ 设备行 2 ＝ 6 处）", n_full == 6,
          "实际 " + str(n_full) + " 处：" + str([(f.name, codes[f].count(FULL)) for f in kts if FULL in codes[f]]))
     strays = [f.relative_to(AND).as_posix() for f in kts
               if FULL_CALL in codes[f] and f.relative_to(AND).as_posix() not in ALLOWED]
@@ -192,7 +201,7 @@ def main() -> int:
     c.ok("详情页里不带年份那一档还在用（TimeRow 本体那一处；少了＝有人把它也换了）",
          detail_code.count("formatDateTime(") >= 1, "n=" + str(detail_code.count("formatDateTime(")))
     c.ok("调用点算得出来（防「一处都没扫到也算对」）",
-         n_full - len(defs) == 3, "n=" + str(n_full - len(defs)))
+         n_full - len(defs) == 5, "n=" + str(n_full - len(defs)))
 
     c.section("6. 单测钉住了带年份那一档（含跨年翻转）")
     c.ok("单测里并排钉住了两档（同一时刻只差年份）",
