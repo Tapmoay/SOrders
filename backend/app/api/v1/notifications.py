@@ -126,6 +126,8 @@ def notify_price_change(
     _: User = Depends(require_permission(Permission.NOTIFICATION_MANAGE)),
 ) -> list[Notification]:
     """派单员：价格变更后向选定货主发送站内通知并推送 Socket。"""
+    from app.services.message_center import emphasis_payload  # 重点词只有发消息这一侧知道
+
     out: list[Notification] = []
     type_label = "默认价" if body.price_type == "default" else "特殊价"
     # 正文是**给人看的一句话** → 金额过 `money_text` 去尾零（`4.0500 → 4.05`、`5.00 → 5`）。
@@ -146,14 +148,23 @@ def notify_price_change(
             title=title,
             content=content,
             speech_important=False,
-            payload={
-                "product_id": body.product_id,
-                "product_name": body.product_name,
-                "price_type": body.price_type,
-                "old_price": old_s,
-                "new_price": str(body.new_price),
-                "product_image_url": body.product_image_url,
-            },
+            # FEAT-0019：**新价**是这张卡的重点。⛔ 走 `emphasis_payload` 这一个入口 ——
+            # 老字段（old_price / new_price …）一个都不动，只是**追加**一个 `emphasis` 键，
+            # 而且只在正文里真的出现时才收进去（客户端不猜哪个词重要）。
+            payload=emphasis_payload(
+                {
+                    "product_id": body.product_id,
+                    "product_name": body.product_name,
+                    "price_type": body.price_type,
+                    "old_price": old_s,
+                    "new_price": str(body.new_price),
+                    "product_image_url": body.product_image_url,
+                },
+                "price_change",
+                title,
+                content,
+                (new_s,),
+            ),
         )
         db.add(n)
         out.append(n)

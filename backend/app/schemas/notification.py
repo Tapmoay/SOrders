@@ -3,6 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models.notification import SEVERITY_INFO, SEVERITY_VALUES
 from app.schemas.text import MAX_TEXT
 
 
@@ -37,6 +38,13 @@ class NotificationOut(BaseModel):
     recipient_id: int
     category: str
     type: str
+    #: 严重度（FEAT-0019）：客户端**只在未读卡**上按它上色
+    #: （danger 红 / warn 橙 / info 常规；已读整条灰调）。取值与判定都只有一处：
+    #: 词汇表在 `models/notification.py`，判定在 `services/message_center.severity_for`。
+    severity: str = Field(
+        default=SEVERITY_INFO,
+        description="严重度：" + " | ".join(SEVERITY_VALUES),
+    )
     speech_important: bool
     title: str
     content: str

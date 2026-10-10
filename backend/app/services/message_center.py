@@ -14,6 +14,202 @@ from app.schemas.notification import NotificationOut
 from app.services.money_contract import has_per_order_pay
 from app.services.message_push import emit_to_user
 from app.services.money_text import money_text
+from app.models.notification import SEVERITY_DANGER, SEVERITY_INFO, SEVERITY_WARN
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 消息分级（FEAT-0019）：这张卡有多危险 · 哪几个字是重点
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# 用户口径（2026-10-11，逐字）：
+#   ·「消息（底部 Tab）……要按消息类型做颜色区别，而且**只有未读状态才有这个样式**」；
+#   ·「文字也要按风险程度着色……按风险程度分红 / 橙 / …（重要程度不同 → 文字颜色不同）」；
+#   · 追加修正（同日晚，原话）：「你的文字不能全部用颜色给他去搞出来……真正的重心是这几个字
+#     ……全是重点就是没有重点」。
+#
+# 落地成两个**互相独立**的事实，都由"发消息这一侧"（本模块）给出，客户端一个都不猜：
+#   ① `severity`：这张卡有多危险。**判定只有一处** = 下面的 `severity_for()`。
+#      客户端拿它决定被点名的词用什么颜色（danger 红 / warn 橙 / info 不上色）；
+#      而"只有未读才上样式"是客户端的事（已读整条灰调，连高亮一起去掉）。
+#   ② `payload["emphasis"]`：这条消息里**哪几个字 / 哪个数字是重点**。
+#      `emphasis_for()` 按 type 取这一类固定的"新闻词"，再加上发消息的人手上那几个具体值
+#      （单号 / 金额 / 人名），最后**只保留真的出现在标题或正文里的词**（找不到就一个都不标）。
+#      ⛔ 客户端不许自己猜重点词，也不许整行上色。
+#
+# ⚠️ 为什么死守"只有一处"：这两种事实一旦散到下面 20 多个调用点，同一条消息在不同路径上就会
+#    得到不同的档 —— 那是本项目在"权限判定散落各处"上已经栽过一次的形状。
+
+#: —— type → 严重度：**本表就是唯一的那一处判定** ——
+#: 表里查不到的 type 一律 `info`（`severity_for` 的兜底）。加新消息类型时**必须**在这里补一行：
+#: 漏了不会报错（安静地落到 info），但 `_tools/qa/_check_notification_severity.py` 会红 ——
+#: 它把代码里出现的每个通知 `type` 字面量都拿回来对这张表。
+#:
+#: 档位口径（对齐用户过目的那张 17 类样式表）：
+#:   · `danger`：**已经在亏 / 已经出事**（库存低于报警阈值、应收超额度、应付已逾期、异地新设备登录）
+#:   · `warn`  ：**不好但还没到最坏 / 需要人去看一眼**（撤销·删单·退货一族、库存偏低、应付临期、年检）
+#:   · `info`  ：正常流转（派单·接单·送达·收款到账·开票·价格调整·系统公告）
+SEVERITY_BY_TYPE: dict[str, str] = {
+    # ── 订单：正常流转 ───────────────────────────────────────────────────────
+    "order.assigned": SEVERITY_INFO,
+    "order.dispatched": SEVERITY_INFO,
+    "order.created": SEVERITY_INFO,
+    "order.driver_ack": SEVERITY_INFO,
+    "order.delivered": SEVERITY_INFO,
+    "order.delivered_driver": SEVERITY_INFO,
+    "order.delivered_dispatcher": SEVERITY_INFO,
+    "order.driver_ack_dispatcher": SEVERITY_INFO,
+    "order.restored": SEVERITY_INFO,
+    "order.navigation.filled": SEVERITY_INFO,
+    "order.edited": SEVERITY_INFO,
+    "order.freight.updated": SEVERITY_INFO,
+    # ── 订单：不好但还没到最坏（有人得去看一眼）──────────────────────────────
+    "order.revoked": SEVERITY_WARN,
+    "order.recalled": SEVERITY_WARN,
+    "order.cancelled": SEVERITY_WARN,
+    "order.cancelled_dispatcher": SEVERITY_WARN,
+    "order.deleted": SEVERITY_WARN,
+    "order.return_request": SEVERITY_WARN,
+    "order.return_request.rejected": SEVERITY_WARN,
+    "order.return_request.done": SEVERITY_WARN,
+    "order.return_request.closed": SEVERITY_WARN,
+    "order.returned": SEVERITY_WARN,
+    # ── 系统 / 维护：要派单员动手（订单被保留策略挡住、司机应付明细作废）──────
+    "order_purge_blocked": SEVERITY_WARN,
+    "driver_bill_cancelled": SEVERITY_WARN,
+    # ── 价格 / 导出 / 公告：通知性质 ─────────────────────────────────────────
+    "price_change": SEVERITY_INFO,
+    "ledger_export": SEVERITY_INFO,
+    "system": SEVERITY_INFO,
+    "system.notice": SEVERITY_INFO,
+    # ── 下面这些**今天还没有生产者**（库存预警、应付到期、发票、车辆年检、账号安全）──
+    #    先把名字与档位定下来：样式表（`_tmp/palette_demo/messages_all.html`，用户已过目）
+    #    里那 17 类，App 那一侧照着 `type` 上色、后端这边照着 `type` 定档，两边用同一套名字。
+    #    ⛔ 接生产者时**用这些名字**（别另起一个近义名），否则档位会安静地掉回 info。
+    "stock.low": SEVERITY_DANGER,             # 库存 ≤ 报警阈值（用户原话「库存不足……很危险」）
+    "stock.near_low": SEVERITY_WARN,          # 库存低于建议水位（今天只有 low_stock_alert 一个阈值）
+    "arrears.over_limit": SEVERITY_DANGER,    # 客户欠款超过额度
+    "payable.due_soon": SEVERITY_WARN,        # 应付临期（≤7 天）
+    "payable.overdue": SEVERITY_DANGER,       # 应付已逾期
+    "invoice.issued": SEVERITY_INFO,          # 发票已开具
+    "vehicle.inspection_due": SEVERITY_WARN,  # 车辆年检临期
+    "account.new_device_login": SEVERITY_DANGER,  # 异地 / 新设备登录
+    "account.device_unfrozen": SEVERITY_INFO,     # 账号已解冻
+}
+
+#: —— type → 这类消息里"该被点名"的**固定说法**（新闻词）——
+#: 只写确实会出现在标题或正文里的那几个字。数字 / 人名这类每条都不同的东西，由调用方通过
+#: `create_message(..., emphasis=(...))` 传进来；单号由 `payload["order_no"]` 自动进表。
+#: info 类只点"关键金额 / 单号"（用户口径），所以这里基本只有 warn / danger 类有行。
+EMPHASIS_BY_TYPE: dict[str, tuple[str, ...]] = {
+    "order.revoked": ("已被撤回",),
+    "order.recalled": ("已由派单员撤回",),
+    "order.cancelled": ("已取消",),
+    "order.cancelled_dispatcher": ("已撤销",),
+    "order.deleted": ("已被派单员删除",),
+    "order.edited": ("有改动",),
+    "order.delivered_dispatcher": ("已完成送达",),
+    "order.return_request": ("申请退货",),
+    "order.return_request.rejected": ("被驳回",),
+    "order.return_request.done": ("已办理",),
+    "order.return_request.closed": ("已自动关闭",),
+    "order.returned": ("退货了",),
+    "order_purge_blocked": ("没有被清理",),
+    "driver_bill_cancelled": ("作废",),
+    "price_change": ("价格调整",),
+    # 还没有生产者的那几类：写的是**将来那条文案里必须出现的字**，
+    # 对不上时过滤会把它丢掉（宁可不标，也不标错）。
+    "stock.low": ("库存不足",),
+    "stock.near_low": ("库存偏低",),
+    "arrears.over_limit": ("已超额度",),
+    "payable.due_soon": ("将到期",),
+    "payable.overdue": ("已逾期",),
+    "invoice.issued": ("已开具",),
+    "vehicle.inspection_due": ("年检",),
+    "account.new_device_login": ("新设备登录",),
+    "account.device_unfrozen": ("已解冻",),
+    "system.notice": ("系统公告",),
+}
+
+#: 一条消息最多点几处、单个重点词最长几个字。
+#: 用户口径「全是重点就是没有重点」—— 上限就是这条口径的机器化：宁可少标，不许标满。
+MAX_EMPHASIS = 4
+MAX_EMPHASIS_CHARS = 24
+
+
+def severity_for(message_type: str | None) -> str:
+    """**唯一一处严重度判定**：通知 type → `info` / `warn` / `danger`（FEAT-0019）。
+
+    ⛔ 只有这一处。别在调用点按标题 / 正文现猜，也别拿 `speech_important` 顶替
+    （那是"要不要念出来"）。表里查不到就返回 `info` —— 新消息类型忘了登记时的表现是
+    "普通消息"，而不是"假装很危险"。
+    """
+    return SEVERITY_BY_TYPE.get(str(message_type or "").strip(), SEVERITY_INFO)
+
+
+def emphasis_for(
+    message_type: str | None,
+    title: str | None,
+    content: str | None,
+    extra: tuple[str, ...] | list[str] | None = None,
+) -> list[str]:
+    """这条消息里该被点名的片段（有序、去重、**必须真的出现在标题或正文里**）。
+
+    顺序：先这一类固定的"新闻词"，再调用方给的具体值（金额 / 人名），单号由
+    `emphasis_payload` 从 payload 里补在最后。
+
+    ⛔ 三条不许（`_tools/qa/_check_notification_severity.py` 钉着）：
+      · 标题/正文里**找不到**的词不许标 —— 宁可一个都不标，也不许标错；
+      · 整条标题或整段正文本身不许当重点词（那就是用户否掉的"整行上色"）；
+      · 最多 `MAX_EMPHASIS` 处、单个词不超过 `MAX_EMPHASIS_CHARS` 字（一句话不是重点词）。
+    """
+    text = f"{title or ''}\n{content or ''}"
+    out: list[str] = []
+    for raw in list(EMPHASIS_BY_TYPE.get(str(message_type or "").strip(), ())) + list(extra or ()):
+        word = str(raw or "").strip()
+        if not word or word in out:
+            continue
+        if word not in text:
+            continue
+        if len(word) > MAX_EMPHASIS_CHARS:
+            continue
+        if word == (title or "").strip() or word == (content or "").strip():
+            continue
+        out.append(word)
+    return out[:MAX_EMPHASIS]
+
+
+def emphasis_payload(
+    payload: dict[str, Any] | None,
+    message_type: str | None,
+    title: str | None,
+    content: str | None,
+    extra: tuple[str, ...] | list[str] | None = None,
+) -> dict[str, Any] | None:
+    """把重点词写进 `payload["emphasis"]` —— 发消息这一侧的**唯一入口**。
+
+    · 有重点词 → 一定写进 payload（payload 为空就地建一个）；
+    · payload 本来就有、但没有重点词 → 写成 `[]`（**明确说"没有重点"**，
+      免得客户端把"后端忘了填"与"这条消息本来就没重点"混成一种）；
+    · payload 本来就是 None、也没有重点词 → 保持 None：⛔ 别凭空造一个 `{}` ——
+      「没有 payload 就只读」是客户端的既有口径（FEAT-0019 契约第 3 条），塞个空对象会改掉它。
+
+    ⚠️ 只是在 payload 上**追加**一个键：老字段（`order_id` / `old_price` / `new_price` …）
+      一个都不动 —— 旧 H5 的 `ShipperPriceNoticeBar.vue` 与 App 都在读它们。
+    """
+    order_no = ""
+    if isinstance(payload, dict):
+        order_no = str(payload.get("order_no") or "")
+    words = emphasis_for(
+        message_type,
+        title,
+        content,
+        tuple(extra or ()) + ((order_no,) if order_no else ()),
+    )
+    if not words and payload is None:
+        return None
+    out: dict[str, Any] = dict(payload) if payload else {}
+    out["emphasis"] = words
+    return out
 
 
 def count_unread(db: Session, recipient_id: int) -> int:
@@ -35,8 +231,17 @@ def create_message(
     payload: dict[str, Any] | None = None,
     speech_important: bool = False,
     idem_key: str | None = None,
+    emphasis: tuple[str, ...] | list[str] | None = None,
 ) -> Notification:
     """建一条站内信。
+
+    ### FEAT-0019：严重度与重点词都**从这里出去**（调用点只给数据，不给档）
+    - `severity`：本函数按 `type` **现算**（`severity_for`）。调用点**没有**这个参数 ——
+      ⛔ 不许哪个调用点自己判危险程度（那正是"同一件事两套判定"的开头）。
+    - `emphasis`：这条消息里"该被点名的具体值"（金额 / 人名），只有发消息的人手上才有。
+      这一类固定的新闻词由 `EMPHASIS_BY_TYPE` 按 type 给，单号从 payload 自动补，
+      最后一起过滤（正文里找不到的词一个都不标）写进 `payload["emphasis"]`。
+      颜色由 `severity` 决定，客户端不猜。
 
     ### 第二轮 R2-04：`idem_key` 是**幂等键**
     「同一条业务事实被投递两次」在本系统里是**设计内的正常情况**：发件箱的口径是至少一次
@@ -62,7 +267,11 @@ def create_message(
         type=type,
         title=title,
         content=content,
-        payload=payload,
+        # 重点词写进 payload（只是**追加**一个键，老字段一个都不动）
+        payload=emphasis_payload(payload, type, title, content, emphasis),
+        # 严重度现算：唯一判定在 `severity_for`；模型的列默认值还会给绕过本工厂的
+        # 构造路径（data_retention / ledger_export_worker / notifications 两个端点）兜一次。
+        severity=severity_for(type),
         speech_important=speech_important,
         idem_key=key,
     )
@@ -204,6 +413,8 @@ async def publish_order_freight_updated(db: Session, order_id: int) -> None:
         type="order.freight.updated",
         title="运费更新",
         content=content,
+        # 钱变了就是这张卡的重点（用户口径：数字属于"重心"那几个字）
+        emphasis=((money_text(fee),) if fee is not None else ()),
         payload={"order_id": order_id, "order_no": ono},
         speech_important=False,
         idem_key=f"order.freight.updated" + ":" + str(order_id),
@@ -224,6 +435,8 @@ async def publish_order_revoked(db: Session, driver_id: int, order_id: int, reas
         type="order.revoked",
         title="订单已撤回",
         content=f"订单 {ono} 已被撤回" + (f"：{reason}" if reason.strip() else "。"),
+        # 撤回**原因**是司机唯一能拿到的答复（没填就一个都不标 —— 过滤在 emphasis_for 里）
+        emphasis=(reason,),
         payload={"order_id": order_id, "order_no": ono, "reason": reason},
         speech_important=True,
         idem_key=f"order.revoked" + ":" + str(order_id),
@@ -387,6 +600,7 @@ async def publish_driver_ack_shipper(db: Session, shipper_id: int, order_id: int
         type="order.driver_ack",
         title="司机已接单",
         content=f"订单 {ono} 已由司机{driver_name or ''}确认。",
+        emphasis=(driver_name,),
         payload={"order_id": order_id, "order_no": ono},
         speech_important=False,
         idem_key=f"order.driver_ack" + ":" + str(order_id),
@@ -655,6 +869,7 @@ async def publish_return_request_closed(
             f"订单 {ono} 的退货申请已自动关闭：派单员在订单管理里直接办了退货，"
             f"退货金额 ¥{money_text(returned_amount)}。{note}"
         ),
+        emphasis=(f"¥{money_text(returned_amount)}",),
         payload=payload,
         speech_important=False,
         idem_key=f"order.return_request.closed" + ":" + str(request_id),
@@ -722,6 +937,7 @@ async def publish_return_request_to_dispatchers(db: Session, request_id: int) ->
             type="order.return_request",
             title="退货申请待处理",
             content=f"{who} 对订单 {ono} 申请退货：{_return_request_parts(req)}。核对后请办理或驳回。",
+            emphasis=(who,),
             payload=_return_request_payload(req, ono),
             speech_important=False,
             idem_key="order.return_request" + ":" + str(request_id),
@@ -749,6 +965,7 @@ async def publish_return_request_rejected(db: Session, request_id: int) -> None:
         type="order.return_request.rejected",
         title="退货申请被驳回",
         content=f"订单 {ono} 的退货申请被驳回：{req.reject_reason or '（未填原因）'}",
+        emphasis=(req.reject_reason or "",),
         payload=payload,
         speech_important=False,
         idem_key=f"order.return_request.rejected" + ":" + str(request_id),
@@ -803,6 +1020,7 @@ async def publish_return_request_done(
             f"订单 {ono} 的退货申请已办理：{_return_request_parts(req)}，"
             f"退货金额 ¥{money_text(returned_amount)}{refund_note}。{tail}"
         ),
+        emphasis=(f"¥{money_text(returned_amount)}",),
         payload=payload,
         speech_important=False,
         idem_key=f"order.return_request.done" + ":" + str(request_id),
@@ -865,6 +1083,7 @@ async def publish_order_returned_to_driver(
             f"订单 {ono} 退货了：{what}，退货金额 ¥{money_text(returned_amount)}{refund_note}。"
             f"{tail}这一趟你已经跑完，账单不会被退货改动（有疑问看「我的账单」里这一笔）。"
         ),
+        emphasis=(f"¥{money_text(returned_amount)}",),
         payload={
             "order_id": order_id,
             "order_no": ono,
