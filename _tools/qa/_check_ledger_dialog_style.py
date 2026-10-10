@@ -16,7 +16,7 @@ M3 的 `AlertDialog` 默认容器色 = `colorScheme.surfaceContainerHigh`；本�
   `shapes.extraLarge` ＋ `tonalElevation = 0.dp`），把**核销这一族** 5 处调用点迁过去
   （货主账本 3 处 ＋ 派单员账本 2 处）。槽位 / 文案 / 排版 / 交互一个字不动 —— 换的只是那层底。
 - **不动**：主题 token（`surfaceContainerHigh` 另有 6 处消费者：AI 聊天 4 ＋ 富文本引用块 1 ＋
-  消息未读底色 1；改它等于顺手改了那些页面）。
+  消息未读底色 0（2026-10-11 起消息卡片改用白底+阴影，不再消费这个 token）；改它等于顺手改了那些页面）。
 - ⚠️ **后续**：`DangerConfirmDialog` 与「其余 63 处裸 `AlertDialog(`」原本是本事项的边界，后来由
   台账 L-20 / **CHG-0064** 一次性收敛到本件（全库 68 处调用点全走 `CardAlertDialog`，本件体内那
   一行 `AlertDialog(` 成了**全库唯一**剩下的一处；`DangerConfirmDialog` 改成转发本件 ＋
@@ -97,7 +97,11 @@ UNTOUCHED = [(DETAIL, 8, "司机端订单详情"), (DISP_ORDERS, 5, "派单员�
 #:     （后来的人又加了一处消费者）。阈值停在 4 的话，反验那条「顺手改了 token 的消费者」
 #:     注入只把 5 减到 4、仍在阈值之上 ⇒ 判据不红、反验恒 MISS（实测踩到）。
 #:     这里按实测把阈值提到 5，让那条注入重新咬得住；意图一个字没变（消费者一处都不许少）。
-CONSUMERS = [(AI_RICH, 1, "富文本引用块底"), (AI_CHAT, 5, "AI 聊天 5 处"), (MSGS, 1, "消息未读底色")]
+#: 2026-10-11 随动（FEAT-0019 后续，用户口径）：消息卡片的**未读底色**被用户否掉了 ——
+#:    原话「以前是因为没有搞颜色才搞一个没读就有一层灰的灰尘遮罩；现在已经有颜色做区别了，所以不需要这个灰尘了」，
+#:    改成**白底 + 一层阴影**（MessagesScreen.kt 的 MESSAGE_CARD_SHADOW）⇒ MessagesScreen 对
+#:    surfaceContainerHigh 的消费从 1 处变成 **0 处**（阈值随之改为 0；token 本身与另外两个消费者一个字没动）。
+CONSUMERS = [(AI_RICH, 1, "富文本引用块底"), (AI_CHAT, 5, "AI 聊天 5 处"), (MSGS, 0, "消息未读底色（2026-10-11 起不再消费）")]
 REQUIRED_FILES = [COMP, SHIPPER, DISPATCHER, COLOR, THEME, AI_RICH, AI_CHAT, MSGS, CHG, REVERSE]
 
 #: ⛔ 数裸弹窗时必须排除 `Card` 前缀（`CardAlertDialog(` 里含子串 `AlertDialog(`），

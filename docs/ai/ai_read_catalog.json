@@ -1,6 +1,6 @@
 {
  "generated_by": "_gen_ai_read_catalog.py",
- "source_hash": "sha256:e70987694fc24662ffb8f57e628ba80eabd757eca45975dd5bda9f7779d28536",
+ "source_hash": "sha256:4be6cdba44bb2144bba1c54f782a898121ae1c93b8252fae707c81d7167620ac",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
   "read_endpoints": 90,
@@ -613,7 +613,7 @@
    "module_cn": "库存管理",
    "method": "get",
    "path": "/api/v1/inventory/summary",
-   "at": "backend/app/api/v1/inventory.py:222",
+   "at": "backend/app/api/v1/inventory.py:228",
    "auth": "权限:PRODUCT_MANAGE",
    "roles": [
     "dispatcher"
@@ -3029,7 +3029,7 @@
    "module_cn": "车辆管理",
    "method": "get",
    "path": "/api/v1/vehicles",
-   "at": "backend/app/api/v1/vehicles.py:282",
+   "at": "backend/app/api/v1/vehicles.py:341",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"

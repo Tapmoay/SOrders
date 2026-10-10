@@ -101,7 +101,10 @@ ROLE_CAPABILITIES: tuple[RoleCapability, ...] = (
         # ⚠️ 行号会随 import 漂移：FEAT-0010 在 vehicles.py 头部加了 `from app.api.v1.vehicle_categories
         #    import ensure_vehicle_category`（一行），门从 :79 挪到了 :80；FEAT-0012 又加了
         #    `from app.services import vehicle_depreciation as vdep`（一行），门再挪到 :81。
-        gate='backend/app/api/v1/vehicles.py:81',
+        #    还有 FEAT-0022：vehicles.py 里加了年检两格的清洗与「下次年检」计算（十几行），门再挪到 :98。
+        #    ⛔ 动 vehicles.py 顶部 import 或它前面任何一行，都要回来改这个数字 ——
+        #    判据 `_check_capability_unification.py` 会当场报「那一行不是角色门」。
+        gate='backend/app/api/v1/vehicles.py:98',
         why_not_permission='它的授权是**体内角色判断**（`_must_dispatcher`）而不是权限点 ——'
                             '属于那 35 处「体内门槛」棘轮里的一处；本轮不搬它（搬它要动端点鉴权）。',
         when_to_remove='体内门槛棘轮往下降、把它接成 `require_permission(...)` 的那一天。',

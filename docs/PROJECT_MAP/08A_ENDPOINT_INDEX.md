@@ -59,7 +59,7 @@
 - 「权限点反查」段末尾会列出**声明了却没任何端点引用**的权限点——改那些等于没改。
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
-<!-- source_hash: sha256:e84d6dd37ff8b22c30f3453675211c8194eb6d6ffcad092ca9e42d4cef286ea2 -->
+<!-- source_hash: sha256:6a1910ac9772174a7042a15ed88a7c976d688274fafc816cf271a0ab6288bc4c -->
 
 ## 全量端点（292 个，按文件分组）
 
@@ -223,7 +223,7 @@
 |---|---|---|---|---|
 | 1 | `GET /api/v1/inventory/movements` | `list_movements` | `backend/app/api/v1/inventory.py:62` | 权限:PRODUCT_MANAGE |
 | 2 | `POST /api/v1/inventory/movements` | `create_movement` | `backend/app/api/v1/inventory.py:105` | 权限:PRODUCT_MANAGE |
-| 3 | `GET /api/v1/inventory/summary` | `inventory_summary` | `backend/app/api/v1/inventory.py:222` | 权限:PRODUCT_MANAGE |
+| 3 | `GET /api/v1/inventory/summary` | `inventory_summary` | `backend/app/api/v1/inventory.py:228` | 权限:PRODUCT_MANAGE |
 
 ### `backend/app/api/v1/invoices.py` — 8 个
 
@@ -609,7 +609,7 @@
 | 11 | `POST /api/v1/users/{user_id}/restore` | `restore_user` | `backend/app/api/v1/users.py:565` | 权限:USER_MANAGE |
 | 12 | `GET /api/v1/users/{user_id}/devices` | `list_user_devices` | `backend/app/api/v1/users.py:658` | 权限:USER_MANAGE |
 | 13 | `POST /api/v1/users/{user_id}/devices/{binding_id}/unbind` | `unbind_user_device` | `backend/app/api/v1/users.py:676` | 权限:USER_MANAGE |
-| 14 | `POST /api/v1/users/{user_id}/devices/unbind-all` | `unbind_all_user_devices` | `backend/app/api/v1/users.py:710` | 权限:USER_MANAGE |
+| 14 | `POST /api/v1/users/{user_id}/devices/unbind-all` | `unbind_all_user_devices` | `backend/app/api/v1/users.py:716` | 权限:USER_MANAGE |
 
 ### `backend/app/api/v1/vehicle_categories.py` — 5 个
 
@@ -625,10 +625,10 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/vehicles` | `list_vehicles` | `backend/app/api/v1/vehicles.py:282` | 仅登录 + 体内仅允许:派单员 |
-| 2 | `POST /api/v1/vehicles` | `create_vehicle` | `backend/app/api/v1/vehicles.py:290` | 仅登录 + 体内仅允许:派单员 |
-| 3 | `PATCH /api/v1/vehicles/{vehicle_id}` | `update_vehicle` | `backend/app/api/v1/vehicles.py:342` | 仅登录 + 体内仅允许:派单员 |
-| 4 | `POST /api/v1/vehicles/{vehicle_id}/driver` | `set_vehicle_driver` | `backend/app/api/v1/vehicles.py:424` | 仅登录 + 体内仅允许:派单员 |
+| 1 | `GET /api/v1/vehicles` | `list_vehicles` | `backend/app/api/v1/vehicles.py:341` | 仅登录 + 体内仅允许:派单员 |
+| 2 | `POST /api/v1/vehicles` | `create_vehicle` | `backend/app/api/v1/vehicles.py:349` | 仅登录 + 体内仅允许:派单员 |
+| 3 | `PATCH /api/v1/vehicles/{vehicle_id}` | `update_vehicle` | `backend/app/api/v1/vehicles.py:407` | 仅登录 + 体内仅允许:派单员 |
+| 4 | `POST /api/v1/vehicles/{vehicle_id}/driver` | `set_vehicle_driver` | `backend/app/api/v1/vehicles.py:505` | 仅登录 + 体内仅允许:派单员 |
 
 ### `backend/app/extensions/pricing/api.py` — 1 个
 
@@ -646,10 +646,10 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:411` | **公开** |
-| 2 | `GET /health` | `health` | `backend/app/main.py:449` | **公开** |
-| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:463` | **公开** |
-| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:488` | **公开** |
+| 1 | `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:447` | **公开** |
+| 2 | `GET /health` | `health` | `backend/app/main.py:485` | **公开** |
+| 3 | `GET /metrics` | `metrics` | `backend/app/main.py:499` | **公开** |
+| 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:524` | **公开** |
 
 ## 权限点反查（改一个权限点影响哪些端点）
 
@@ -730,10 +730,10 @@ _（无重复注册）_
 | `GET /api/v1/orders/{order_id}` | `get_order` | `backend/app/api/v1/orders_query.py:280` |
 | `GET /api/v1/pricing/quote` | `quote` | `backend/app/extensions/pricing/api.py:54` |
 | `GET /api/v1/unit-conversion/preview` | `preview` | `backend/app/extensions/unit_conversion/api.py:42` |
-| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:411` |
-| `GET /health` | `health` | `backend/app/main.py:449` |
-| `GET /metrics` | `metrics` | `backend/app/main.py:463` |
-| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:488` |
+| `GET /static/uploads/{file_path:path}` | `static_uploads` | `backend/app/main.py:447` |
+| `GET /health` | `health` | `backend/app/main.py:485` |
+| `GET /metrics` | `metrics` | `backend/app/main.py:499` |
+| `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:524` |
 
 ### 3. 仅登录、且检测不到任何角色/权限约束：17 个
 
