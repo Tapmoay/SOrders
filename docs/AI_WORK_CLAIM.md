@@ -31,6 +31,13 @@
 
 ## 进行中
 
+### [2026-10-10 23:3x → ⏳ 进行中] 会话：**CHG-0109 批量操作页加「固价（不参与打折）」＋ FEAT-0016 AI 也能设固价**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+- 用户口径（逐字）：「商品管理呃为什么没有一个叫做涉批量设置里面没有批量估价……要么有那个估价的功能嘛，就是不参与打折」＋「还有 ai 那边也要有这样子的作用……他可以直接接管这个操作」（他口语里把它叫「**固价**」；系统规范词是「不参与打折」，同一个 `products.no_discount`）。
+- 改哪些文件：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductBatchScreen.kt`、`ai/AiWrite.kt`、`ai/AiWriteMasterData.kt`、`ai/AiResources.kt`、`android/app/src/test/java/com/tapmoay/sorders/ai/AiWriteTest.kt`、新判据 `_tools/qa/_check_fixed_price_no_discount.py` 与 `_tools/qa/_reverse_verify_fixed_price_no_discount.py`、`docs/changes/CHG-0109.md`、`docs/changes/FEAT-0016.md`、`docs/changes/README.md`、本文件。
+- **明确不碰**：`backend/**`（一个字节都不改）、折扣算法 `services/order_discount.py`、`ProductUpdateRequest` 的其它字段、商品编辑页那个勾选框、别的 AI 动作的卡片与风险档，以及别的会话正在改的文件（`ui/theme/**`、`res/drawable/**`、`docs/changes/CHG-0107/0108`）。
+
+
 ### [2026-10-10 立项 → ⏳ CST 进行中] 会话：**CHG-0108 桌面图标与启动画面跟上 App 的配色**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
 
 `用户口径`（逐字，ref **m00879**）：「**既然我们的图标改成了这个颜色那我们手机桌面上的图标也要改一下包括加载动画也就是我们一开始进app的那个预加载动画也要改一下。**」；同一条消息附了一张图：登录页那枚 LOGO（淡绿圆角方块 ＋ 墨绿货车）。
