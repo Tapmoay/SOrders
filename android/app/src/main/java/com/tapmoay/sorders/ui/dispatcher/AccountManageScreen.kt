@@ -675,13 +675,21 @@ private fun AccountSecretRow(
     }
 }
 
-/** 角色标签配色：浅底 + 深字（与其他页面包章风格一致） */
+/**
+ * 角色标签配色：浅底 + 深字（与其他页面包章风格一致）。
+ *
+ * ⚠️ 2026-10-11 CHG-0111（用户在真机上点出来的）：这一版之前三个司机的配色是
+ * **各写各的**，其中「挂车司机」是 `#FFDE9B` 底 + `#FF0F00` 字 —— **琥珀底 + 纯红字**，
+ * 在一个把红色留给「危险/异常」的界面里，它看起来像个报错章，而且和旁边几个章
+ * 完全不是一套色（用户的逐字反馈：「他那个显示的是不是非常的不好啊，那个字迹颜色不匹配啊」）。
+ * 现在：**三种司机共用一套「司机绿」**（同一个身份不该有三种颜色），
+ * 车型由**文字**（小车/大车/挂车司机）区分，不靠色相；其它角色照旧（派单员蓝／货主青／批发商琥珀）。
+ * ⛔ 再改这里之前先看这条：红色与」危险」在本仓库是绑定的，别把它给一个正常角色当底色文字。
+ */
 private fun labelColors(u: UserDto): Pair<Color, Color> = when {
     u.role == "dispatcher" -> Color(0xFFD4EAFF) to Color(0xFF004CDB)
-    u.role == "driver" && u.vehicleType == "trailer" -> Color(0xFFFFDE9B) to Color(0xFFFF0F00)
-    u.role == "driver" && u.vehicleType == "large" -> Color(0xFFEFF6AE) to Color(0xFF817800)
-    u.role == "driver" && u.vehicleType == "small" -> Color(0xFFD7F9FD) to Color(0xFF00646A)
-    u.role == "driver" -> Color(0xFFEFF6AE) to Color(0xFF817800)
+    // 三种司机同一个绿（浅底 0xFFDCF2E6 / 深字 0xFF0B5C3B）：车型靠文字区分，不靠颜色。
+    u.role == "driver" -> Color(0xFFDCF2E6) to Color(0xFF0B5C3B)
     u.isMember -> Color(0xFFFFF1B2) to Color(0xFF805700)
     else -> Color(0xFFCAF5FF) to Color(0xFF005D89)
 }

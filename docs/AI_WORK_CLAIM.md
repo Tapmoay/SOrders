@@ -31,6 +31,13 @@
 
 ## 进行中
 
+### [2026-10-11 00:5x → ⏳ 进行中] 会话：**CHG-0111 账户管理页角色标签配色修正（三种司机统一绿地）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+- 用户口径（逐字，真机 USB 连的是 `72e5048`）：「你接一下我真机的图片，你看一下，你这个挂着司机呃他那个呃显示的是不是非常的不好啊，那个字迹颜色不匹配啊」＋「我说的是我连接u s b的那个真机耶」。
+- 改哪些文件：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/AccountManageScreen.kt`（`labelColors` 三种司机合并为一套绿 + 注释写明「别把红色给正常角色」）、`VERSION`（0.2.9→0.2.10）、`docs/changes/CHG-0111.md`、`docs/changes/README.md`、本文件。
+- **明确不碰**：角色判定（`AccountRoleKind.fromDto` 的 `trailer/large/small` 三码）、其它角色配色、`ui/profile/ProfileHeader.kt` 的深色头部、后端与数据。
+
+
 ### [2026-10-10 23:3x → ⏳ 进行中] 会话：**CHG-0109 批量操作页加「固价（不参与打折）」＋ FEAT-0016 AI 也能设固价**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 - 用户口径（逐字）：「商品管理呃为什么没有一个叫做涉批量设置里面没有批量估价……要么有那个估价的功能嘛，就是不参与打折」＋「还有 ai 那边也要有这样子的作用……他可以直接接管这个操作」（他口语里把它叫「**固价**」；系统规范词是「不参与打折」，同一个 `products.no_discount`）。
