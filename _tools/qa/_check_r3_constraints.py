@@ -58,6 +58,7 @@ ROOT = Path(__file__).resolve().parents[2]
 #: ⛔ 判据与反向验证都从这里 import —— 两份正则一定会走散。
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _milestone_tag import (  # noqa: E402
+    KNOWN_NO_ID,
     R3_WINDOW_TAG,
     V2_MARKER,
     duplicate_tags,
@@ -456,6 +457,15 @@ def probe_commit_milestone_tag() -> tuple[str, str]:
     · **不许重号**：v2 生效之后每条提交的编号必须唯一（v1 时代 `R4-09` 被四条提交用过，
       「提交标签是施工账本的索引」这件事就失效了）。
     ⛔ 唯一性**不翻旧账**：v2 生效点 = 标题里写着 ` + V2_MARKER + ` 的那条提交。
+
+    ⭐ 2026-10-10：**没有编号的提交**多了第二条出路 —— 登记进 `_milestone_tag.py` 的
+    `KNOWN_NO_ID`（短哈希 → 一句话「为什么它不是开发事项」）。它与正文那句「无 ID：<理由>」
+    是同一件事的两种记法：**写下来才算数**，⛔ 理由空着不算豁免（空理由照样红）。
+    ⛔ 这张表是**只减不增**的临时账：条目一旦不再命中就必须删掉，否则等于把「忘了编号」
+    永久合法化 —— 所以探针里带一段**化石防御**：表里的键在窗口内一个提交都找不到时，
+    这一条判据报红并点名那个键（哈希写错 / 提交被 rebase 掉，两种都要当场看见）。
+    ⛔ 它**不是**「忘了编号」的合法化通道：表里记的都是**已经发生、已经查清**的历史提交，
+    一个新提交想靠往表里塞一行来变绿，首先过不了化石防御（那一行对不上任何提交）。
     """
     base = base_commit()
     if not base:
@@ -482,20 +492,52 @@ def probe_commit_milestone_tag() -> tuple[str, str]:
     # ⛔ 没有 ID 的提交**只有一种**合法情形：它根本不是开发事项（例如把环境摆好、拉模拟器），
     #    而且**必须在正文里写明理由** —— 正文里没有那句「无 ID：<理由>」，照样红。
     #    与仓库里「证据档要写全四格」「核心改动要写为什么」是同一条纪律：**写下来才算数**。
+    # ---- 豁免表 `KNOWN_NO_ID` 的两道健康检查（化石防御 + 不许空理由）-------------------
+    # 用户 2026-10-10 的口径：「这张表是**只减不增**的临时账，条目一旦不再命中就必须删掉，
+    # 否则等于把「忘了编号」永久合法化。」—— 这句话得有人真的盯着，所以有化石防御这一段。
+    # ⚠️ 两道检查都排在判提交**之前**：豁免表的键写错时，先要看见的是「这张表本身坏了」，
+    #    而不是被它顺手放过去的那条提交 —— `bad_later` 里那一条只是这个坏键的影子。
+    short_of_all = [s.split(" ", 1)[0] for s in subs]
+    blank_why = sorted(k for k, why in KNOWN_NO_ID.items() if not why.strip())
+    if blank_why:
+        return "broken", ("豁免表 KNOWN_NO_ID 里有 " + str(len(blank_why)) + " 条**理由空着**"
+                          "（豁免必须写清「为什么它不是开发事项」—— 空理由不算数）："
+                          + "、".join(blank_why))
+    fossil_keys = sorted(k for k in KNOWN_NO_ID
+                         if not any(h == k or h.startswith(k) or k.startswith(h) for h in short_of_all))
+    if fossil_keys:
+        return "broken", ("豁免表 KNOWN_NO_ID 里有 " + str(len(fossil_keys)) + " 条是**化石**"
+                          "（基线以来没有任何提交对得上它 —— 哈希写错了？提交被 rebase 掉了？）："
+                          + "、".join(fossil_keys)
+                          + " —— ⛔ 这张表是只减不增的临时账：条目一旦不再命中就必须删掉，"
+                            "否则等于把「忘了编号」永久合法化")
     bad_later = []
-    exempted = 0
+    exempted: list[tuple[str, str]] = []
+    wrote_no_id = 0
     for s in later:
         if milestone_tag_of(s):
             continue
-        code_b, body = git("log", "-1", "--format=%b", s.split(" ", 1)[0])
+        h = s.split(" ", 1)[0]
+        code_b, body = git("log", "-1", "--format=%b", h)
         if code_b == 0 and re.search(r"无\s*ID\s*[：:]\s*\S", body or ""):
-            exempted += 1
+            wrote_no_id += 1
+            continue
+        why = next((w.strip() for k, w in KNOWN_NO_ID.items()
+                    if (h == k or h.startswith(k) or k.startswith(h)) and w.strip()), "")
+        if why:
+            exempted.append((h, why))
             continue
         bad_later.append(s)
+    # 用户要求「判据要打印『豁免 N 条』」+ 逐条短哈希与理由：`exempt_line` 拼在两处 hold 的末尾。
+    exempt_line = ("；豁免 " + str(len(exempted)) + " 条"
+                   + ("（" + "；".join(h + " " + why for h, why in exempted) + "）" if exempted else ""))
+    if wrote_no_id:
+        exempt_line += "；另有 " + str(wrote_no_id) + " 条在正文写了「无 ID：<理由>」"
     if bad_later:
         return "broken", (str(len(bad_later)) + " 个提交没有可回溯的编号"
                           "（形状 = R<3-9>-<两位数字> 或 FEAT/CHG/BUG/GOV-四位数字；"
-                          "非开发事项要在正文写「无 ID：<理由>」）：" + bad_later[0][:60])
+                          "非开发事项要在正文写「无 ID：<理由>」，或登记进 _milestone_tag.py 的 "
+                          "KNOWN_NO_ID）：" + bad_later[0][:60] + exempt_line)
 
     # ---- 规矩 3（v2 新增）：**不许重号**（用户 2026-09-27：「每个 R4 阶段提交必须有唯一 milestone tag」）
     # 理由（用户原话）：「**提交标签本身就是架构施工账本的索引**」—— v1 时代 R4-09 被四条提交用过，
@@ -506,7 +548,8 @@ def probe_commit_milestone_tag() -> tuple[str, str]:
     head_line = (str(len(subs)) + " 个提交都标了里程碑编号（R3 窗口内 " + str(len(in_r3))
                  + " 个标 R3-xx；收口之后 " + str(len(later)) + " 个标 R4 及以后）")
     if not marker:
-        return "hold", head_line + "；⚠️ 唯一性棘轮还没生效（还没有写着 " + V2_MARKER + " 的提交）"
+        return "hold", (head_line + "；⚠️ 唯一性棘轮还没生效（还没有写着 " + V2_MARKER + " 的提交）"
+                        + exempt_line)
     marker_hash = marker.split(" ", 1)[0]
     code3, out3 = git("log", "--format=%h %s", marker_hash + "..HEAD")
     if code3 != 0:
@@ -519,7 +562,7 @@ def probe_commit_milestone_tag() -> tuple[str, str]:
                           + " —— 每条提交要有唯一的里程碑编号（用户 2026-09-27 拍板："
                             "提交标签是施工账本的索引，重号之后它就失效了）")
     return "hold", (head_line + "；v2 生效点（" + marker_hash + "）之后 " + str(len(rows))
-                    + " 条提交的编号互不重复")
+                    + " 条提交的编号互不重复" + exempt_line)
 
 
 def probe_exit_condition_ledger() -> tuple[str, str]:
