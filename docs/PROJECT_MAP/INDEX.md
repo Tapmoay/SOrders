@@ -256,6 +256,7 @@ cd frontend; npm install; npm run build   # vue-tsc + vite（H5 本轮才第一�
 | 文档 | 内容 |
 | --- | --- |
 | [../HINT_STYLE.md](../HINT_STYLE.md) | 界面「提示与说明」书写规范（三端通用） |
+| [../MESSAGE_CARD_DESIGN.md](../MESSAGE_CARD_DESIGN.md) | **消息卡片设计规范**（类型色 / 风险色 / 重点词 / 深链）——**加一类消息前必读**（FEAT-0019） |
 | [09A_HINT_CATALOG.md](09A_HINT_CATALOG.md) | 界面提示与说明**目录**（⚠️ **机器生成，勿手改**：`python _tools/qa/_hint_inventory.py --md`） |
 
 ### H · 方案与设计稿（**未拍板 / 待执行**）
