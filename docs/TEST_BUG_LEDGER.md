@@ -52,7 +52,7 @@
 | TB-09 | B | 客户收款登记之后没有任何撤销/红冲入口：报错文案让用户「联系管理员在账上冲正」… | 可疑 | **已修复 6809393** | 派单员在账本里登记一笔客户收款（POST /api/v1/ledger/receipts）会一次写三处：shipper_r… | backend/app/api/v1/ledger.py:734<br>backend/a… | _tmp/test_round3/evidence_TB09_receipt_… |
 | TB-10 | B | 账本行的「合计」能写成与 数量×单价 不符的值：AI「改合计金额」只传 tot… | 可疑 | **已修复 47ccdf0** | 手工记账建的行（quantity=3、unit_price=20.00，total 自动为 60.0000）再用 PATC… | backend/app/api/v1/ledger.py:464-467<br>andro… | _tmp/test_round3/evidence_TB10_ledger_t… |
 | TB-11 | B | AI 写留痕可以被任何登录客户端（乃至人手工）伪造：X-SOrders-Ori… | 可疑 | 已复现 | 后端判断「这次写是 AI 干的」只看请求头 X-SOrders-Origin: ai（backend/app/core/c… | backend/app/core/ai_operation.py:24<br>backen… | _tmp/test_round3/ai_out/ai_header_probe… |
-| TB-12 | B | 部分核销的收款单撤销后再恢复：订单一付款标志被误翻成已收款（剩余欠款再也收不进… | 堵死 | 已复现 | 一张已送达、只欠 124.00 的挂账单，用「按商品核销」收了 75.00 后订单仍是未收款（对）；把这张收款单撤销、再恢… | backend/app/api/v1/ledger.py:1142-1145 | _tmp/test_round4/runlog/receipt644_rest… |
+| TB-12 | B | 部分核销的收款单撤销后再恢复：订单一付款标志被误翻成已收款（剩余欠款再也收不进… | 堵死 | **已修复 d3b4e37** | 一张已送达、只欠 124.00 的挂账单，用「按商品核销」收了 75.00 后订单仍是未收款（对）；把这张收款单撤销、再恢… | backend/app/api/v1/ledger.py:1142-1145 | _tmp/test_round4/runlog/receipt644_rest… |
 | TB-13 | B | 销项票挂不上「送达自动记账」的应收行：ledgers.customer_id … | 可疑 | 已复现 | POST /api/v1/invoices（direction=OUTPUT, invoice_no=R4C-INV-10… | backend/app/services/ledger_sync.py:52-68<br>… | _tmp/test_round4/out_invoice2.txt；_tmp/… |
 | TB-14 | B | 滚动收款（不绑单）只进现金流水：欠款表/预收/挂账汇总/营业额一分钱都不冲，客… | 错数 | 已复现 | 订单 645 已送达、欠 124.00。POST /api/v1/ledger/receipts {customer_id… | backend/app/services/reports/balance_query.py… | _tmp/test_round4/out_rolling_balance.tx… |
 | TB-15 | B | 结算单付款的 paid_at 被静默丢弃：传 2026-09-30 付款，现金… | 可疑 | 已复现 | PATCH /api/v1/driver-settlements/58 {action:pay, method:cash,… | backend/app/api/v1/driver_settlements.py:149<… | _tmp/test_round4/out_settle.txt；_tmp/te… |
@@ -423,13 +423,14 @@
 
 ### TB-12 · 部分核销的收款单撤销后再恢复：订单一付款标志被误翻成已收款（剩余欠款再也收不进来）
 
-- 严重度：堵死　／　状态：已复现　／　记录：2026-10-10 10:58 CST
+- 严重度：堵死　／　状态：已修复 d3b4e37　／　修复：2026-10-10（BUG-0033）　／　记录：2026-10-10 10:58 CST
 - 现象：一张已送达、只欠 124.00 的挂账单，用「按商品核销」收了 75.00 后订单仍是未收款（对）；把这张收款单撤销、再恢复，订单立刻变成 paid=1/payment_method=cash，但同一响应里 arrears_amount 还是 49.00、settled_amount 只有 75.00 —— 一张单同时说自己已收清、又还欠 49。副作用：①剩余 49 元再也收不进来（逐单核销接口 400「已经收过款了…不能重复收款」，只能走不绑单的「滚动收款」，这 49 会永久挂在单上）；②挂账单位汇总报表（/reports/arrears-summary）按 paid=False 过滤，这张还欠 49 的单整条消失（金额少 124.00 而不是 49.00），与营业额的 arrears_total（仍含这 49）分叉。
 - 复现：① 建一张已送达未收款的单（本例 orders.id=644，货值 124.00）；② POST /api/v1/ledger/receipts {customer_id:41, amount:75.00, method:cash, order_ids:[644], order_product_ids:[1203], settle_mode:itemized, received_at:2026-10-10} → 200，receipt id=38，此时 GET /api/v1/orders/644 仍是 paid=false、arrears_amount=49.00（正确）；③ DELETE /api/v1/ledger/receipts/38 → 204；④ POST /api/v1/ledger/receipts/38/restore → 200；⑤ GET /api/v1/orders/644 → paid=true、payment_method=cash、settled_amount=75.00、arrears_amount=49.00（自相矛盾）；⑥ 再 POST /api/v1/ledger/receipts 收剩余 49（整单或按行两种写法）→ 均 400「已经收过款了…」。整单核销的收款单（receipt id=37）同样三步走完全对称，不触发。
 - 期望：恢复收款单只应恢复它自己的流水与收款单，并按 create_receipt 的同一判据决定本次是否结清这张单：仅当该单已收金额 >= 应收（settling）才 paid=True。部分核销恢复后订单应仍是 paid=false、arrears_amount=49.00，剩余 49 可以用逐单核销正常收。
 - 实际：恢复端点无条件把所选订单翻成已收款：backend/app/api/v1/ledger.py:1142-1145 or oid in order_ids: o.paid = True; o.payment_method = ...，缺 settling 判据（对照 backend/app/services/accounting_service.py:482 settling = [oid for oid in order_ids if per_order[oid] >= money[oid].arrears]）。恢复时其余 50 个变化键都正确回补（turnover.day.collected 248→323、cash.sum.day.income 124→199、custbal balance 72658.40→72583.40、ship.ledger.unpaid 248→173、turnover.day.arrears_total 154→79），唯一分叉是 paid 标志与由它派生的挂账单位汇总（arrears-summary [sum].amount 1490.4→1366.4、count 15→14）。
 - 证据：_tmp/test_round4/runlog/receipt644_restore_partial_BUG.json
 - 定位：`backend/app/api/v1/ledger.py:1142-1145`
+- 补充（2026-10-10，已修复）：**提交 `d3b4e37`（变更单 docs/changes/BUG-0033.md）**。改法：恢复分支先取「撤销那一步翻过哪几张单」——审计 RECEIPT_CANCEL 的 payload.orders_rolled_back（新函数 _cancel_rolled_orders，按 receipt_id 精确匹配），只把**名单里**的订单翻回已收款；撤销时没翻过的（按商品部分核销、本来就还没收清）一个字段都不动。找不到名单时返回空集（不翻）——宁可让用户再收一次，也不要「欠着钱却显示已收」。创建侧的 settling 判据、撤销侧行为、恢复的四道门、出参与表结构一律未动。证据：单测 backend/tests/test_receipt_partial_restore.py 3 passed（拿掉闸门 → 1 failed，断言逐字「恢复把还欠着 40 的单翻成了已收款（TB-12：这 40 永远收不回来）」）、BUG-0029 老用例两文件 10 passed、判据 _tools/finance/_check_receipt_restore_settling.py 18/18（改前源码上 8 条不成立）、反验 7/7 全红且逐字节还原。
 
 ### TB-13 · 销项票挂不上「送达自动记账」的应收行：ledgers.customer_id 全仓没有写入入口，报错却让人去账本里补客户
 

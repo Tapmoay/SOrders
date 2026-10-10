@@ -8262,3 +8262,12 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 - 核心改动：**无** —— 为什么：`backend/app/api/v1/shipper.py` 不在 `_tools/qa/_core_files.txt` 里，本单只改恢复端点写回的一个字段
 - 证据：单测 3 passed（临时去掉修复 → 1 failed）、判据 16/16（改前源码上 6 条不成立）、反验 6/6 全红且逐字节还原
 - 实现提交：`947cef9`
+
+## BUG-0033 · 部分核销的收款恢复会误标已收款（已关闭）
+
+- 谁 / 什么时候：父会话（`session-bd8fe093-…`）2026-10-10（修第 4 轮台账 TB-12；病灶由方向 B 普查 agent 345778dc 发现）
+- 改哪些文件：`backend/app/api/v1/ledger.py`、`backend/tests/test_receipt_partial_restore.py`、`_tools/finance/_check_receipt_restore_settling.py`、`_tools/finance/_reverse_verify_receipt_restore_settling.py`、`docs/changes/BUG-0033.md`、README 表行、本文件、TEST_BUG_LEDGER 的 TB-12 行与详情块
+- 明确不碰：`backend/app/services/accounting_service.py`（创建侧 settling 判据一个字节不动）、撤销端点行为与审计字段名、恢复的四道门与文案、出参 ShipperReceiptOut、表结构、四个落点的算法
+- 核心改动：**无** —— 为什么：`backend/app/api/v1/ledger.py` 不在 `_tools/qa/_core_files.txt` 里（但按 L2「钱」域走了判据＋反验＋单测＋红证）
+- 证据：单测 3 passed（拿掉闸门 1 failed）、BUG-0029 老用例两文件 10 passed、判据 18/18（改前 8 条不成立）、反验 7/7 全红且逐字节还原
+- 实现提交：`d3b4e37`
