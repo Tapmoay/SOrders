@@ -31,6 +31,20 @@
 
 ## 进行中
 
+### [2026-10-11 02:4x → ⏳ 进行中] 会话：**FEAT-0020 给货主 / 批发商补上 AI 工作流（只读工作流 ＋ 货主 5 条 ＋ 批发商 1 条，写动作全部取自各自白名单）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径`（2026-10-11 逐字）：「**为什么我们的货主或者批发商他的 AI 没有对应的技能和工作流呢，也是要具备的哦**」＋「这个任务没关系，你多开一个吧」
+
+`改哪些文件`：`android/app/src/main/java/com/tapmoay/sorders/ai/AiWorkflow.kt`（登记表 8 条 ＋ `nextAction`/`ask` 可空 ＋ `readOnly` ＋ `memberOnly` ＋ `forActor`/`allows`）、`android/app/src/main/java/com/tapmoay/sorders/ai/AiWorkflowRunner.kt`（6 个执行分支 ＋ 只读出口 `readOnlyOut` ＋ `refused` ＋ `ReadResult.value`）、`android/app/src/main/java/com/tapmoay/sorders/ai/AiTools.kt`（`runWorkflowSpec(actor)` 动态 schema ＋ 角色门改 `allows`）、`android/app/src/main/java/com/tapmoay/sorders/ai/AiRolePrompt.kt`（`brief()` 里加「一条龙的活」那一段）、`android/app/src/test/java/com/tapmoay/sorders/ai/AiWorkflowTest.kt`、`android/app/src/test/java/com/tapmoay/sorders/ai/AiWorkflowRunnerTest.kt`、`_tools/qa/_check_shipper_ai_workflows.py`（新）、`_tools/qa/_reverse_verify_shipper_ai_workflows.py`（新）、`_tools/qa/_check_ai_workflow.py`（跟新形状改锚点）、`_tools/qa/_reverse_verify_ai_workflow.py`（锚点跟改）、`docs/changes/FEAT-0020.md`（新）、`docs/changes/README.md`、`docs/AI_WORK_CLAIM.md`。
+
+**明确不碰**：`android/app/src/main/java/com/tapmoay/sorders/ui/messages/**` 与 `backend/app/services/message_center.py`（FEAT-0019 的两个会话在做）；`AccountManage*`、`ui/profile/**`、`ui/login/**`；派单员那两条工作流的语义；**后端一个文件都不改**（不新开写动作、不新开读接口）。
+
+`核心改动`：**无** —— 为什么：本轮没有碰 `_tools/qa/_core_files.txt` 里的任何文件；改动全在 `ai/` 的应用层（工作流编排、工具 schema、提示词）与判据/文书里。
+
+`判据 / 反验`：`_check_shipper_ai_workflows.py` **全绿**（货主 5 / 批发商货主 6 / 派单员 2 / 认不出角色 0；只读那两条没有 next/ask；**每条交棒的写动作都在对应角色的白名单里**；每个步骤都在这个角色能读的表里）＋ 反验 `_reverse_verify_shipper_ai_workflows.py` **8/8 被抓**（逐字节还原）；`_check_ai_workflow.py` **182/182**（老两条的语义未动）＋ 它的反验锚点已跟改；单测 `:app:testEmuDebugUnitTest --tests "*AiWorkflow*"` 全绿；`:app:compilePhoneDebugKotlin` BUILD SUCCESSFUL。
+
+- 状态：⏳ **进行中**（实现 / 判据 / 反验 / 单测 / 编译已绿；真机走查与提交待做）
+
 ### [2026-10-11 02:2x → ⏳ 进行中] 会话：**CHG-0114 AI 推荐问题跟着角色走（三档助手身份 ＋ 首次/常规两档预设 ＋ 按习惯排前面并能固定）**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
 
 `用户口径`（2026-10-11 逐字，ref **m01175**）：「我们 ai 那个**我是货主助手**要随着角色而发生改变啊。而目前只有 3 个派单元呃货主还有批发商这 3 个就够了，然后我们对应的下面不是有预设的一些问题吗？这些问题要跟着角色来进行变的比如说假如这个角色是第一次来那他应该会涉及到哪些问题啊，那像有些人他一开始连订单什么都没有肯定不会有这些问题啦比如说呃帮我下单啊创建联系人啊创建地址肯定是这些问题或者是这些要求包括我们其实也可以在设置当中他自己手动的去编辑一些呃首次的问题预设而且也支持在之后的聊天过程当中……他可以在典型那里然后再选择……然后就可以直接发送省得它每次都要呃都要去那样子搞嘛……我们随着他的使用习惯，他经常问什么问题会提前的呃把它显示出来。当然，他也可以去固定啊，我这个问题，就固定在这里，这也是可以的」；配图 ref **m01174**（改前的空状态：`我是货主助手` ＋ 4 条写死的问题）。
