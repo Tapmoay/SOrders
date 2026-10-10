@@ -34,6 +34,13 @@ REQUEST_ONLY: dict[str, str] = {
         "浏览器读不到也不需要读它。**哪天客户端开始读这个响应头（比如后端回显它），删掉这一条、"
         "并把它加进 expose_headers。**"
     ),
+    "x-device-id": (
+        "**请求**头（App → 后端）：这台设备的身份（`install_id` + 服务端签的短签名，"
+        "android 的 core/DeviceId.kt ↔ 后端的 services/device_service.py，2026-10-11 FEAT-0018）。"
+        "它只在**请求**方向上出现：后端拿它做账号↔设备绑定与风控（账号最多 3 台、设备最多 5 个账号），"
+        "从不回显、浏览器也读不到也不需要读。**哪天客户端开始读这个响应头（比如后端回显它），"
+        "删掉这一条、并把它加进 expose_headers。**"
+    ),
     "x-sorders-ai-action": (
         "**请求**头（App → 后端）：这一次 AI 动作是哪一个（动作 id），后端据此写 "
         "`ai_operation_logs.action`（android 的 core/ClientOrigin.kt ↔ 后端的 core/client_origin.py，"
