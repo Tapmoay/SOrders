@@ -31,6 +31,20 @@
 
 ## 进行中
 
+### [2026-10-11 03:2x → ✅ 已完成（代码/判据/文书；⛔ 未部署未发布）] 会话：**FEAT-0021 给九类新消息补「生产者」（它们现在只会显示、不会自己出现）**（DSH `bc25d535-ddd7-43d1-87e3-82dd7428f701`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径`（2026-10-11 逐字）：「给九类新消息补『生产者』——它们现在只会显示、不会自己出现」；关于库存两档：「**我倾向后者**（先做真实存在的那个阈值），理由写进变更单」；纪律：「⛔ **不要构建 APK、不要部署生产、不要发布** —— 用户说另一个会话在做别的改动，**等它通知后一起一键部署**。只交代码 + 判据 + 文书（**提交但不要 push**）」。
+
+`改哪些文件`：`backend/app/services/message_producers.py`（新）、`backend/app/services/message_center.py`（加 `idem_key_for` / `active_dispatchers` 两处公共口径）、`backend/app/services/device_service.py`（新设备登录钩子）、`backend/app/api/v1/inventory.py`（手工出入库钩子）、`backend/app/services/inventory_service.py`（送达实扣钩子）、`backend/app/services/tax_service.py`（开票钩子）、`backend/app/api/v1/users.py`（设备解冻钩子）、`backend/app/main.py`（每日兜底扫描循环）、`backend/tests/test_message_producers.py`（新）、`_tools/qa/_check_message_producers.py`（新）、`_tools/qa/_reverse_verify_message_producers.py`（新）、`docs/changes/FEAT-0021.md`（新）、`docs/changes/README.md`、`docs/MESSAGE_CARD_DESIGN.md`、`docs/AI_WORK_CLAIM.md`。
+
+**明确不碰**：⛔ `android/**` 一个文件都不改（消息卡片的配色/竖条/深链是 FEAT-0019 的交付、已真机验收；本轮**不做新的人用界面**）；⛔ 不构建 APK、不部署生产、不发布；`backend/app/models/**`（不加列、不加迁移）；`_tools/qa/_check_notification_severity.py`（FEAT-0019 的判据，只保证不弄红）；FEAT-0020 那一块正在改的 `android/app/src/main/java/com/tapmoay/sorders/ai/**`。
+
+`核心改动`：**无** —— 为什么：本轮要碰的 8 个后端文件**没有一个**在 `_tools/qa/_core_files.txt` 里（该清单 16 项逐一核对过），改动是「新增一个生产者模块 ＋ 在既有写路径上挂钩子」，不改钱/状态/权限口径，也不加迁移。
+
+`判据 / 反验`：`python _tools/qa/_check_message_producers.py`（八组 **190 项全绿**）＋ `python _tools/qa/_reverse_verify_message_producers.py`（**8 条注入全被抓 ＋ 末尾 sha256 逐字节还原**：① 去掉去重（`key = idem_key_for(idem_key, recipient_id)` → `key = None`）② `stock.low` 从 danger 降成 warn ③ emphasis 换成整句 ④ 丢掉深链键 `product_id` ⑤ 删掉每日兜底扫描（不挂 lifespan）⑥ 摘掉新设备登录钩子 ⑦ 钩子挪到 `db.commit()` 之后 ⑧ 收件人改成全体用户（绕过 `active_dispatchers`））＋ 单测 `backend/tests/test_message_producers.py`（**14 passed**）。
+
+- 状态：✅ **已完成**（2026-10-11 03:2x → 03:4x CST；代码 ＋ 判据 ＋ 反验 ＋ 文书均已落地并提交（`9144a44e` 代码＋单测 / `ef342037` 判据＋反验＋文书），⛔ **未 push、未构建 APK、未部署生产、未发布** —— 等另一会话通知后一起一键部署）。收尾复跑：`_check_message_producers.py` 190/190、`_check_dev_spec.py`／`_check_tool_scripts.py`（703 个脚本）／`_check_migrations.py`（168 项）／`_check_notification_severity.py`（PASS = 77）／`_check_core_freeze.py`（109 项）全部 EXIT=0；`cd backend && python -m pytest tests/test_message_producers.py -q` = **14 passed**。
+
 ### [2026-10-11 02:4x → ⏳ 进行中] 会话：**FEAT-0020 给货主 / 批发商补上 AI 工作流（只读工作流 ＋ 货主 5 条 ＋ 批发商 1 条，写动作全部取自各自白名单）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径`（2026-10-11 逐字）：「**为什么我们的货主或者批发商他的 AI 没有对应的技能和工作流呢，也是要具备的哦**」＋「这个任务没关系，你多开一个吧」
@@ -8485,17 +8499,3 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 - 核心改动：**无** —— 为什么：`backend/app/services/reports/balance_query.py` 不在 `_tools/qa/_core_files.txt` 里（但按 L2「钱」域配了判据＋反验＋单测＋红证）
 - 证据：单测 2 passed；判据 18/18（改前 6 条不成立）；反验 7/7 全红且逐字节还原
 - 实现提交：`7c0421b`
-### [2026-10-11 03:2x → ✅ 已完成（代码/判据/文书；⛔ 未部署未发布）] 会话：**FEAT-0021 给九类新消息补「生产者」（它们现在只会显示、不会自己出现）**（DSH `bc25d535-ddd7-43d1-87e3-82dd7428f701`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
-
-`用户口径`（2026-10-11 逐字）：「给九类新消息补『生产者』——它们现在只会显示、不会自己出现」；关于库存两档：「**我倾向后者**（先做真实存在的那个阈值），理由写进变更单」；纪律：「⛔ **不要构建 APK、不要部署生产、不要发布** —— 用户说另一个会话在做别的改动，**等它通知后一起一键部署**。只交代码 + 判据 + 文书（**提交但不要 push**）」。
-
-`改哪些文件`：`backend/app/services/message_producers.py`（新）、`backend/app/services/message_center.py`（加 `idem_key_for` / `active_dispatchers` 两处公共口径）、`backend/app/services/device_service.py`（新设备登录钩子）、`backend/app/api/v1/inventory.py`（手工出入库钩子）、`backend/app/services/inventory_service.py`（送达实扣钩子）、`backend/app/services/tax_service.py`（开票钩子）、`backend/app/api/v1/users.py`（设备解冻钩子）、`backend/app/main.py`（每日兜底扫描循环）、`backend/tests/test_message_producers.py`（新）、`_tools/qa/_check_message_producers.py`（新）、`_tools/qa/_reverse_verify_message_producers.py`（新）、`docs/changes/FEAT-0021.md`（新）、`docs/changes/README.md`、`docs/MESSAGE_CARD_DESIGN.md`、`docs/AI_WORK_CLAIM.md`。
-
-**明确不碰**：⛔ `android/**` 一个文件都不改（消息卡片的配色/竖条/深链是 FEAT-0019 的交付、已真机验收；本轮**不做新的人用界面**）；⛔ 不构建 APK、不部署生产、不发布；`backend/app/models/**`（不加列、不加迁移）；`_tools/qa/_check_notification_severity.py`（FEAT-0019 的判据，只保证不弄红）；FEAT-0020 那一块正在改的 `android/app/src/main/java/com/tapmoay/sorders/ai/**`。
-
-`核心改动`：**无** —— 为什么：本轮要碰的 8 个后端文件**没有一个**在 `_tools/qa/_core_files.txt` 里（该清单 16 项逐一核对过），改动是「新增一个生产者模块 ＋ 在既有写路径上挂钩子」，不改钱/状态/权限口径，也不加迁移。
-
-`判据 / 反验`：`python _tools/qa/_check_message_producers.py`（八组 **190 项全绿**）＋ `python _tools/qa/_reverse_verify_message_producers.py`（**8 条注入全被抓 ＋ 末尾 sha256 逐字节还原**：① 去掉去重（`key = idem_key_for(idem_key, recipient_id)` → `key = None`）② `stock.low` 从 danger 降成 warn ③ emphasis 换成整句 ④ 丢掉深链键 `product_id` ⑤ 删掉每日兜底扫描（不挂 lifespan）⑥ 摘掉新设备登录钩子 ⑦ 钩子挪到 `db.commit()` 之后 ⑧ 收件人改成全体用户（绕过 `active_dispatchers`））＋ 单测 `backend/tests/test_message_producers.py`（**14 passed**）。
-
-- 状态：✅ **已完成**（2026-10-11 03:2x → 03:4x CST；代码 ＋ 判据 ＋ 反验 ＋ 文书均已落地并提交，⛔ **未 push、未构建 APK、未部署生产、未发布** —— 等另一会话通知后一起一键部署）。收尾复跑：`_check_message_producers.py` 190/190、`_check_dev_spec.py`／`_check_tool_scripts.py`（703 个脚本）／`_check_migrations.py`（168 项）／`_check_notification_severity.py`（PASS = 77）／`_check_core_freeze.py`（109 项）全部 EXIT=0；`cd backend && python -m pytest tests/test_message_producers.py -q` = **14 passed**。
-
