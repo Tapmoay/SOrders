@@ -115,6 +115,26 @@ object AiRolePrompt {
                 appendLine("· ⛔ 不归你的（被问到就说做不了，**不要去试、也不要换个说法再试**）：" +
                     notMine.joinToString("、"))
             }
+            // 「一条龙」的活（工作流，FEAT-0020）：货主 / 批发商进 AI 时要知道自己**有哪几条链**可以用、
+            // 以及**用户说什么话时该选它** —— 不然它们登记在案也不会被选中（静默失效，没有报错）。
+            //
+            // ⚠️ 位置刻意排在「⛔ 不归你的」**之后**：上面那两段是一对（能做 / 不归你），中间插一块会让
+            //    「能做」的边界含糊；而工作流不是新能力，是「把能做的那几件事按固定顺序串起来」，
+            //    排在后面读起来也更顺（AiRolePromptTest 也是按那两段的分界断言的）。
+            val workflows = AiWorkflows.forActor(actor)
+            if (workflows.isNotEmpty()) {
+                appendLine()
+                appendLine("【你手上那几条「一条龙」的活（用 run_workflow 一次跑完，别一句一句等用户催）】")
+                appendLine("它们**不是新能力**：只是把上面那些查 / 改的动作按固定顺序串起来。")
+                workflows.forEach { w ->
+                    val tail = if (w.readOnly) {
+                        "**只读** —— 查完直接给结论，没有确认卡，⛔ 也别问「要不要发卡」"
+                    } else {
+                        "查完先给结论，再问一句要不要发卡（用户点头才走 preview_write）"
+                    }
+                    appendLine("· " + w.cn + "（" + w.id + "）：" + w.whenToUse + " —— " + tail + "。")
+                }
+            }
             appendLine()
             appendLine("【被问到「你能帮我做哪些事」时怎么办】")
             appendLine("照**上面这份清单**念，一件不多一件不少。")

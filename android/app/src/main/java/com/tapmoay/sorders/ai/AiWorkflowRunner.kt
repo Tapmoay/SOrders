@@ -1,10 +1,12 @@
 package com.tapmoay.sorders.ai
 
+import com.tapmoay.sorders.core.OrderStatusModel
 import com.tapmoay.sorders.core.ledgerSourceLabel
 import java.math.BigDecimal
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -46,6 +48,12 @@ internal class AiWorkflowRunner(
         return when (wf.id) {
             AiWorkflows.LEDGER_RECONCILE -> reconcile(wf, args, t, win.first, win.second)
             AiWorkflows.PRICE_BATCH -> priceBatch(wf, args, t)
+            AiWorkflows.ORDER_PLACE -> placeOrder(wf, args, t)
+            AiWorkflows.ORDER_TRACK -> trackOrder(wf, args, t, win.first, win.second)
+            AiWorkflows.LEDGER_MONTHLY -> monthlyLedger(wf, args, t, win.first, win.second)
+            AiWorkflows.ORDER_RETURN_REQUEST -> applyReturn(wf, args, t)
+            AiWorkflows.ORDER_CONTACT -> fixContact(wf, args, t)
+            AiWorkflows.PRICE_MINE -> myPrices(wf, args, t)
             else -> err("工作流「" + wf.cn + "」登记在案，但执行器里没接上它的分支（代码少了一条）。")
         }
     }
@@ -364,15 +372,696 @@ internal class AiWorkflowRunner(
         }.toString()
     }
 
+    // ==================================================== 货主那 6 条（FEAT-0020）
+    //
+    // 这六条只做两件事：**把该查的查回来**、**把要发的那张卡要什么参数拼好**。
+    // ⛔ 它们一个字都不写（写仍然只有 preview_write 一条路），也一个字都不算钱
+    // （「改后价」「合计」这类数各自只有一处实现：确认卡与后端）。
+
+    /**
+     * **一句话下单**（货主）：核对商品 / 数量 / 联系人 / 地址 → 交出建单卡。
+     *
+     * ⛔ 不填单价：单价由确认卡按**这个货主自己的价**算（`CreateOrderHandler` 的 selfOrder 分支）。
+     * 工作流这里自己编一个价，用户就会在卡上看到两个数（"谈好 10 元，AI 建出来的单按 20 元"）。
+     */
+    private suspend fun placeOrder(wf: AiWorkflow, args: JsonObject, t: LocalDate): String {
+        val wantProducts = splitNames(text(args, "product"))
+        if (wantProducts.isEmpty()) {
+            return err("一句话下单还差一样：**要下什么商品**。让用户说商品名（我按名字在商品表里找），别让他报编号。")
+        }
+        val qty = text(args, "quantity")?.let { parseQty(it) }
+            ?: return err("一句话下单还差一样：**每种商品要几件**（只传数字，例如 3）。")
+        val wantContact = text(args, "contact")
+        val address = text(args, "address")
+
+        val productStep = wf.steps[0]
+        val contactStep = wf.steps[1]
+        val addressStep = wf.steps[2]
+        val products = readStep(productStep.action, buildJsonObject { put("limit", AiTools.MAX_ROWS) })
+        products.error?.let { return err("下单没跑完：第 1 步「" + productStep.title + "」没查成 —— " + it) }
+        val contacts = readStep(contactStep.action, buildJsonObject { put("limit", AiTools.MAX_ROWS) })
+        contacts.error?.let { return err("下单没跑完：第 2 步「" + contactStep.title + "」没查成 —— " + it) }
+        val addresses = readStep(addressStep.action, buildJsonObject { put("limit", AiTools.MAX_ROWS) })
+        addresses.error?.let { return err("下单没跑完：第 3 步「" + addressStep.title + "」没查成 —— " + it) }
+
+        val matched = products.rows.filter { row -> wantProducts.any { matchName(field(row, *P_NAME), it) } }
+        val missed = wantProducts.filter { w -> products.rows.none { matchName(field(it, *P_NAME), w) } }
+        val hit = wantContact?.let { want ->
+            contacts.rows.firstOrNull { row ->
+                matchName(field(row, *P_NAME), want) || field(row, *PHONE) == want
+            }
+        }
+        val addrHit = address?.let { want ->
+            addresses.rows.firstOrNull { row ->
+                val a = field(row, *ADDRESS)
+                a != null && (a.contains(want) || want.contains(a))
+            }
+        }
+        val incomplete = products.truncated || contacts.truncated || addresses.truncated
+        if (matched.isEmpty()) {
+            // 商品一个都没匹配上：**不发卡**（空明细的卡点了必然报错，用户白核对一次）。
+            return refused(
+                wf,
+                t,
+                "商品没匹配上：商品表里没有叫「" + wantProducts.joinToString("、") + "」的" +
+                    (if (missed.size < wantProducts.size) "" else "") +
+                    "。名字差一个字就是另一个商品，先跟用户核一下写法再下单。" +
+                    (if (incomplete) "⚠️ 而且这次**没查全**（商品超过一次能取的上限 " + AiTools.MAX_ROWS + " 条），也要考虑这个原因。" else ""),
+                wf.cn + " · 商品没匹配上",
+            )
+        }
+        val priceCn = matched.take(3).joinToString("、") { row ->
+            (field(row, *P_NAME) ?: "?") + " " +
+                (money(row, *P_PRICE)?.let { AiWriteArgs.moneyText(it) } ?: "（没读到通用价）") + " 元/件"
+        }
+        val conclusion = buildString {
+            if (incomplete) {
+                append("⚠️ 这次**没查全**（商品 / 联系人 / 地址有一边超过一次能取的上限 " + AiTools.MAX_ROWS +
+                    " 条），下面按取回来的那部分核对 —— 名字没匹配上时先别下结论。")
+            }
+            append("这一单要下的：" + matched.joinToString("、") { (field(it, *P_NAME) ?: "?") + " × " + qty + " 件" })
+            if (missed.isNotEmpty()) {
+                append("；⚠️ 商品表里没有叫「" + missed.joinToString("、") + "」的 —— 名字差一个字就是另一个商品，" +
+                    "先跟用户核一下写法")
+            }
+            append("。商品表里的通用价（**只作参考**）：" + priceCn + "。")
+            append("收货人：")
+            if (wantContact == null) {
+                append("用户没说 —— 卡上留空，让他自己在卡上 / 页面上补（⛔ 别自己编一个名字或号码）。")
+            } else if (hit == null) {
+                append("⚠️ 他名册里没有叫「" + wantContact + "」的联系人 —— 卡上照样按他说的这个名字记，" +
+                    "但先跟他核一下是不是同一个人（同名不同电话在系统里是两个人）。")
+            } else {
+                append("「" + (field(hit, *P_NAME) ?: wantContact) + "」，电话 " +
+                    (field(hit, *PHONE) ?: "（没读到）") + "（在他自己的名册里）。")
+            }
+            append("送货地址：")
+            if (address == null) {
+                append("用户没说 —— 留空（他能在页面上补）。")
+            } else {
+                val tail = if (addrHit != null) {
+                    "（地址库里有对得上的一条）"
+                } else {
+                    "（⚠️ 地址库里没有对得上的那条 —— 照用户说的原样填，⛔ 不要自己改地址、也不要自己去新增地址）"
+                }
+                append(address + tail + "。")
+            }
+            append("单价：确认卡按**他自己的价**算（有专属价用专属价、否则商品默认价）—— ⛔ 你别自己填 unit_price；")
+            append("填了但与他实际的价不一样，卡上会把两个数并排写出来让你回去核对。")
+        }
+        val trace = buildString {
+            append(wf.cn + " · " + matched.size + " 个商品 × " + qty + " 件")
+            if (incomplete) append(" · 没查全")
+        }
+        return buildJsonObject {
+            put("workflow", wf.id)
+            put("workflow_cn", wf.cn)
+            put("as_of", t.toString())
+            put("read_only", false)
+            put("scope", "他自己下的单（货主给自己下单，不用指定货主）")
+            put("conclusion", conclusion)
+            put("incomplete", incomplete)
+            putJsonArray("steps") {
+                add(stepJson(productStep.title, products.rows.size, products.truncated))
+                add(stepJson(contactStep.title, contacts.rows.size, contacts.truncated))
+                add(stepJson(addressStep.title, addresses.rows.size, addresses.truncated))
+            }
+            put("matched_products", matched.size)
+            if (missed.isNotEmpty()) put("not_found", missed.joinToString("、"))
+            put(
+                "next",
+                nextJson(
+                    wf,
+                    buildJsonObject {
+                        putJsonArray("lines") {
+                            matched.forEach { row ->
+                                add(buildJsonObject {
+                                    put("product", field(row, *P_NAME) ?: "")
+                                    put("quantity", qty)
+                                })
+                            }
+                        }
+                        if (address != null) put("address", address)
+                        if (hit != null) {
+                            field(hit, *P_NAME)?.let { put("name_dongjia", it) }
+                            field(hit, *PHONE)?.let { put("phone_dongjia", it) }
+                        }
+                    },
+                ),
+            )
+            put("trace", trace)
+        }.toString()
+    }
+
+    /**
+     * **查单到哪了**（货主，**只读**）：查完直接给结论，**没有卡**。
+     *
+     * 走 [readOnlyOut] 那个出口 —— 返回里**没有** `next` / `ask`。
+     * 单号给了就查那一张，没给就按时间范围汇总（默认窗口与其他工作流同一条：本月 1 号 → 今天）。
+     */
+    private suspend fun trackOrder(
+        wf: AiWorkflow,
+        args: JsonObject,
+        t: LocalDate,
+        from: String,
+        to: String,
+    ): String {
+        val step = wf.steps[0]
+        val one = text(args, "order")
+        val wantStatus = text(args, "status")
+        val query = buildJsonObject {
+            put("limit", AiTools.MAX_ROWS)
+            if (one != null) put("q", one)
+            if (wantStatus != null) put("status", wantStatus.uppercase())
+            if (one == null) {
+                put("date_from", from)
+                put("date_to", to)
+            }
+        }
+        val res = readStep(step.action, query)
+        res.error?.let { return err("查单没跑完：第 1 步「" + step.title + "」没查成 —— " + it) }
+
+        val rows = res.rows
+        val onRoad = rows.count { field(it, *STATUS) in ON_ROAD }
+        val today = t.toString()
+        val arrivedToday = rows.count { field(it, *DELIVERED_AT)?.startsWith(today) == true }
+        val parts = OrderStatusModel.ALL.mapNotNull { s ->
+            val n = rows.count { field(it, *STATUS) == s }
+            if (n > 0) cnStatus(s) + " " + n + " 张" else null
+        }
+        val unknown = rows.count { row -> field(row, *STATUS)?.let { it in OrderStatusModel.ALL } != true }
+
+        val conclusion = if (one != null) {
+            val hit = rows.firstOrNull { field(it, *ORDER_NO) == one } ?: rows.firstOrNull()
+            if (hit == null) {
+                "没查到他名下有单号「" + one + "」的单 —— 单号看错一位就查不到，先跟用户核一下单号" +
+                    "（也可能这一张不是他自己的单）。⛔ 不要猜一张相近的报给他。"
+            } else {
+                buildString {
+                    append("「" + (field(hit, *ORDER_NO) ?: one) + "」现在是「" + cnStatus(field(hit, *STATUS)) + "」")
+                    val driver = field(hit, *DRIVER)
+                    if (driver != null) append("，司机：" + driver)
+                    field(hit, *DELIVERED_AT)?.let { append("，送达时间：" + it) }
+                    field(hit, *CREATED_AT)?.let { append("，下单时间：" + it) }
+                    append("。")
+                    if (driver == null && field(hit, *STATUS) in ON_ROAD) {
+                        append("⚠️ 司机这一栏这次没读到（AI 侧对司机姓名与电话有专门的限制，" +
+                            "只读工具不喂它）—— 想让他看是谁在送，让他去「我的订单」那一页看。")
+                    }
+                }
+            }
+        } else {
+            buildString {
+                if (res.truncated) {
+                    append("⚠️ 这次**没查全**（订单超过一次能取的上限 " + AiTools.MAX_ROWS +
+                        " 条），下面的数只覆盖取回来的那部分 —— 要把范围缩小一点再问一次。")
+                }
+                append("他名下（" + from + " ~ " + to + "）一共 " + rows.size + " 张单")
+                if (parts.isEmpty()) {
+                    append("：一张都没有。")
+                } else {
+                    append("：" + parts.joinToString("、") + "。")
+                }
+                if (unknown > 0) append("（另有 " + unknown + " 张状态没认出来，没算进上面几档。）")
+                append("其中**在送** " + onRoad + " 张")
+                if (arrivedToday > 0) append("、今天到货 " + arrivedToday + " 张")
+                append("。想看某一张具体到哪了，把单号给我。")
+            }
+        }
+        val trace = buildString {
+            append(wf.cn + " · " + rows.size + " 张单 · 在送 " + onRoad + " 张")
+            if (res.truncated) append(" · 没查全")
+        }
+        return readOnlyOut(wf, t, conclusion, trace) {
+            put("matched_orders", rows.size)
+            put("on_road", onRoad)
+            if (arrivedToday > 0) put("arrived_today", arrivedToday)
+            putJsonArray("orders") {
+                rows.take(BRIEF_ROWS).forEach { row ->
+                    add(buildJsonObject {
+                        put("订单号", field(row, *ORDER_NO) ?: "")
+                        put("状态", cnStatus(field(row, *STATUS)))
+                        field(row, *DELIVERED_AT)?.let { put("送达时间", it) }
+                    })
+                }
+            }
+        }
+    }
+
+    /**
+     * **本月账本小结**（货主，**只读**）：已付 / 还欠 / 哪几单还没结。
+     *
+     * ⚠️ 「我该付的」那三个数是**服务端算的**（/shipper-ledger/summary：窗口按送达日、**不设 limit**）——
+     * 客户端把一页列表加起来，列表一被截断就**偏小**（后端那句注释里记着"客户端求和少算 62%"）。
+     * 所以这里只**取**那一份统计，⛔ 不自己按订单行加总。
+     *
+     * ⚠️ 逐单「还欠多少」是**另一条**读（订单列表）来的：取不到那一栏时**如实说取不到**，
+     * ⛔ 不许把「没读到」当成 0（那会让用户以为全结清了）。
+     */
+    private suspend fun monthlyLedger(
+        wf: AiWorkflow,
+        args: JsonObject,
+        t: LocalDate,
+        from: String,
+        to: String,
+    ): String {
+        val customer = text(args, "customer")
+        val sumStep = wf.steps[0]
+        val orderStep = wf.steps[1]
+        val sum = readStep(
+            sumStep.action,
+            buildJsonObject {
+                put("delivered_from", from)
+                put("delivered_to", to)
+                if (customer != null) put("customer_name", customer)
+            },
+        )
+        sum.error?.let { return err("账本小结没跑完：第 1 步「" + sumStep.title + "」没查成 —— " + it) }
+        val orders = readStep(
+            orderStep.action,
+            buildJsonObject {
+                put("status", STATUS_DELIVERED)
+                put("limit", AiTools.MAX_ROWS)
+                // 与账本同一套窗口口径：订单这边筛的是**送达日**（⛔ 不是下单日）。
+                put("extra", buildJsonObject {
+                    put("delivered_from", from)
+                    put("delivered_to", to)
+                }.toString())
+            },
+        )
+        orders.error?.let { return err("账本小结没跑完：第 2 步「" + orderStep.title + "」没查成 —— " + it) }
+
+        // 那段统计**不是列表**：AiReadService 把它抹平后放在 value 里（键名保持英文，没过标签表），
+        // 所以两种写法都认一下。
+        val v = sum.value
+        val payable = v?.let { money(it, "payable", "应付") }
+        val paid = v?.let { money(it, "paid", "已付") }
+        val unpaid = v?.let { money(it, "unpaid", "未付", "欠款") }
+        val cnt = v?.let { field(it, "orders", "单数")?.toIntOrNull() }
+        val cleared = v?.let { field(it, "cleared_orders", "已结清")?.toIntOrNull() }
+        val receivable = v?.let { money(it, "receivable", "应收") }
+        val received = v?.let { money(it, "received", "已收") }
+        val unreceived = v?.let { money(it, "unreceived", "待收", "未收") }
+
+        val arrears = orders.rows.mapNotNull { row ->
+            money(row, "arrears_amount", "欠款", "arrears", "unpaid", "未付")?.let { row to it }
+        }
+        val owed = arrears.filter { it.second > BigDecimal.ZERO }
+        val total = cnt ?: orders.rows.size
+
+        val conclusion = buildString {
+            if (sum.truncated || orders.truncated) {
+                append("⚠️ 这次**没查全**（订单超过一次能取的上限 " + AiTools.MAX_ROWS +
+                    " 条），下面的数只覆盖取回来的那部分。")
+            }
+            append("这一段（" + from + " ~ " + to + "，按**送达日**算）")
+            if (payable == null && unpaid == null && paid == null) {
+                append("的服务端统计这次没取到 —— 第 1 步没返回可用的汇总（接口这次给的不是那段统计）。")
+            } else {
+                append("他一共 " + total + " 张单：")
+                payable?.let { append("货款合计 " + AiWriteArgs.moneyText(it) + " 元，") }
+                paid?.let { append("已付 " + AiWriteArgs.moneyText(it) + " 元，") }
+                unpaid?.let { append("**还欠 " + AiWriteArgs.moneyText(it) + " 元**") }
+                append("。")
+                if (cleared != null) {
+                    append("其中 " + cleared + " 张已经结清、" + (total - cleared).coerceAtLeast(0) + " 张还没结清。")
+                }
+            }
+            if (owed.isNotEmpty()) {
+                append("还没结清的单：" + owed.take(BRIEF_ROWS).joinToString("、") { (row, amt) ->
+                    (field(row, *ORDER_NO) ?: "（没读到单号）") + "（还欠 " + AiWriteArgs.moneyText(amt) + " 元）"
+                })
+                if (owed.size > BRIEF_ROWS) append(" 等 " + owed.size + " 张")
+                append("。")
+            } else if (orders.rows.isNotEmpty() && arrears.isEmpty()) {
+                append("⚠️ 逐单的「还欠多少」这一栏这次没取到（订单列表里没有这个字段），" +
+                    "所以只能给上面的合计；要逐单核，让他去「我的账本」那一页看。")
+            }
+            if (receivable != null && (receivable > BigDecimal.ZERO || (received ?: BigDecimal.ZERO) > BigDecimal.ZERO)) {
+                append("下游那一侧（只有批发商货主有这本账）：应收 " + AiWriteArgs.moneyText(receivable) + " 元、已收 " +
+                    AiWriteArgs.moneyText(received ?: BigDecimal.ZERO) + " 元、待收 " +
+                    AiWriteArgs.moneyText(unreceived ?: BigDecimal.ZERO) + " 元 —— 那是他自己记的核销，" +
+                    "与上面的「我该付的」是**两本账**，⛔ 别混着说。")
+            }
+            append("这几个数是**服务端**按送达日窗口算的（不是把一页列表加起来），口径与他「我的账本」那一页一致。")
+        }
+        val trace = buildString {
+            append(wf.cn + " · " + total + " 张单 · 未结清 " + owed.size + " 张")
+            if (sum.truncated || orders.truncated) append(" · 没查全")
+        }
+        return readOnlyOut(wf, t, conclusion, trace) {
+            put("orders_count", total)
+            put("unpaid_count", owed.size)
+            payable?.let { put("payable", AiWriteArgs.moneyText(it)) }
+            paid?.let { put("paid", AiWriteArgs.moneyText(it)) }
+            unpaid?.let { put("unpaid", AiWriteArgs.moneyText(it)) }
+            if (arrears.isEmpty() && orders.rows.isNotEmpty()) put("per_order_arrears_missing", true)
+        }
+    }
+
+    /**
+     * **申请退货**（货主）：核对那一单 → 交出退货申请卡。
+     *
+     * ⛔ 「申请」不是「退」：这张卡只写一张申请单，库存 / 账本 / 订单状态一个都不动，
+     * 派单员实际办理之后才生效（见 AiWriteReturnRequest.kt 头注）。结论里必须说出来。
+     * ⛔ 不是「已送达」的单**不发卡**（后端与处理器都会拒），走 refused 如实说清楚。
+     */
+    private suspend fun applyReturn(wf: AiWorkflow, args: JsonObject, t: LocalDate): String {
+        val orderNo = text(args, "order")
+            ?: return err("申请退货要先知道**是哪一张单**：让用户给订单号（他名下的单）。")
+        val wantProducts = splitNames(text(args, "product"))
+        val qtyRaw = text(args, "quantity")
+        val qty = qtyRaw?.let { parseQty(it) }
+        if (qtyRaw != null && qty == null) {
+            return err("退货数量只认正整数（这次收到「" + qtyRaw + "」）。让用户说清楚退几件。")
+        }
+        if (wantProducts.isNotEmpty() && qty == null) {
+            return err("要退某几件时，要一起说清**退几件**（只传数字）。整单退货就别给商品名。")
+        }
+        val note = text(args, "note")
+
+        val orderStep = wf.steps[0]
+        val reqStep = wf.steps[1]
+        val orders = readStep(orderStep.action, buildJsonObject {
+            put("q", orderNo)
+            put("limit", AiTools.MAX_ROWS)
+        })
+        orders.error?.let { return err("申请退货没跑完：第 1 步「" + orderStep.title + "」没查成 —— " + it) }
+        val mine = readStep(reqStep.action, buildJsonObject { put("limit", AiTools.MAX_ROWS) })
+        mine.error?.let { return err("申请退货没跑完：第 2 步「" + reqStep.title + "」没查成 —— " + it) }
+
+        val hit = orders.rows.firstOrNull { field(it, *ORDER_NO) == orderNo } ?: orders.rows.firstOrNull()
+        if (hit == null) {
+            return refused(
+                wf,
+                t,
+                "没查到他名下有单号「" + orderNo + "」的单 —— 单号看错一位就查不到，先跟用户核一下单号" +
+                    "（也可能这一张不是他自己的单）。⛔ 不要拿一张相近的单去申请。",
+                wf.cn + " · 没找到那张单",
+            )
+        }
+        val realNo = field(hit, *ORDER_NO) ?: orderNo
+        val status = field(hit, *STATUS)
+        if (status != null && status != STATUS_DELIVERED) {
+            return refused(
+                wf,
+                t,
+                "「" + realNo + "」现在是「" + cnStatus(status) + "」，**退不了**：" +
+                    "退货申请只能对**已送达**的单提（货还没送到就要作废这一单，那是「撤销」，不是退货）。",
+                wf.cn + " · 状态 " + status,
+            )
+        }
+        val existing = mine.rows.filter { field(it, *ORDER_NO) == realNo }
+        val params = buildJsonObject {
+            put("order", realNo)
+            if (wantProducts.isNotEmpty()) {
+                putJsonArray("lines") {
+                    wantProducts.forEach { w ->
+                        add(buildJsonObject {
+                            put("product", w)
+                            put("quantity", qty ?: 1)
+                        })
+                    }
+                }
+            }
+            if (note != null) put("note", note)
+        }
+        val conclusion = buildString {
+            append("要申请退货的是「" + realNo + "」（现在是「" + cnStatus(status) + "」）：")
+            if (wantProducts.isEmpty()) {
+                append("**整单申请**（卡上会逐行列出这一单的商品，用户核对完再确认）。")
+            } else {
+                append("只退 " + wantProducts.joinToString("、") { it + " × " + (qty ?: 1) + " 件" } +
+                    "（这几样要能在**这一单的可退行**里认出来；认不出卡上会当场报错 —— " +
+                    "⛔ 别自己编商品名，也别自己改数量）。")
+            }
+            if (existing.isNotEmpty()) {
+                append("⚠️ 这一单上**已经有一条退货申请**了（" +
+                    existing.take(3).joinToString("、") { cnStatus(field(it, *STATUS)) } +
+                    "）—— 先跟用户核一下：是要**改数量**（那要先撤回再重提），还是重复提了。")
+            }
+            append("⚠️ 记住这只是**申请**：库存、账本、订单状态现在都不动，" +
+                "派单员收到通知并**实际办理**之后才生效。")
+        }
+        val trace = wf.cn + " · " + realNo +
+            (if (wantProducts.isEmpty()) " · 整单" else " · " + wantProducts.size + " 种商品")
+        return buildJsonObject {
+            put("workflow", wf.id)
+            put("workflow_cn", wf.cn)
+            put("as_of", t.toString())
+            put("read_only", false)
+            put("scope", "他自己那一张单（" + realNo + "）")
+            put("conclusion", conclusion)
+            put("incomplete", orders.truncated || mine.truncated)
+            putJsonArray("steps") {
+                add(stepJson(orderStep.title, orders.rows.size, orders.truncated))
+                add(stepJson(reqStep.title, mine.rows.size, mine.truncated))
+            }
+            put("existing_requests", existing.size)
+            put("next", nextJson(wf, params))
+            put("trace", trace)
+        }.toString()
+    }
+
+    /**
+     * **改收货联系信息**（货主）：找到那一单 → 交出修改卡。
+     *
+     * ⛔ **PATCH 语义**：没点名的字段**一个都不带**。把查到的另外几栏原样写回去，等于用
+     * 「上一轮读到的值」覆盖掉这中间别人改过的内容（而用户只说了改电话）。
+     * ⛔ 送货地址不在这一扇门里（白名单里没有改地址的写动作）：结论里如实说，别答应。
+     */
+    private suspend fun fixContact(wf: AiWorkflow, args: JsonObject, t: LocalDate): String {
+        val orderNo = text(args, "order")
+            ?: return err("改联系信息要先知道**是哪一张单**：让用户给订单号。")
+        val want = CONTACT_FIELDS.mapNotNull { (key, cn) -> text(args, key)?.let { Triple(key, cn, it) } }
+        if (want.isEmpty()) {
+            return err(
+                "改联系信息要至少说清**改哪一栏**：收货人名称 / 收货人电话 / 下单人名称 / 下单人电话。" +
+                    "他没提的那几栏**一个字都别填**（不填＝那一栏不动）。",
+            )
+        }
+        want.forEach { (key, cn, value) ->
+            if (key.endsWith("phone") && value.count { it.isDigit() } < 5) {
+                return err(
+                    "「" + cn + "」看着不像一个电话（这次收到「" + value + "」）—— " +
+                        "让用户把号码说全（至少 5 位数字），⛔ 别自己补全。",
+                )
+            }
+        }
+
+        val orderStep = wf.steps[0]
+        val contactStep = wf.steps[1]
+        val orders = readStep(orderStep.action, buildJsonObject {
+            put("q", orderNo)
+            put("limit", AiTools.MAX_ROWS)
+        })
+        orders.error?.let { return err("改联系信息没跑完：第 1 步「" + orderStep.title + "」没查成 —— " + it) }
+        val contacts = readStep(contactStep.action, buildJsonObject { put("limit", AiTools.MAX_ROWS) })
+        contacts.error?.let { return err("改联系信息没跑完：第 2 步「" + contactStep.title + "」没查成 —— " + it) }
+
+        val hit = orders.rows.firstOrNull { field(it, *ORDER_NO) == orderNo } ?: orders.rows.firstOrNull()
+        if (hit == null) {
+            return refused(
+                wf,
+                t,
+                "没查到他名下有单号「" + orderNo + "」的单 —— 单号看错一位就查不到，" +
+                    "先跟用户核一下单号。⛔ 不要改一张相近的单。",
+                wf.cn + " · 没找到那张单",
+            )
+        }
+        val realNo = field(hit, *ORDER_NO) ?: orderNo
+        // 名册里有没有这个人：只用来提醒（订单上的人不一定先存进名册），⛔ 不用来拦。
+        val rosterHit = want.firstNotNullOfOrNull { (key, _, value) ->
+            if (key == "dongjia_name" || key == "boss_name") {
+                contacts.rows.firstOrNull { matchName(field(it, *P_NAME), value) }
+            } else {
+                null
+            }
+        }
+
+        val conclusion = buildString {
+            append("要改「" + realNo + "」（现在是「" + cnStatus(field(hit, *STATUS)) + "」）的这几栏：" +
+                want.joinToString("、") { (_, cn, value) -> cn + " → " + value } + "。")
+            append("**只改这几栏**，别的字段一个字都不动（没点名的栏不会出现在卡上）。")
+            append("⚠️ 这一扇门只改**收货人 / 下单人的名字与电话**：送货地址、配送说明、备注要**请派单员**改 —— " +
+                "用户要是想改送货地址，如实告诉他这一步得找派单员（他自己改不了）。")
+            val now = listOf(
+                "收货人" to field(hit, "收货人", "customer_name", "dongjia_name"),
+                "电话" to field(hit, *PHONE),
+                "地址" to field(hit, *ADDRESS),
+            ).mapNotNull { (cn, v) -> v?.let { cn + "：" + it } }
+            if (now.isEmpty()) {
+                append("⚠️ 这一单现在的联系信息这次没读到（订单列表里没有那几栏）—— 卡上照样按用户说的改，" +
+                    "改动前的值以确认卡上印的为准。")
+            } else {
+                append("现在这一单上的：" + now.joinToString("；") + "。")
+            }
+            if (rosterHit != null) {
+                append("（他联系人名册里也有「" + (field(rosterHit, *P_NAME) ?: "") + "」这个人。）")
+            } else if (want.any { it.first == "dongjia_name" || it.first == "boss_name" }) {
+                append("⚠️ 他联系人名册里没有这个名字 —— 卡上照样按他说的改，" +
+                    "但先核一下是不是同一个人（同名不同电话在系统里是两个人）。")
+            }
+        }
+        val trace = wf.cn + " · " + realNo + " · 改 " + want.size + " 栏"
+        return buildJsonObject {
+            put("workflow", wf.id)
+            put("workflow_cn", wf.cn)
+            put("as_of", t.toString())
+            put("read_only", false)
+            put("scope", "他自己那一张单（" + realNo + "）")
+            put("conclusion", conclusion)
+            put("incomplete", orders.truncated || contacts.truncated)
+            putJsonArray("steps") {
+                add(stepJson(orderStep.title, orders.rows.size, orders.truncated))
+                add(stepJson(contactStep.title, contacts.rows.size, contacts.truncated))
+            }
+            put("patch_fields", want.size)
+            put(
+                "next",
+                nextJson(
+                    wf,
+                    buildJsonObject {
+                        put("order", realNo)
+                        // ⛔ 只放点名的那几栏（PATCH 语义，见 KDoc）。
+                        want.forEach { (key, _, value) -> put(key, value) }
+                    },
+                ),
+            )
+            put("trace", trace)
+        }.toString()
+    }
+
+    /**
+     * **改我的下游价**（批发商货主）：查现有的下游价 → 逐条交出调价卡（一个商品一张）。
+     *
+     * ⛔ 它**一个价都不算**：改后价就是用户给的那个数，卡片会印「原来：X 元 → 现在：Y 元」。
+     * 用户说「降 5%」时这条链**不折算**（折算就是第二份算价实现），让他先说清多少钱。
+     * ⛔ 只动 shipper_price.*（他自己那一本下游账），**不碰** price_rules.*（派单员那条批发商专属价）。
+     */
+    private suspend fun myPrices(wf: AiWorkflow, args: JsonObject, t: LocalDate): String {
+        val wantProducts = splitNames(text(args, "product"))
+        if (wantProducts.isEmpty()) {
+            return err("改下游价要先知道**改哪个商品**：让用户说商品名（我按名字在他能定价的商品里找）。")
+        }
+        val priceRaw = text(args, "price")
+            ?: return err(
+                "改下游价要一个**确定的单价**（元）。用户说的是百分比（例如「降 5%」）时，先问他" +
+                    "「具体改成多少钱」—— 这条链不折算百分比（改后价只有确认卡那一份实现）。",
+            )
+        val price = parseMoney(priceRaw)?.takeIf { it > BigDecimal.ZERO }
+            ?: return err("「" + priceRaw + "」不像一个单价（元）。让用户说一个大于 0 的数，例如 8.5。")
+        val contact = text(args, "contact")
+
+        val priceStep = wf.steps[0]
+        val productStep = wf.steps[1]
+        val prices = readStep(priceStep.action, buildJsonObject { put("limit", AiTools.MAX_ROWS) })
+        prices.error?.let { return err("改下游价没跑完：第 1 步「" + priceStep.title + "」没查成 —— " + it) }
+        val priceable = readStep(productStep.action, buildJsonObject { put("limit", AiTools.MAX_ROWS) })
+        priceable.error?.let { return err("改下游价没跑完：第 2 步「" + productStep.title + "」没查成 —— " + it) }
+
+        val matched = priceable.rows.filter { row -> wantProducts.any { matchName(field(row, *P_NAME), it) } }
+        val missed = wantProducts.filter { w -> priceable.rows.none { matchName(field(it, *P_NAME), w) } }
+        if (matched.isEmpty()) {
+            return refused(
+                wf,
+                t,
+                "他能定价的商品里没有叫「" + wantProducts.joinToString("、") + "」的 —— " +
+                    "可定价的只有「他自己下过单的、或派单员给他设过专属价的」商品。先跟用户核一下商品名。",
+                wf.cn + " · 没匹配到商品",
+            )
+        }
+        val cards = matched.take(MAX_CARDS)
+        val existing = cards.map { row ->
+            val name = field(row, *P_NAME) ?: ""
+            name to prices.rows.filter { field(it, *PRICE_PRODUCT) == name }
+        }
+        val conclusion = buildString {
+            if (prices.truncated || priceable.truncated) {
+                append("⚠️ 这次**没查全**（价目表或可定价商品超过一次能取的上限 " + AiTools.MAX_ROWS +
+                    " 条），下面按取回来的那部分核对。")
+            }
+            append("要把这几个商品的下游价改成 " + AiWriteArgs.moneyText(price) + " 元" +
+                (if (contact != null) "（只给「" + contact + "」这一个下游）" else "（对所有下游的默认价）") + "：")
+            existing.forEach { (name, rows) ->
+                append("· " + name + "：")
+                if (rows.isEmpty()) {
+                    append("这一档现在还没有价（这次是新建一条）")
+                } else {
+                    append("现在有 " + rows.size + " 条价 —— " + rows.take(4).joinToString("、") { row ->
+                        val who = field(row, *PRICE_CONTACT) ?: "所有下游（默认价）"
+                        who + " " + (money(row, *PRICE_UNIT)?.let { AiWriteArgs.moneyText(it) } ?: "（没读到价）") + " 元"
+                    } + (if (rows.size > 4) " 等" else "") + " → 改成 " + AiWriteArgs.moneyText(price) + " 元")
+                }
+                append("；")
+            }
+            append("。卡上会逐条印「原来：X 元 → 现在：Y 元」（有几个商品就几张卡，一张一张来）。")
+            if (missed.isNotEmpty()) {
+                append("⚠️ 他能定价的商品里没有叫「" + missed.joinToString("、") + "」的 —— 先跟用户核一下商品名。")
+            }
+            if (matched.size > cards.size) {
+                append("⚠️ 一次最多发 " + MAX_CARDS + " 张卡，这次还有 " + (matched.size - cards.size) +
+                    " 个商品没进卡 —— 先说清这次改了哪几个，剩下的让他再说一次。")
+            }
+            append("⛔ 只动他自己那一本下游账（公司那边的账一分钱都不变）；")
+            append("也只影响**以后新下的单**：已经下过的单按当时的价定格，一个字节都不动。")
+        }
+        val trace = buildString {
+            append(wf.cn + " · " + cards.size + " 个商品 → " + AiWriteArgs.moneyText(price) + " 元")
+            if (prices.truncated || priceable.truncated) append(" · 没查全")
+        }
+        val cardParams = cards.map { row ->
+            buildJsonObject {
+                put("product", field(row, *P_NAME) ?: "")
+                put("price", price)
+                if (contact != null) put("contact", contact)
+            }
+        }
+        return buildJsonObject {
+            put("workflow", wf.id)
+            put("workflow_cn", wf.cn)
+            put("as_of", t.toString())
+            put("read_only", false)
+            put("scope", "他自己那一本下游价（shipper_prices），不是派单员那条批发商专属价")
+            put("conclusion", conclusion)
+            put("incomplete", prices.truncated || priceable.truncated)
+            putJsonArray("steps") {
+                add(stepJson(priceStep.title, prices.rows.size, prices.truncated))
+                add(stepJson(productStep.title, priceable.rows.size, priceable.truncated))
+            }
+            put("matched_products", matched.size)
+            put("cards", cardParams.size)
+            if (missed.isNotEmpty()) put("not_found", missed.joinToString("、"))
+            // 一张卡一个商品（shipper_price.set 就是单商品的动作）：一张时给 next，
+            // 多于一张时给 nexts（第 13 条写明「一张一张来」）。
+            if (cardParams.size == 1) {
+                put("next", nextJson(wf, cardParams.first()))
+            } else {
+                putJsonArray("nexts") { cardParams.forEach { add(nextJson(wf, it)) } }
+            }
+            put("trace", trace)
+        }.toString()
+    }
+
     // ------------------------------------------------------------------ 零件
 
-    /** [AiWorkflows] 那条"该发哪张卡"的交棒。⛔ 这里只是**告诉**模型发哪张卡，它自己一步都不写。 */
-    private fun nextJson(wf: AiWorkflow, params: JsonObject): JsonObject = buildJsonObject {
-        put("action", wf.nextAction)
-        put("action_cn", AiWrites.titleOf(wf.nextAction))
-        put("params", params)
-        put("ask", wf.ask)
-        put("how", "用户点头之后再调 preview_write：action 用上面的值，params 原样传（键名一个都别改）。")
+    /**
+     * [AiWorkflows] 那条"该发哪张卡"的交棒。⛔ 这里只是**告诉**模型发哪张卡，它自己一步都不写。
+     *
+     * ⚠️ **只读工作流永远不走这里**（[AiWorkflow.readOnly] 没有交棒动作、也没有要问的那一句）：
+     * 调用它就是登记表与执行分支接错了。编译期看不出来（`nextAction` 只是可空），
+     * 所以这里**当场抛**，单测与判据各再钉一次。
+     */
+    private fun nextJson(wf: AiWorkflow, params: JsonObject): JsonObject {
+        val action = wf.nextAction
+            ?: error("只读工作流没有交棒动作，不该走 nextJson：" + wf.id)
+        return buildJsonObject {
+            put("action", action)
+            put("action_cn", AiWrites.titleOf(action))
+            put("params", params)
+            put("ask", wf.ask ?: "")
+            put("how", "用户点头之后再调 preview_write：action 用上面的值，params 原样传（键名一个都别改）。")
+        }
     }
 
     private fun stepJson(title: String, count: Int, truncated: Boolean): JsonObject = buildJsonObject {
@@ -453,7 +1142,11 @@ internal class AiWorkflowRunner(
         val rows = (root["items"] as? kotlinx.serialization.json.JsonArray)
             ?.mapNotNull { it as? JsonObject }
             .orEmpty()
-        return ReadResult(rows, text(root, "truncated") == "true", null)
+        // ⚠️ 还有一类接口**根本不是列表**（「我的账本」那段统计就是）：AiReadService 把它抹平后
+        //    放在 `value` 里，而不是 `items`。只认 items 的话，那条工作流会拿到 0 行
+        //    却**不报错**（结论变成"这一段一张单都没有"）—— 最坏的那种错答案。
+        val value = root["value"] as? JsonObject
+        return ReadResult(rows, text(root, "truncated") == "true", null, value)
     }
 
     /** 一批行按某个金额键求和：**认不出来的行按 0 算**（与 [money] 同一条规矩 —— ⛔ 不猜）。 */
@@ -478,12 +1171,120 @@ internal class AiWorkflowRunner(
 
     private fun err(message: String): String = buildJsonObject { put("error", message) }.toString()
 
-    private class ReadResult(val rows: List<JsonObject>, val truncated: Boolean, val error: String?)
+    /**
+     * **只读工作流的唯一出口**（[AiWorkflow.readOnly]）：结论 ＋ 明细，**没有 `next`、也没有 `ask`**。
+     *
+     * 为什么单独一个出口，而不是在别处"少 put 两个键"：只读那两条的返回里**必须**没有交棒那一段。
+     * 少一个键不会有任何报错，而模型会照着别的结果的样子去问"要不要发卡"，然后**没有卡可发**
+     * ——用户点了空。所以出口只有这一个，它连 `read_only=true` 一起给出去（提示词第 13 条照它说）。
+     */
+    private fun readOnlyOut(
+        wf: AiWorkflow,
+        t: LocalDate,
+        conclusion: String,
+        trace: String,
+        extra: JsonObjectBuilder.() -> Unit = {},
+    ): String = buildJsonObject {
+        put("workflow", wf.id)
+        put("workflow_cn", wf.cn)
+        put("as_of", t.toString())
+        put("read_only", true)
+        put("conclusion", conclusion)
+        extra()
+        put("trace", trace)
+    }.toString()
+
+    /**
+     * 「这件事**现在做不了**」的出口：给结论 ＋ `refused` 原因，**不发卡**。
+     *
+     * 它和 [err] 不是一回事：`err` 是"这次没跑成，改个参数再来"（模型自己修），
+     * 而这里是"查清了，但这件事本身做不了"（单号对不上 / 这单不是已送达 / 商品名字对不上）——
+     * 用户要的是一个**结论**，不是让模型换个写法再试一次。⛔ 所以这里明确不发卡：
+     * 一条注定被后端拒掉的卡，用户白核对一遍。
+     */
+    private fun refused(wf: AiWorkflow, t: LocalDate, why: String, trace: String): String = buildJsonObject {
+        put("workflow", wf.id)
+        put("workflow_cn", wf.cn)
+        put("as_of", t.toString())
+        put("read_only", false)
+        put("conclusion", why)
+        put("refused", why)
+        put("trace", trace)
+    }.toString()
+
+    /** 数量：只认正整数（「3」「3件」都收）。⛔ 认不出返回 null —— 不猜 1。 */
+    private fun parseQty(raw: String): Int? {
+        val t = raw.trim().removeSuffix("件").removeSuffix("个").removeSuffix("箱").removeSuffix("斤").trim()
+        val n = t.toIntOrNull() ?: return null
+        return if (n > 0) n else null
+    }
+
+    /** 金额：认不出返回 null（⛔ 不猜 0 —— 与 [money] 同一条规矩）。 */
+    private fun parseMoney(raw: String): BigDecimal? =
+        runCatching { BigDecimal(raw.replace(",", "").removePrefix("¥").trim()) }.getOrNull()
+
+    /** 状态码 → 中文：**唯一那一份在 [AiOrderRef.statusLabel]**（⛔ 这里不许再抄一张表）。 */
+    private fun cnStatus(raw: String?): String {
+        val s = AiOrderRef.statusLabel(raw)
+        return if (s.isBlank()) "状态没读到" else s
+    }
+
+    private class ReadResult(
+        val rows: List<JsonObject>,
+        val truncated: Boolean,
+        val error: String?,
+        /** 这个接口**不是列表**时那份抹平后的对象（`AiReadService` 的 `value`）；是列表时为 null。 */
+        val value: JsonObject? = null,
+    )
 
     private companion object {
         val DATE = Regex("[0-9]{4}-[0-9]{2}-[0-9]{2}")
         val ALL_WORDS = setOf("全部", "所有", "全部商品", "所有商品", "全部批发商", "所有批发商", "全部商户", "all", "*")
         const val STATUS_DELIVERED = "DELIVERED"
+
+        /** 状态那一栏（行里叫「状态」）。 */
+        val STATUS = arrayOf("状态", "status")
+
+        /** 电话那一栏（联系人行与订单行都可能是它）。 */
+        val PHONE = arrayOf("电话", "phone")
+
+        /** 地址那一栏。 */
+        val ADDRESS = arrayOf("地址", "address")
+
+        /**
+         * 司机那一栏。
+         *
+         * ⚠️ `driver_name` 会被 [AiRowShaper] 摘掉（台账 L-30：AI 侧不喂司机姓名与电话），
+         * 所以 `full_name` 也认一下 —— 后端有时把司机嵌成对象再被抹平，那一支还在。
+         */
+        val DRIVER = arrayOf("司机", "driver_name", "full_name")
+
+        /** 下单时间那一栏。 */
+        val CREATED_AT = arrayOf("创建时间", "created_at")
+
+        /**
+         * 「在送」＝ 派单中 ＋ 已接单（货在路上）。
+         *
+         * ⚠️ 这是**汇总口径**（回答"今天有几单在送"用的），⛔ 不是某个动作的状态门 ——
+         * 状态门各自在 [com.tapmoay.sorders.core.OrderStatusModel] 里，别拿这个当判据。
+         */
+        val ON_ROAD = setOf("DISPATCHED", "ACCEPTED")
+
+        /** 下游价目表（`shipper_prices`）那三栏。 */
+        val PRICE_PRODUCT = arrayOf("商品", "product_name")
+        val PRICE_CONTACT = arrayOf("下游", "contact_name", "客户", "customer_name")
+        val PRICE_UNIT = arrayOf("单价", "unit_price", "price")
+
+        /** 一次最多发几张下游价确认卡（一个商品一张卡）：多了就先说清这次改哪几个。 */
+        const val MAX_CARDS = 6
+
+        /** 订单上那四个联系字段（`orders.update_contact` 的入参）：键 → 中文名。 */
+        val CONTACT_FIELDS = listOf(
+            "dongjia_name" to "收货人名称",
+            "dongjia_phone" to "收货人电话",
+            "boss_name" to "下单人名称",
+            "boss_phone" to "下单人电话",
+        )
         const val SOURCE_ORDER = "order"
 
         /** 账本里的**退货红冲**行（`LedgerSource.RETURN`）：营收与成本一起冲回头（BUG-0019 / 台账 TB-04）。 */

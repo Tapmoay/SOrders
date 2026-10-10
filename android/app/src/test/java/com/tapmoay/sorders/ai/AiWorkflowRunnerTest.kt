@@ -395,4 +395,213 @@ class AiWorkflowRunnerTest {
         assertTrue("要说清第几步没查成：" + root.toString(), root.str("error").contains("第 1 步"))
         assertEquals(1, fake.calls.size)
     }
+
+    // ------------------------------------------------ 货主 / 批发商那几条（FEAT-0020）
+
+    /** 只读工作流的返回：**只有结论**，没有交棒那一段（有了它模型就会去问"要不要发卡"）。 */
+    private fun assertNoCard(root: JsonObject) {
+        assertEquals("要标明这是只读的：" + root.toString(), "true", root.str("read_only"))
+        assertNull("只读工作流不许有 next：" + root.toString(), root["next"])
+        assertNull("只读工作流不许有 ask：" + root.toString(), root["ask"])
+    }
+
+    private val myOrders = """{"items":[
+        {"订单号":"A001","状态":"ACCEPTED","司机":"张三"},
+        {"订单号":"A002","状态":"DELIVERED","送达时间":"2026-10-09 10:00"}
+    ],"truncated":false}"""
+
+    @Test
+    fun `查单到哪了是只读的_查完直接给结论不发卡`() = runBlocking {
+        val root = obj(runner(FakeRead(mapOf("orders.list_orders" to myOrders))).run(AiWorkflows.ORDER_TRACK, args()))
+        assertNoCard(root)
+        val c = root.str("conclusion")
+        assertTrue("要报在送几张：" + c, c.contains("在送"))
+        assertTrue("要报已送达几张：" + c, c.contains("已送达"))
+        assertEquals("2", root.str("matched_orders"))
+    }
+
+    @Test
+    fun `查单到哪了_给了单号就查那一张_报司机与状态`() = runBlocking {
+        val fake = FakeRead(mapOf("orders.list_orders" to myOrders))
+        val root = obj(runner(fake).run(AiWorkflows.ORDER_TRACK, args("order" to "A001")))
+        assertNoCard(root)
+        val c = root.str("conclusion")
+        assertTrue("要说清是哪一张、现在什么状态：" + c, c.contains("A001") && c.contains("已接单"))
+        assertTrue("要给司机：" + c, c.contains("张三"))
+        assertEquals("单号走 q（不按日期窗）：", "A001", fake.argsOf("orders.list_orders").str("q"))
+    }
+
+    @Test
+    fun `本月账本小结用服务端算的数_逐单欠款另说`() = runBlocking {
+        val fake = FakeRead(
+            mapOf(
+                "shipper_ledger.ledger_summary" to
+                    """{"value":{"orders":3,"cleared_orders":1,"payable":"300.00","paid":"120.00","unpaid":"180.00"}}""",
+                "orders.list_orders" to """{"items":[
+                    {"订单号":"A001","状态":"DELIVERED","arrears_amount":"0.00"},
+                    {"订单号":"A002","状态":"DELIVERED","arrears_amount":"180.00"}
+                ],"truncated":false}""",
+            ),
+        )
+        val root = obj(runner(fake).run(AiWorkflows.LEDGER_MONTHLY, args()))
+        assertNoCard(root)
+        val c = root.str("conclusion")
+        // 金额走 AiWriteArgs.moneyText（末尾的 0 会去掉）：300.00 → 「300 元」。
+        assertTrue("要用服务端算的应付/已付/还欠：" + c, c.contains("300 元") && c.contains("120 元") && c.contains("180 元"))
+        assertTrue("要点出哪几张还没结清：" + c, c.contains("A002"))
+        assertEquals("180", root.str("unpaid"))
+        assertEquals("1", root.str("unpaid_count"))
+        assertTrue(
+            "窗口按送达日走 extra（⛔ 不是按送达日筛成下单日）：" + fake.argsOf("orders.list_orders").str("extra"),
+            fake.argsOf("orders.list_orders").str("extra").contains("delivered_from"),
+        )
+    }
+
+    @Test
+    fun `账本小结取不到那段统计时如实说_不编一个 0`() = runBlocking {
+        val fake = FakeRead(
+            mapOf(
+                "shipper_ledger.ledger_summary" to """{"items":[],"truncated":false}""",
+                "orders.list_orders" to """{"items":[],"truncated":false}""",
+            ),
+        )
+        val root = obj(runner(fake).run(AiWorkflows.LEDGER_MONTHLY, args()))
+        assertNoCard(root)
+        assertTrue("要如实说没取到：" + root.str("conclusion"), root.str("conclusion").contains("没取到"))
+    }
+
+    @Test
+    fun `一句话下单_单价不填_要按他自己的价算`() = runBlocking {
+        val fake = FakeRead(
+            mapOf(
+                "products.list_products" to """{"items":[{"名称":"红富士苹果","default_unit_price":"5.50"}],"truncated":false}""",
+                "shipper.list_contacts" to """{"items":[{"名称":"城东水果批发","电话":"13800000000"}],"truncated":false}""",
+                "shipper.list_addresses" to """{"items":[{"名称":"仓库","地址":"城东大道 1 号"}],"truncated":false}""",
+            ),
+        )
+        val root = obj(
+            runner(fake).run(
+                AiWorkflows.ORDER_PLACE,
+                args(
+                    "product" to "红富士苹果", "quantity" to "3",
+                    "contact" to "城东水果批发", "address" to "城东大道 1 号",
+                ),
+            ),
+        )
+        val next = root.obj("next")
+        assertEquals(AiWrites.ORDERS_CREATE, next.str("action"))
+        val params = next.obj("params")
+        val line = params.arr("lines").first()
+        assertEquals("红富士苹果", line.str("product"))
+        assertEquals("3", line.str("quantity"))
+        assertNull("⛔ 不许自己填单价（要按这个货主自己的价算）：" + line, line["unit_price"])
+        assertEquals("名册里认出来的收货人电话要带上", "13800000000", params.str("phone_dongjia"))
+        assertEquals("城东大道 1 号", params.str("address"))
+    }
+
+    @Test
+    fun `一句话下单_商品没匹配上就不发卡`() = runBlocking {
+        val fake = FakeRead(
+            mapOf(
+                "products.list_products" to """{"items":[],"truncated":false}""",
+                "shipper.list_contacts" to """{"items":[],"truncated":false}""",
+                "shipper.list_addresses" to """{"items":[],"truncated":false}""",
+            ),
+        )
+        val root = obj(runner(fake).run(AiWorkflows.ORDER_PLACE, args("product" to "不存在的商品", "quantity" to "3")))
+        assertNull("空明细的卡点了必然报错，所以不发：" + root.toString(), root["next"])
+        assertTrue("要如实说商品没匹配上：" + root.str("conclusion"), root.str("conclusion").contains("没有叫"))
+    }
+
+    @Test
+    fun `申请退货_不是已送达的单不发卡_并说清那是撤销`() = runBlocking {
+        val fake = FakeRead(
+            mapOf(
+                "orders.list_orders" to """{"items":[{"订单号":"A001","状态":"ACCEPTED"}],"truncated":false}""",
+                "return_requests.list_my_return_requests" to """{"items":[],"truncated":false}""",
+            ),
+        )
+        val root = obj(runner(fake).run(AiWorkflows.ORDER_RETURN_REQUEST, args("order" to "A001")))
+        assertNull("发不出去的卡不许发：" + root.toString(), root["next"])
+        assertTrue("要说清退不了、以及要走撤销：" + root.str("conclusion"), root.str("conclusion").contains("撤销"))
+    }
+
+    @Test
+    fun `申请退货_已送达的单交出申请卡_并说清这只是申请`() = runBlocking {
+        val fake = FakeRead(
+            mapOf(
+                "orders.list_orders" to """{"items":[{"订单号":"A001","状态":"DELIVERED"}],"truncated":false}""",
+                "return_requests.list_my_return_requests" to """{"items":[],"truncated":false}""",
+            ),
+        )
+        val root = obj(
+            runner(fake).run(
+                AiWorkflows.ORDER_RETURN_REQUEST,
+                args("order" to "A001", "product" to "红富士苹果", "quantity" to "2"),
+            ),
+        )
+        val next = root.obj("next")
+        assertEquals(AiWrites.RETURN_REQUEST_APPLY, next.str("action"))
+        assertEquals("A001", next.obj("params").str("order"))
+        assertEquals("红富士苹果", next.obj("params").arr("lines").first().str("product"))
+        assertTrue(
+            "要说清这只是申请（库存/账本都不动）：" + root.str("conclusion"),
+            root.str("conclusion").contains("申请"),
+        )
+    }
+
+    @Test
+    fun `改联系信息只带点名的那一栏_PATCH 语义`() = runBlocking {
+        val fake = FakeRead(
+            mapOf(
+                "orders.list_orders" to
+                    """{"items":[{"订单号":"A001","状态":"DELIVERED","客户":"李四","电话":"13800000000"}],"truncated":false}""",
+                "shipper.list_contacts" to """{"items":[],"truncated":false}""",
+            ),
+        )
+        val root = obj(runner(fake).run(AiWorkflows.ORDER_CONTACT, args("order" to "A001", "dongjia_phone" to "13900000000")))
+        val params = root.obj("next").obj("params")
+        assertEquals(AiWrites.ORDERS_UPDATE_CONTACT, root.obj("next").str("action"))
+        assertEquals("13900000000", params.str("dongjia_phone"))
+        assertEquals("A001", params.str("order"))
+        for (k in listOf("dongjia_name", "boss_name", "boss_phone")) {
+            assertNull("⛔ 没点名的那几栏一个字都不许带（把查到的值写回去会覆盖别人刚改的）：" + k, params[k])
+        }
+        assertTrue(
+            "要说清送货地址不在这扇门里：" + root.str("conclusion"),
+            root.str("conclusion").contains("派单员"),
+        )
+    }
+
+    @Test
+    fun `改下游价_几个商品几张卡_改前的价照实印`() = runBlocking {
+        val fake = FakeRead(
+            mapOf(
+                "shipper_prices.list_shipper_prices" to
+                    """{"items":[{"商品":"红富士苹果","contact_name":"张三","unit_price":"8.00"}],"truncated":false}""",
+                "shipper_prices.list_priceable_products" to
+                    """{"items":[{"名称":"红富士苹果"},{"名称":"菜籽油"}],"truncated":false}""",
+            ),
+        )
+        val root = obj(runner(fake).run(AiWorkflows.PRICE_MINE, args("product" to "红富士苹果、菜籽油", "price" to "9")))
+        assertNull("多于一张卡时给 nexts（不是 next）：" + root.toString(), root["next"])
+        val cards = root.arr("nexts")
+        assertEquals(2, cards.size)
+        assertEquals(AiWrites.SHIPPER_PRICE_SET, cards.first().str("action"))
+        assertEquals("9", cards.first().obj("params").str("price"))
+        assertTrue("要照实印现在的价（改前由价目表来，不是我们自己算）：" + root.str("conclusion"),
+            root.str("conclusion").contains("张三") && root.str("conclusion").contains("8 元"))
+        assertTrue(
+            "要说清只动自己那一本下游账：" + root.str("conclusion"),
+            root.str("conclusion").contains("公司那边的账"),
+        )
+    }
+
+    @Test
+    fun `改下游价不认百分比_要一个确定的单价且一个读都不发`() = runBlocking {
+        val fake = FakeRead(mapOf())
+        val root = obj(runner(fake).run(AiWorkflows.PRICE_MINE, args("product" to "红富士苹果", "adjust" to "-5")))
+        assertTrue("要让用户先说清具体多少钱：" + root.toString(), root.str("error").contains("确定的单价"))
+        assertEquals("认不出单价就不该发任何读：", 0, fake.calls.size)
+    }
 }

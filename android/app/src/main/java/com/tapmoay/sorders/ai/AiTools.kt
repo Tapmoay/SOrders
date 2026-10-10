@@ -201,6 +201,7 @@ class AiTools(
                 when (it) {
                     PREVIEW_WRITE -> previewWriteSpec(actor)
                     READ_DATA -> readDataSpec(actor)
+                    RUN_WORKFLOW -> runWorkflowSpec(actor)
                     else -> specOf(it)
                 }
             }
@@ -384,16 +385,135 @@ class AiTools(
      * 只读：读动作直接走 [reader] —— 与 `read_data` 同一条路，AI 流水里照样留痕。
      * 要改数据时它**只把「该发哪张卡」交回来**（结果里的 `next`），
      * 由模型问过用户之后走 `preview_write` —— 这个方法不会写一个字节。
+     *
+     * FEAT-0020：货主 / 批发商也有工作流了。**只读的那几条**（查单到哪了 / 本月账本小结）
+     * 跑完只有 `conclusion`，返回里**没有** `next` / `ask`；
+     * 角色门与工具 enum 同一份判据（[AiWorkflows.forActor]）——认不出角色 = 一条都不给。
      */
     private suspend fun runWorkflow(args: JsonObject): String {
         val id = str(args, "workflow").orEmpty()
         val wf = AiWorkflows.byId(id)
             ?: return err("认不出工作流「" + id + "」。现在能跑的是：" + AiWorkflows.IDS.joinToString("、") + "。")
-        val role = actor()?.role
-        if (role == null || role !in wf.roles) {
+        // 角色门与工具 enum / 说明**同一份判据**（[AiWorkflows.forActor]）：认不出角色 = 一条都不给。
+        // ⚠️ 不能只看 role —— 批发商货主那一条（memberOnly）普通货主也拿不到，
+        //    而派单员与普通货主是**两个角色拿同一批**的三种人（见 AiWorkflow.memberOnly）。
+        if (!AiWorkflows.allows(actor(), wf.id)) {
             return err("「" + wf.cn + "」不在你现在的可用范围内。")
         }
         return AiWorkflowRunner(read = { action, a -> reader.read(action, a) }).run(id, args)
+    }
+
+    /**
+     * `run_workflow` 的工具定义（**动态**：说明里的工作流清单与 enum 都按角色裁）。
+     *
+     * 与 `read_data` / `preview_write` 同一个道理：静态 `SCHEMAS` 建在 companion 里，
+     * **看不到实例上的角色**，而"哪些工作流这个角色能跑"是从 [AiWorkflows.forActor] 算出来的
+     * （派单员 2 条、货主 5 条、批发商货主 6 条、认不出角色 0 条）。
+     *
+     * ⛔ 静态表里那份 RUN_WORKFLOW 定义**已经删掉**：`specs` 到不了 `specOf(RUN_WORKFLOW)`，
+     * 它一个读者都没有 —— 留着就是第二份会走散的清单（READ_DATA 那次就是这么栽的，
+     * 见 [readDataSpec] 的注释）。参数形状只在这里有一份。
+     */
+    private fun runWorkflowSpec(actor: AiActor?): ToolSpec {
+        val mine = AiWorkflows.forActor(actor)
+        return ToolSpec(
+            type = "function",
+            function = FunctionSpec(
+                name = RUN_WORKFLOW,
+                description = AiWorkflows.TOOL_DESCRIPTION,
+                parameters = buildJsonObject {
+                    put("type", "object")
+                    putJsonObject("properties") {
+                        putJsonObject("workflow") {
+                            put("type", "string")
+                            put(
+                                "description",
+                                "跑哪一条工作流，从下面清单里**原样照抄**一个（格式 模块.动作）：\n" +
+                                    if (mine.isEmpty()) {
+                                        "（你现在**一条都跑不了**——如实告诉用户，别硬试。）"
+                                    } else {
+                                        mine.joinToString("；") { it.id + " = " + it.cn + "（" + it.whenToUse + "）" } + "。"
+                                    },
+                            )
+                            putJsonArray("enum") { mine.forEach { add(JsonPrimitive(it.id)) } }
+                        }
+                        putJsonObject("from") {
+                            put("type", "string")
+                            put("description", "开始日期 YYYY-MM-DD。⛔ 用户没说就别猜 —— 不传＝本月 1 号；" +
+                                "传了就要在回话里写明你用的是哪一段")
+                        }
+                        putJsonObject("to") {
+                            put("type", "string")
+                            put("description", "结束日期 YYYY-MM-DD。不传＝今天")
+                        }
+                        putJsonObject("shipper") {
+                            put("type", "string")
+                            put("description", "（对账 / 批量调价）只看这一位货主或批发商，填**名字**（不要编号）。留空＝全部")
+                        }
+                        putJsonObject("product") {
+                            put("type", "string")
+                            put("description", "商品名，多个用「、」隔开。用在哪条工作流上以它的参数说明为准" +
+                                "（批量调价：留空＝全部商品；一句话下单 / 申请退货 / 改我的下游价：**必填或留空＝整单**）")
+                        }
+                        putJsonObject("quantity") {
+                            put("type", "integer")
+                            put("description", "（一句话下单 / 申请退货）每种商品几件，只传数字（例如 3）")
+                        }
+                        putJsonObject("contact") {
+                            put("type", "string")
+                            put("description", "（一句话下单 / 改我的下游价）联系人的**名字**或手机号。" +
+                                "改我的下游价里不填＝对所有下游的默认价")
+                        }
+                        putJsonObject("address") {
+                            put("type", "string")
+                            put("description", "（一句话下单）送货地址。用户说了才填 —— 没说就留空，他能在页面上补")
+                        }
+                        putJsonObject("order") {
+                            put("type", "string")
+                            put("description", "（查单到哪了 / 申请退货 / 改收货联系信息）订单号")
+                        }
+                        putJsonObject("status") {
+                            put("type", "string")
+                            put("description", "（查单到哪了）只看某一档状态，取值照订单自己的枚举")
+                        }
+                        putJsonObject("customer") {
+                            put("type", "string")
+                            put("description", "（本月账本小结）只看这一位下游客户 / 收货人。普通货主没有下游那本账，用不上")
+                        }
+                        putJsonObject("dongjia_name") {
+                            put("type", "string")
+                            put("description", "（改收货联系信息）收货人**名称** —— ⛔ 只有用户点名了这一栏才填，没提的一个字都别带")
+                        }
+                        putJsonObject("dongjia_phone") {
+                            put("type", "string")
+                            put("description", "（改收货联系信息）收货人**电话** —— 同上，只填用户点名的那几栏")
+                        }
+                        putJsonObject("boss_name") {
+                            put("type", "string")
+                            put("description", "（改收货联系信息）下单人**名称** —— 同上")
+                        }
+                        putJsonObject("boss_phone") {
+                            put("type", "string")
+                            put("description", "（改收货联系信息）下单人**电话** —— 同上")
+                        }
+                        putJsonObject("note") {
+                            put("type", "string")
+                            put("description", "（申请退货）一句话说明，可选；派单员会看到")
+                        }
+                        putJsonObject("adjust") {
+                            put("type", "number")
+                            put("description", "（批量调价）在当前价基础上涨降的百分比，降 15 就填 -15。与 price 二选一")
+                        }
+                        putJsonObject("price") {
+                            put("type", "number")
+                            put("description", "（批量调价 / 改我的下游价）单价（元）。" +
+                                "⚠️ 改我的下游价**只认一个确定的数**，不折算百分比")
+                        }
+                    }
+                    putJsonArray("required") { add(JsonPrimitive("workflow")) }
+                },
+            ),
+        )
     }
 
     // ------------------------------------------------------- 工具 1：找货主
@@ -1242,44 +1362,6 @@ class AiTools(
                     }
                     putJsonArray("required") { add(JsonPrimitive("query")) }
                 },
-                RUN_WORKFLOW to buildJsonObject {
-                    put("type", "object")
-                    putJsonObject("properties") {
-                        putJsonObject("workflow") {
-                            put("type", "string")
-                            put("description", "跑哪一条工作流（登记在案的就这几条）：" +
-                                AiWorkflows.ALL.joinToString("；") { it.id + " = " + it.cn + "（" + it.whenToUse + "）" } + "。")
-                            putJsonArray("enum") { AiWorkflows.IDS.forEach { add(JsonPrimitive(it)) } }
-                        }
-                        putJsonObject("from") {
-                            put("type", "string")
-                            put("description", "开始日期 YYYY-MM-DD。⛔ 用户没说就别猜 —— 不传＝本月 1 号；" +
-                                "传了就要在回话里写明你用的是哪一段")
-                        }
-                        putJsonObject("to") {
-                            put("type", "string")
-                            put("description", "结束日期 YYYY-MM-DD。不传＝今天")
-                        }
-                        putJsonObject("shipper") {
-                            put("type", "string")
-                            put("description", "只看这一位货主/批发商，填**名字**（不要编号）。留空＝全部")
-                        }
-                        putJsonObject("product") {
-                            put("type", "string")
-                            put("description", "（批量调价）商品名，多个用「、」隔开。留空＝全部商品")
-                        }
-                        putJsonObject("adjust") {
-                            put("type", "number")
-                            put("description", "（批量调价）在当前价基础上涨降的百分比，降 15 就填 -15。与 price 二选一")
-                        }
-                        putJsonObject("price") {
-                            put("type", "number")
-                            put("description", "（批量调价）统一单价。与 adjust 二选一")
-                        }
-                    }
-                    putJsonArray("required") { add(JsonPrimitive("workflow")) }
-                },
-
                 INVENTORY_ALERTS to buildJsonObject {
                     put("type", "object")
                     putJsonObject("properties") {
