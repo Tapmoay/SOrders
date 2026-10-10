@@ -2188,17 +2188,30 @@ def main() -> int:
     c.present("派单端圆钮也用同一个渐变（同一个 AI 不该有两种外观）", home, r"\.background\(aiBrandBrush\(\), CircleShape\)")
     # 输入框提示语：举一个用户自己做不到的例子，等于教错（他照着敲一句，得到的
     # 只会是"你没这个权限"，然后不会再敲第二句）。空状态与提示语都必须按角色给。
+    # ⚠️ 2026-10-11 CHG-0114：从"派单员/货主两条常量 if-else"升级成**按 AiSuggestWho 查表** ——
+    #    批发商是第三类身份（他最该看的是"我的货主欠我多少"，而不是普通货主最该看的"加一个常用地址"）。
+    #    判据跟着认新形状：**三档查表 + 认不出角色时 fail-closed 兜底**（意图一字未变：提示语必须按角色给）。
     c.present(
-        "输入框提示语按角色给",
+        "输入框提示语按角色查表给（派单员 / 货主 / 批发商三档）",
         screen,
-        r"hint = if \(ai\.currentRole == AiRole\.SHIPPER\) HINT_SHIPPER else HINT_DISPATCHER",
+        r"hint = suggestWho\?\.let \{ HINT_BY_WHO\[it\] \} \?: HINT_FALLBACK",
     )
+    c.present("三档提示语在一张表里", screen, r"private val HINT_BY_WHO = mapOf\(")
+    c.present("提示语表里有 DISPATCHER 那一档", screen, r"AiSuggestWho\.DISPATCHER to ")
+    c.present("提示语表里有 SHIPPER 那一档", screen, r"AiSuggestWho\.SHIPPER to ")
+    c.present("提示语表里有 MEMBER 那一档", screen, r"AiSuggestWho\.MEMBER to ")
     # v3.32：读文件时提示语要让位给"正在读文件…"，所以判据放宽成"placeholder 里必须用到 hint"。
     c.present("输入框用的是传进来的提示语", screen, r"placeholder = \{ Text\((if \(attaching\).*?else )?hint")
     c.absent("输入框里不许再把派单员的例子写死", fn_body(screen, "private fun InputBar("), r"例如：")
+    # 每条提示语各自查：⛔ 不许举例这个身份**做不到**的事（他照着敲一句只会得到"你没这个权限"）。
     c.absent(
         "货主端的提示语不许举例货主没有的能力（库存/司机/导出）",
-        block_between(screen, "private const val HINT_SHIPPER", "\n"),
+        block_between(screen, "AiSuggestWho.SHIPPER to", "\n"),
+        r"库存|司机|导出",
+    )
+    c.absent(
+        "批发商端的提示语不许举例他没有的能力（库存/司机/导出）",
+        block_between(screen, "AiSuggestWho.MEMBER to", "\n"),
         r"库存|司机|导出",
     )
     c.present("导航栏有凸起圆钮（派单端）", home, r"AiNavButton\.Protrude")
