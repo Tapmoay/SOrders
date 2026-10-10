@@ -272,7 +272,9 @@ def main() -> int:
     c.present(
         "签名多出两个回调、顺序固定（container / onBack / onOpenPurchaseOrders / onOpenPurchaseOrder）",
         code(INV_SCREEN),
-        r"fun InventoryScreen\(\s*container: AppContainer,\s*onBack: \(\) -> Unit,\s*onOpenPurchaseOrders: \(\) -> Unit,\s*onOpenPurchaseOrder: \(Long\) -> Unit,\s*\)",
+        # FEAT-0019（2026-10-11）：签名末尾多了**可选**的 `focusProductId: Long = 0L`
+        # （从消息中心点库存预警要定位到那个商品）。老入口不传它 ⇒ 行为不变；只放行这一格可选参数。
+        r"fun InventoryScreen\(\s*container: AppContainer,\s*onBack: \(\) -> Unit,\s*onOpenPurchaseOrders: \(\) -> Unit,\s*onOpenPurchaseOrder: \(Long\) -> Unit,\s*(?:focusProductId: Long = 0L,\s*)?\)",
     )
     c.ok("两个回调各自带一句说明（一个是「进列表」、一个是「进某一张」）",
          "/** 进采购单列表" in inv and "/** 进某一张采购单" in inv)
@@ -288,7 +290,17 @@ def main() -> int:
         "采购单那颗与「流水」都在顶栏里（不是塞进某个弹层）",
         po_btn in actions and 'TextButton(onClick = { showMovements = true }) { Text("流水") }' in actions,
     )
-    inv_block = fn_body(nav, "composable(Routes.INVENTORY) {")
+    # FEAT-0019（2026-10-11）：库存那条 composable 现在带可选查询串（`?focus={focusId}`），写成
+    # 多行 `composable(route = …, arguments = …) { … }` ⇒ 不能再按 `composable(Routes.INVENTORY) {`
+    # 这一整句找。改成：先定位那条 route，再从它后面第一个 `) {`（lambda 起点）按大括号配对取体。
+    inv_left = nav.find('Routes.INVENTORY + "?focus={focusId}"')
+    inv_block = ""
+    if inv_left >= 0:
+        # lambda 起点形如 `) { entry ->`（参数名不固定）；⛔ 不能取第一个 `) {` ——
+        # `arguments = listOf(navArgument("focusId") {` 里面也藏着一个。
+        inv_m = re.search(r"\)\s*\{\s*\w+\s*->", nav[inv_left:])
+        if inv_m:
+            inv_block = fn_body(nav[inv_left + inv_m.start():], ") {")
     c.ok(f"NavGraph 里那一格摘得出来（{len(inv_block)} 字）", len(inv_block) >= 150, f"实际 {len(inv_block)} 字")
     c.ok(
         "顶栏那颗接到采购单列表（navigate(Routes.PURCHASE_ORDERS)）",
