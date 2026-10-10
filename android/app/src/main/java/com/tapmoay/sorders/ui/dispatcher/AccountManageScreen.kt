@@ -392,14 +392,17 @@ private fun AccountDevicesRow(vm: AccountManageViewModel, u: UserDto) {
                 modifier = Modifier.size(15.dp),
             )
             Spacer(Modifier.width(6.dp))
+            // 可伸缩文本必须显式给宽度（_tools/qa/_check_adaptive_layout.py 第 5 组）：
+            // 这一格原来是「自然宽度 + 后面一个 Spacer(weight) 撑开」，长文案会去挤右边那颗箭头；
+            // 改成自己带 weight(1f) —— 撑开的活它自己干，挤不下时按 Ellipsis 收，箭头不会被挤瘪。
             Text(
                 deviceCountText(vm.activeDevicesOf(u.id)),
+                modifier = Modifier.weight(1f),
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.weight(1f))
             if (vm.devicesLoading == u.id) {
                 CircularProgressIndicator(Modifier.size(13.dp), strokeWidth = 2.dp)
             } else {
@@ -461,7 +464,11 @@ private fun DeviceBindBlock(vm: AccountManageViewModel, u: UserDto, showHeader: 
                 )
             }
             Spacer(Modifier.height(4.dp))
-            Hint(
+            // 这一句走 Text 而不是 Hint（与 CHG-0106 收尾时「删除警告那句从 Hint 改回 Text」同款）：
+            // _tools/qa/_check_hints.py 按分类器把它归为 **DATA**（句里有数字「3」与单位「台」），
+            // 而提示总开关只该藏**解释句** —— 一次 Hint 调用里一段解释句都没有，就是
+            // 「关掉提示顺手把状态/规矩也关了」。⛔ 不是把判据放宽，是这句本来就不该挂开关。
+            Text(
                 "一个账号最多 3 台。司机换手机 / 手机坏了，把旧的那台解冻，新手机就能登录。",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
@@ -508,9 +515,19 @@ private fun DeviceRow(vm: AccountManageViewModel, u: UserDto, b: DeviceBindingDt
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(deviceTitle(b), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // 两行都显式占满所在的加权 Column（_check_adaptive_layout.py 第 5 组）：
+            // Column 本身已经 weight(1f)，这里给的是"文本宽度就是这一栏的宽度"—— 挤不下时在
+            // 这一栏里省略，而不是去跟右边那颗按钮抢地方。
+            Text(
+                deviceTitle(b),
+                modifier = Modifier.fillMaxWidth(),
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             Text(
                 deviceMeta(b),
+                modifier = Modifier.fillMaxWidth(),
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
