@@ -282,6 +282,15 @@ def bind_device(
         mine.last_seen_at = now
         mine.source = source
     db.flush()
+    # FEAT-0021：走到这里就**一定是一次新的绑定** —— 上面"就是本机"那条已经 early return 了，
+    # 所以"新设备登录"的消息钩子挂在这里。⛔ 登录路径里不再写第二套设备判断
+    # （两套判断迟早会分叉：一边说"新设备"一边说"老设备"，而且都不报错）。
+    # 局部导入：device_service 是被登录/注册两条热路径拉起来的，不值得在模块导入期就带上
+    # message_center ＋ 发件箱那一串（也因为 message_producers 反过来引用本模块）。
+    # 与绑定**同一个事务**：绑定回滚了、这条消息也不会留下。
+    from app.services import message_producers
+
+    message_producers.notify_new_device_login(db, user=user, binding=mine, source=source)
     return mine
 
 

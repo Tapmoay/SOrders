@@ -598,6 +598,10 @@ def issue_invoice(db: Session, invoice: Invoice, *, operator_id: int | None) -> 
         action=OperationAction.TAX_INVOICE_ISSUE,
         change_payload=_snapshot(invoice),
     )
+    # FEAT-0021：开票成功 → 给派单端一条 info（同一张票只一条；与状态改动同一个事务）。
+    from app.services import message_producers
+
+    message_producers.notify_invoice_issued(db, invoice=invoice, operator_id=operator_id)
     db.commit()
     db.refresh(invoice)
     return invoice

@@ -220,6 +220,21 @@ def count_unread(db: Session, recipient_id: int) -> int:
     return int(db.scalar(q) or 0)
 
 
+def idem_key_for(idem_key: str | None, recipient_id: int) -> str | None:
+    """幂等键的**最终形态**（事实键 ＋ 收件人）。``idem_key`` 的拼法只有这一处。
+
+    为什么键里要带收件人：同一条业务事实发给司机和派单员两个人，那是两条**该发**的消息。
+    为什么截到 140 字：列是 ``String(160)``，'"'#'"' ＋ 收件人编号还要占十来位 ——
+    在**唯一一处**截断，胜过让每个调用点自己猜上限（截断后撞键 = 少发一条，比超长报错更隐蔽）。
+
+    FEAT-0021：生产者（``message_producers``）也要用同一个键去问"这条是不是已经有了"，
+    所以把它提出来当公共口径 —— ⛔ 生产者不许自己拼一遍键（拼法分叉 = 去重静默失效）。
+    """
+    if not idem_key or not idem_key.strip():
+        return None
+    return idem_key.strip()[:140] + "#" + str(recipient_id)
+
+
 def create_message(
     db: Session,
     *,
@@ -255,9 +270,8 @@ def create_message(
     - ⛔ 唯一性由**数据库**保证（`uq_notifications_idem_key`），不是「先查再插」——
       后者挡不住两个 worker 同时投同一条事件（本项目在 lost update 上栽过同一个形状）。
     """
-    key = None
-    if idem_key and idem_key.strip():
-        key = idem_key.strip()[:140] + "#" + str(recipient_id)
+    key = idem_key_for(idem_key, recipient_id)
+    if key is not None:
         existing = db.scalars(select(Notification).where(Notification.idem_key == key)).first()
         if existing is not None:
             return existing
@@ -714,6 +728,25 @@ async def publish_order_restored(db: Session, user_ids: list[int], order_id: int
         await emit_realtime(uid, {"type": "order.restored", "order_id": order_id, "order_no": ono})
 
 
+def active_dispatchers(db: Session) -> list[User]:
+    """**在用**的派单员（能收站内信的那群人）。
+
+    FEAT-0021：从前这条判据只写在 ``_broadcast_to_dispatchers`` 里（外加
+    ``publish_new_order_to_dispatchers`` 又抄了一份）。生产者要给"库存低的商品 / 该付的款 /
+    开了的票"发消息，收件人必须与"新订单通知谁"**完全同一群人** ——
+    在这里再写一遍 where 就是第二个口径：哪天"停用的派单员不收消息"改了，
+    库存预警还照发，而两边都不报错。所以提成这一处，谁要发给派单员都走它。
+    """
+    return list(
+        db.scalars(
+            select(User).where(
+                User.role == UserRole.DISPATCHER,
+                User.is_active.is_(True),
+            )
+        ).all()
+    )
+
+
 async def _broadcast_to_dispatchers(
     db: Session,
     order_id: int,
@@ -726,13 +759,7 @@ async def _broadcast_to_dispatchers(
     if order is None:
         return
     content = content_tpl.format(ono=order.order_no)
-    dispatchers = db.scalars(
-        select(User).where(
-            User.role == UserRole.DISPATCHER,
-            User.is_active.is_(True),
-        )
-    ).all()
-    for d in dispatchers:
+    for d in active_dispatchers(db):
         n = create_message(
             db,
             recipient_id=d.id,
@@ -772,13 +799,7 @@ async def publish_new_order_to_dispatchers(db: Session, order_id: int) -> None:
     if order is None:
         return
     ono = order.order_no
-    dispatchers = db.scalars(
-        select(User).where(
-            User.role == UserRole.DISPATCHER,
-            User.is_active.is_(True),
-        )
-    ).all()
-    for d in dispatchers:
+    for d in active_dispatchers(db):
         n = create_message(
             db,
             recipient_id=d.id,

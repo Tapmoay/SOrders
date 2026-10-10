@@ -162,6 +162,12 @@ def create_movement(
     # 复核用的权威值：从库里重新读回来（不要拿"算出来的那个数"去写日志）
     db.refresh(product)
     new_stock = product.stock or 0
+    # FEAT-0021：库存刚变过 → 顺手判一次"到报警线了没有"（同商品同一天只发一条）。
+    # ⚠️ 用**刚读回来的权威值** `new_stock`，不是 `body` 算出来的那个数：
+    #    并发下算出来的数可能是错的，而这条消息会被当成"当前库存"看。
+    from app.services import message_producers
+
+    message_producers.notify_stock_low(db, product_id=body.product_id, stock=new_stock)
     row = InventoryMovement(
         product_id=body.product_id,
         change=body.change,

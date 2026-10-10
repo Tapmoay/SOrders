@@ -703,6 +703,12 @@ def unbind_user_device(
             "reason": device_service.UNBIND_REASON_ADMIN,
         },
     )
+    # FEAT-0021：解冻是**账号自己的事** —— 给本人发一条 info（与审计写在同一个事务里）。
+    # 幂等锚点用这一行自己的 `unbound_at`：同一次操作被重放不会再发一条，
+    # 而"今天解冻了两次"本来就是两件事、该有两条。
+    from app.services import message_producers
+
+    message_producers.notify_device_unfrozen(db, user_id=user_id, count=1, anchor=str(row.unbound_at))
     db.commit()
 
 
@@ -731,5 +737,12 @@ def unbind_all_user_devices(
             "count": len(rows),
             "reason": device_service.UNBIND_REASON_ADMIN,
         },
+    )
+    # FEAT-0021：同上 —— 发**一条**，不是发 len(rows) 条（用户点的是"全部"，
+    # 刷三条"您的设备已解冻"只会让人以为账号被动了三次）。
+    from app.services import message_producers
+
+    message_producers.notify_device_unfrozen(
+        db, user_id=user_id, count=len(rows), anchor=str(max(r.unbound_at for r in rows))
     )
     db.commit()

@@ -101,6 +101,13 @@ def auto_stock_commit(db: Session, order: Order) -> int:
             .values(stock=func.coalesce(Product.stock, 0) + m.change)
         )
         m.status = "COMMITTED"
+    # FEAT-0021：实扣之后判一次报警线（同商品同一天只发一条）。
+    # 不传 stock：上面走的是 SQL 表达式自减，本函数手上没有权威值，
+    # 让 `notify_stock_low` 自己只读列值（`select(Product.stock)`）—— 见那边的注释。
+    from app.services import message_producers
+
+    for m in rows:
+        message_producers.notify_stock_low(db, product_id=m.product_id)
     return len(rows)
 
 

@@ -96,6 +96,38 @@ async def _retention_loop() -> None:
         await asyncio.sleep(86400)
 
 
+def _message_scan_sync() -> None:
+    """消息兜底扫描（FEAT-0021）：库存低 / 应付临期 / 应付逾期 / 挂账单位超限。
+
+    **为什么要有它**：事件驱动的钩子挂在几条写路径上，任何一条被绕过（脚本直接改库、
+    以后新增的写路径、钩子之前进程崩了）消息就永远丢了 —— 而"没发"和"没出事"在界面上
+    长得一模一样。这里按**当前状态**重算一遍，与事件谁先谁后无关。
+
+    ⛔ **故意不选主、不写"今天跑过"标记**（与数据保留治理不同）：治理是「删了就没了」，
+    必须只有一个执行者；这个扫描是**幂等的**（每一条都带幂等键：同商品同一天 / 同单据同到期日 /
+    同单位同自然月），跑 N 次和跑 1 次结果完全一样。多 worker 同时跑最多撞一次唯一键，
+    由 `message_producers._send` 处理。少一层选主就少一处"锁没拿到 → 那天什么都没扫"。
+    """
+    db = SessionLocal()
+    try:
+        from app.services.message_producers import run_daily_scan
+
+        r = run_daily_scan(db)
+        logger.info("消息兜底扫描完成: %s", r)
+    except Exception:
+        logger.exception("消息兜底扫描失败")
+        db.rollback()
+    finally:
+        db.close()
+
+
+async def _message_scan_loop() -> None:
+    """消息兜底扫描：启动后立即执行一次，之后每 24 小时一次（与数据保留治理同一条每日链路）。"""
+    while True:
+        await asyncio.to_thread(_message_scan_sync)
+        await asyncio.sleep(86400)
+
+
 async def _outbox_deliver(event) -> None:
     """发件箱的**派发表**：一条链路一个处理器。
 
@@ -292,15 +324,19 @@ async def lifespan(_app: FastAPI):
     assert_schema_ready()
     task = asyncio.create_task(_retention_loop())
     outbox_task = asyncio.create_task(_outbox_loop())
+    # FEAT-0021：消息兜底扫描 —— 挂在同一条每日链路上（同一个 24 小时节拍）。
+    scan_task = asyncio.create_task(_message_scan_loop())
     try:
         yield
     finally:
+        scan_task.cancel()
         outbox_task.cancel()
         task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        for t in (scan_task, task):
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
 
 
 def create_fastapi_app() -> FastAPI:
