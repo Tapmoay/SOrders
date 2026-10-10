@@ -7,6 +7,10 @@
   3. 末尾那一行 item { FormErrorLine(vm.error) } 仍在（列表内同款提示，滚过去还能看到）；
   4. 行为复刻：给一段「可视区到 y=2252 / 红字原位置 y=2794」的坐标，断言底栏版本落在可视区内。
 """
+import sys
+
+# 判据/反验会打 ✅/❌ —— GBK 控制台下必须自己把 stdout 钉成 UTF-8（_check_tool_scripts.py）。
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import re, sys
 from pathlib import Path
 

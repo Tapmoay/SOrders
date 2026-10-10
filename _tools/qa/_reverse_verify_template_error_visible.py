@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 """BUG-0031（TA-07）反向验证：把修复逐条弄坏，判据必须变红；末尾逐字节还原。"""
+import sys
+
+# 判据/反验会打 ✅/❌ —— GBK 控制台下必须自己把 stdout 钉成 UTF-8（_check_tool_scripts.py）。
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import hashlib, subprocess, sys
 from pathlib import Path
 
