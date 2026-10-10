@@ -68,7 +68,15 @@ AUDIT_COVERAGE: dict[str, tuple[str, ...]] = {
     'order_product:edit': ('ORDER_LINE_ADD', 'ORDER_LINE_UPDATE', 'ORDER_LINE_DELETE'),
     'order:complete_driver': ('ORDER_COMPLETE',),
     # ---- 钱 ----
+    # 收款 / 开销的**反向路径**（2026-10 补；用户 2026-09-20 的硬规矩：所有删除一律软删 + 必须有恢复路径）：
+    # 四个动作码与它们的正向动作（EXPENSE_CREATE / RECEIPT_CREATE）同档、同一批人，所以归到这里 ——
+    # ⛔ 不另开能力、也⛔不进例外表（例外表是只减不增的棘轮，靠『先加动作码、再认领』销）：
+    # · EXPENSE_DELETE / EXPENSE_RESTORE —— api/v1/expenses.py:172 / :223 两个写端点的门都是 DispatcherUser；
+    # · RECEIPT_CANCEL / RECEIPT_RESTORE —— api/v1/ledger.py:1010 / :1121 的门是
+    #   require_roles(UserRole.DISPATCHER, detail="仅派单员可操作")，而 Permission.LEDGER_EDIT 在
+    #   core/rbac.py 的 ROLE_PERMISSIONS 里**只发给 dispatcher**（rbac.py:117）—— 两边是同一批人。
     'ledger:edit': ('LEDGER_CREATE', 'LEDGER_UPDATE', 'LEDGER_DELETE', 'RECEIPT_CREATE', 'EXPENSE_CREATE',
+                    'RECEIPT_CANCEL', 'RECEIPT_RESTORE', 'EXPENSE_DELETE', 'EXPENSE_RESTORE',
                     'EXPENSE_CATEGORY_UPSERT', 'EXPENSE_CATEGORY_DELETE', 'EXPENSE_CATEGORY_REORDER',
                     'SHIPPER_SETTLE_CREATE', 'SHIPPER_SETTLE_REVOKE', 'SHIPPER_SETTLE_RESTORE',
                     'DRIVER_BILL_GENERATE', 'SETTLEMENT_CREATE', 'SETTLEMENT_STATUS',

@@ -1,7 +1,7 @@
 # 界面提示与说明目录（**机器生成，不要手改**）
 
 > 生成命令：`python _tools/qa/_hint_inventory.py --md`
-> source_hash：`sha256:de8345717b3be49c46c2a5b3bc30442e792190e0b33f8d74de610a05f28b1610`
+> source_hash：`sha256:dc46fb8adbff831b8e7f997d51029333744837736302235bce6641bac086f5c5`
 > 这份文件是**产物**：改了源码就重跑，别在它上面手写（手写的内容下一次生成就没了）。
 
 ## 1. 口径
