@@ -184,16 +184,16 @@ CASES: list[tuple[str, str, object, str]] = [
 
     # ---------------- 5. 误伤主操作色与 AI 品牌渐变 ----------------
     ("⑳ 有人「顺手让 AI 页变绿」把 ThemeGreen 也改了",
-     COLOR, sub("val ThemeGreen = 0xFF28684B", "val ThemeGreen = 0xFF4B8C5EL"),
+     COLOR, sub("val ThemeGreen = 0xFF006C43", "val ThemeGreen = 0xFF4B8C5EL"),
      "主操作色还在用户画的那一族里"),
     ("㉑ 深一档被改成老色相那版的绿（订单卡的确认接单跟着变）",
-     COLOR, sub("val ThemeGreenDeep = 0xFF175036L", "val ThemeGreenDeep = 0xFF0E7A50L"),
+     COLOR, sub("val ThemeGreenDeep = 0xFF00532EL", "val ThemeGreenDeep = 0xFF0E7A50L"),
      "深一档还是"),
     ("㉒ AI 品牌渐变的 AiPink 被动过（用户从没让动）",
      COLOR, sub("val AiPink = 0xFFD96570L", "val AiPink = 0xFF4B8C5EL"),
      "AiPink"),
     ("㉓ 有人拿 AiChatGreen 的值覆盖了 MgrGreen（删了别人的 token）",
-     COLOR, sub("val MgrGreen = 0xFF49A67A", "val MgrGreen = 0xFF4B8C5EL"),
+     COLOR, sub("val MgrGreen = 0xFF00AC6E", "val MgrGreen = 0xFF4B8C5EL"),
      "覆盖一个已有 token"),
 
     # ---------------- 6. 配套的判据自己烂掉 ----------------

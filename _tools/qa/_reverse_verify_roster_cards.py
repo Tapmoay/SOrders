@@ -204,7 +204,7 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "㉑ 卡片上那个深橄榄被顺手调了一格",
         P_USERS,
-        "Color(0xFF5A6B00)",
+        "Color(0xFF4F6E00)",
         "Color(0xFF5A6B01)",
         "⛔ 卡片上那三个深色（姓氏圆底 / 徽章）一个字没动",
     ),
@@ -351,9 +351,9 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
     (
         "㊷ 规范 §2 表里账户管理那一行的常量格空了",
         SPEC,
-        "| 账户管理 | 赭石 #A2763D | AccountBrown |",
-        "| 账户管理 | 赭石 #A2763D | - |",
-        "规范 §2 表里有账户管理那一行（赭石 #A2763D / AccountBrown，CHG-0102 换的）",
+        "| 账户管理 | 赭石 #AC7217 | AccountBrown |",
+        "| 账户管理 | 赭石 #AC7217 | - |",
+        "规范 §2 表里有账户管理那一行（赭石 #AC7217 / AccountBrown，CHG-0102 换的）",
     ),
     (
         "㊸ 规范里写的抽屉宽度不是 240",

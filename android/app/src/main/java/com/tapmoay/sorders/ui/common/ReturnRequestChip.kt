@@ -51,11 +51,11 @@ fun ReturnRequestStatusChip(status: String, label: String, modifier: Modifier = 
 private fun chipColors(status: String): Pair<Color, Color> {
     val p: List<Color> = when (status) {
         // 待派单员处理：黄（与订单列表「派单中」同色）
-        "pending" -> listOf(Color(0xFFFFF1C6), Color(0xFF7A5900), Color(0xFF463800), Color(0xFFFFE08A))
+        "pending" -> listOf(Color(0xFFFFF1B2), Color(0xFF805700), Color(0xFF493800), Color(0xFFFFDF5E))
         // 已办理：绿（钱货已经动过了）
-        "done" -> listOf(Color(0xFFD9F0DA), Success, Color(0xFF0E3A28), SuccessDark)
+        "done" -> listOf(Color(0xFFD1F3D3), Success, Color(0xFF003C23), SuccessDark)
         // 已驳回：红（这是货主唯一能拿到的答复，必须一眼看见）
-        "rejected" -> listOf(Color(0xFFFFE1E1), Color(0xFF9C2B2B), Color(0xFF44201F), Color(0xFFFFB4AB))
+        "rejected" -> listOf(Color(0xFFFFDEDE), Color(0xFFB50019), Color(0xFF4D191A), Color(0xFFFFAA9F))
         // 已撤回：灰（申请人不打算办了；记录仍在）
         "withdrawn" -> listOf(Color(0xFFE1E2EC), Color(0xFF44464F), Color(0xFF2A2C33), Color(0xFFC7C9D1))
         // 认不出的新状态：跟「已撤回」同一档中性灰，**中文名照旧用后端给的**

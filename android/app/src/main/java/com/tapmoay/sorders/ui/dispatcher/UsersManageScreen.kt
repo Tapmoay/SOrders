@@ -674,11 +674,11 @@ private fun UserManageCard(
                     )
                     Spacer(Modifier.width(8.dp))
                     if (u.isMember) {
-                        Surface(color = Color(0xFFFFF1C6), shape = MaterialTheme.shapes.small) {
+                        Surface(color = Color(0xFFFFF1B2), shape = MaterialTheme.shapes.small) {
                             Text(
                                 "批发商",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = Color(0xFF7A5900),
+                                color = Color(0xFF805700),
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
                             )
                         }
@@ -819,9 +819,9 @@ private fun UserManageCard(
 
 /** 每个池一种强调色（与工作台里该模块的语义色同族；圆底用它 16% 透明、字用它本身）。 */
 private fun poolAccent(pool: UserPool): Color = when (pool) {
-    UserPool.DRIVERS -> Color(0xFF5A6B00)    // 司机黄绿（与「司机管理」同族）
-    UserPool.SHIPPERS -> Color(0xFF0A3168)   // 货主蓝
-    UserPool.MEMBERS -> Color(0xFF7A5900)    // 批发商金（与卡上的「批发商」徽章同色）
+    UserPool.DRIVERS -> Color(0xFF4F6E00)    // 司机黄绿（与「司机管理」同族）
+    UserPool.SHIPPERS -> Color(0xFF003181)   // 货主蓝
+    UserPool.MEMBERS -> Color(0xFF805700)    // 批发商金（与卡上的「批发商」徽章同色）
 }
 
 /**
@@ -851,8 +851,8 @@ private fun poolModuleColor(pool: UserPool): Color = when (pool) {
  */
 private fun poolOnColor(pool: UserPool): Color = when (pool) {
     UserPool.DRIVERS -> Color(OnDriverLime)
-    UserPool.SHIPPERS -> Color(0xFF00312F)
-    UserPool.MEMBERS -> Color(0xFF3A2A00)
+    UserPool.SHIPPERS -> Color(0xFF003331)
+    UserPool.MEMBERS -> Color(0xFF3E2900)
 }
 
 /**

@@ -6,7 +6,7 @@
 >  或者黑色都没关系。」「也就是那些金钱显示啊」
 
 上一版（CHG-0036）把红收成了「欠钱」专用、亏损画橙。这一条把它改回来并推到所有金额显示：
-**只要这个数带负号就是红**（v2 用 Palette.bad = #FF4D4F，老报表页沿用本页既有的 #E53935）。
+**只要这个数带负号就是红**（v2 用 Palette.bad = #FF4D4F，老报表页沿用本页既有的 #FF0013）。
 正数随便 —— 用户原话「其他的用其他颜色或者黑色都没关系」。
 
 ## 为什么必须有一条机器判据
@@ -33,7 +33,7 @@ R4-BOUNDARY-JUSTIFICATION: 这一条**没法用边界消除** —— 「这个�
 把 `amountTone` 的负数分支写回 `Tone.WARN` 既不会编译失败、也不会让任何单测或接口契约翻红；
 而且它**有两份实现**（v2 的 `amountTone` 与老报表页那几处 `if (x >= 0) 绿 else 红`），
 用户看得见的正是这两份画出来的结果。所以只能扫「判负那一句到底写成什么色」
-（`Tone.BAD` / `#E53935` 还是 `Tone.WARN` / `#00B578`），并把「结构减号行不许被连坐」
+（`Tone.BAD` / `#FF0013` 还是 `Tone.WARN` / `#00B578`），并把「结构减号行不许被连坐」
 按清单挡住。反向破坏用例见 `_tools/qa/_reverse_verify_report_money_color.py`（14 条注入）。
 
 用法：python _tools/qa/_check_report_money_color.py
@@ -69,8 +69,8 @@ UNSPECIFIED_FLOOR = 6
 MINUS_ROWS = ("− 商品成本", "− 司机运费", "− 期间费用", "− 车辆折旧")
 
 #: 老页面三处「商品毛利」的判负写法（两处 StatRow 文本完全相同，数它们出现 2 次）
-GP_TONE = "if (profit >= 0) Color(0xFF49A67A) else Color(0xFFE53935)"
-GP_GREEN_ONLY = 'StatRow("商品毛利", "¥" + formatMoney(profit.toString()), Color(0xFF49A67A))'
+GP_TONE = "if (profit >= 0) Color(0xFF00AC6E) else Color(0xFFFF0013)"
+GP_GREEN_ONLY = 'StatRow("商品毛利", "¥" + formatMoney(profit.toString()), Color(0xFF00AC6E))'
 
 
 def read(p: Path) -> str:
@@ -139,7 +139,7 @@ def main() -> int:
               "internal fun amountTone(v: Double): Tone = if (v < 0) Tone.BAD else Tone.GOOD")
     c.absent("amountTone", model, "if (v < 0) Tone.WARN")
     c.count("amountTone", model + nodes + home, "if (v < 0)", 1)
-    c.present("Palette", model_raw, "val bad = Color(0xFFDE7C81)")
+    c.present("Palette", model_raw, "val bad = Color(0xFFE07B80)")
     c.present("Palette", model_raw, "带负号的金额")
     c.present("Palette", model_raw, "如果是负的钱的话")
     c.absent("只给「欠钱」", model_raw, "只给「欠钱」")
@@ -164,22 +164,22 @@ def main() -> int:
 
     print("[4] 老页面：商品毛利为负时不许画绿")
     c.count("商品毛利", center, GP_TONE, 2)
-    c.present("商品毛利", center, "else if (profit < 0) Color(0xFFE53935) else Color(0xFF49A67A),")
-    c.present("商品毛利", center, "val gpColor = if (gp >= 0) Color(0xFF49A67A) else Color(0xFFE53935)")
+    c.present("商品毛利", center, "else if (profit < 0) Color(0xFFFF0013) else Color(0xFF00AC6E),")
+    c.present("商品毛利", center, "val gpColor = if (gp >= 0) Color(0xFF00AC6E) else Color(0xFFFF0013)")
     c.absent("商品毛利", center, GP_GREEN_ONLY)
 
     print("[5] 老页面：留抵（该交的增值税为负）不许画绿")
     # 留抵 = 进项比销项多，后端给的数**带负号**（演示库实测 -127.49）。老页面原来把「留抵」当好事画绿，
     # 被 2026-10-05 的口径推翻：带负号 ⇒ 红；正数（真该交的税）仍是本页原有的橙 #FF6B2C。
     c.present("留抵", center,
-              "if ((data.vatPayable.toDoubleOrNull() ?: 0.0) < 0.0) 0xFFE53935 else 0xFFBA6947")
-    c.present("留抵", center, "if (payable < 0.0) Color(0xFFE53935) else Color(0xFFBA6947)")
-    c.absent("留抵", center, "0xFF49A67A else 0xFFBA6947")
+              "if ((data.vatPayable.toDoubleOrNull() ?: 0.0) < 0.0) 0xFFFF0013 else 0xFFCE5C2C")
+    c.present("留抵", center, "if (payable < 0.0) Color(0xFFFF0013) else Color(0xFFCE5C2C)")
+    c.absent("留抵", center, "0xFF00AC6E else 0xFFCE5C2C")
 
     print("[6] 老页面既有的正负上色一个字都没被换掉")
-    c.present("opColor", center, "val opColor = if (op >= 0) Color(0xFF49A67A) else Color(0xFFE53935)")
+    c.present("opColor", center, "val opColor = if (op >= 0) Color(0xFF00AC6E) else Color(0xFFFF0013)")
     c.present("净流入", center,
-              "if (income - expense >= 0) Color(0xFF49A67A) else Color(0xFFE53935)")
+              "if (income - expense >= 0) Color(0xFF00AC6E) else Color(0xFFFF0013)")
 
     print("[7] 文档与登记表")
     c.present("CHG-0037", doc_raw, "带负号的金额")

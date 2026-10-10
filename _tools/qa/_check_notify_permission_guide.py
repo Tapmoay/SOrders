@@ -128,7 +128,7 @@ def main() -> int:
          "CardAlertDialog(" in home_c and re.search(r"(?<!Card)AlertDialog\(", home_c) is None,
          "裸 AlertDialog 是灰蓝那一套 → 与「以后弹窗都长这样」的口径分叉（CHG-0051 立的共用件）")
     c.ok("提示带图标（语义色橙，不与正文混在一起）",
-         "Icons.Default.NotificationsOff" in home_c and "Color(0xFFAF7C4D)" in home_c,
+         "Icons.Default.NotificationsOff" in home_c and "Color(0xFFBC7730)" in home_c,
          "没有图标就只是一句话，用户不会当成「必须处理的事」")
     c.ok("「去开启」真的把用户送到系统设置页",
          "NotifyPermission.openSettings(permContext)" in home_c,

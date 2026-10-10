@@ -73,30 +73,30 @@ private fun statusBadge(status: String): StatusBadge = when (status) {
     "DISPATCHED" -> StatusBadge(
         Icons.Default.Flag, "已派单",
         // `[亮底, 亮字, 暗底, 暗字]`——**必须全是 Color**，混进 String 会被推成 `List<Any>` 而编译不过。
-        listOf(Color(0xFFFFE8C2), Color(0xFF8A5300), Color(0xFF4A3200), Color(0xFFFFD9A0)),
+        listOf(Color(0xFFFFE7AF), Color(0xFF964D00), Color(0xFF503000), Color(0xFFFFD783)),
     )
     "PENDING_DISPATCH" -> StatusBadge(
         Icons.Default.Schedule, "派单中",
-        listOf(Color(0xFFFFF1C6), Color(0xFF7A5900), Color(0xFF463800), Color(0xFFFFE08A)),
+        listOf(Color(0xFFFFF1B2), Color(0xFF805700), Color(0xFF493800), Color(0xFFFFDF5E)),
     )
     "ACCEPTED" -> StatusBadge(
         Icons.Default.LocalShipping, "已接单",
-        listOf(Color(0xFFD6E3FF), Color(0xFF0F4690), Color(0xFF14335E), Color(0xFFBBD3FF)),
+        listOf(Color(0xFFCFE3FF), Color(0xFF0046B2), Color(0xFF003472), Color(0xFFADD4FF)),
     )
     "DELIVERED" -> StatusBadge(
         Icons.Default.CheckCircle, "已送达",
-        listOf(Color(0xFFD9F0DA), Success, Color(0xFF0E3A28), SuccessDark),
+        listOf(Color(0xFFD1F3D3), Success, Color(0xFF003C23), SuccessDark),
     )
     "CANCELLED" -> StatusBadge(
         Icons.Default.Close, "已撤销",
-        listOf(Color(0xFFF1E4E4), Color(0xFF8C4040), Color(0xFF3A2626), Color(0xFFE0B0B0)),
+        listOf(Color(0xFFF1E4E4), Color(0xFF9F2E36), Color(0xFF402324), Color(0xFFEFAAAB)),
     )
     // 已退货（2026-09-20）：⛔ 这一档**必须**有中文名与配色 ——
     // 落到下面的 `else` 分支上，徽章里会直接印出 `RETURNED` 这个原始码。
     // 配色是"货回来了、钱退了"的橙棕，与「已撤销」的灰红分得开（一个是没发生过、一个是发生过又退回来）。
     "RETURNED" -> StatusBadge(
         Icons.AutoMirrored.Filled.AssignmentReturn, "已退货",
-        listOf(Color(0xFFFFE3D2), Color(0xFF8A3B00), Color(0xFF43230F), Color(0xFFFFC9A8)),
+        listOf(Color(0xFFFFE1C8), Color(0xFF9C2900), Color(0xFF4B1E00), Color(0xFFFFC494)),
     )
     else -> StatusBadge(
         Icons.Default.Info, status,
@@ -342,13 +342,13 @@ private fun badgeColors(lightBg: Color, lightFg: Color, darkBg: Color, darkFg: C
 internal data class RolePalette(val label: String, val light: Color, val dark: Color)
 
 internal fun rolePaletteOf(role: String): RolePalette = when (role) {
-    "shipper" -> RolePalette("货主", Color(0xFF005A78), Color(0xFF8FDCF0))
+    "shipper" -> RolePalette("货主", Color(0xFF005D89), Color(0xFF5EE1FE))
     // 「批发商」这一支（CHG-0033）：与货主**同一族色** —— 他本来就是货主那一族
     // （`users.role="shipper"`，只是 `is_member=1`），变的只是标签上那个字。
     // 底色说的是"这一族是谁"，字说的是"这一个是谁"：颜色跟着族走，才不会被记成两套身份色。
-    "shipper_member" -> RolePalette("批发商", Color(0xFF005A78), Color(0xFF8FDCF0))
-    "driver" -> RolePalette("司机", Color(0xFF00624A), Color(0xFF8FE0C0))
-    "dispatcher" -> RolePalette("派单员", Color(0xFF0A4DAF), Color(0xFFA8C8FF))
+    "shipper_member" -> RolePalette("批发商", Color(0xFF005D89), Color(0xFF5EE1FE))
+    "driver" -> RolePalette("司机", Color(0xFF006645), Color(0xFF66E6B9))
+    "dispatcher" -> RolePalette("派单员", Color(0xFF004CDB), Color(0xFF92C9FF))
     else -> RolePalette(role, Color(0xFF44464F), Color(0xFFC7C9D1))
 }
 

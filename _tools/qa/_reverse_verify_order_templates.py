@@ -202,7 +202,7 @@ MUTATIONS = [
     (
         "工作台那一格被删掉（用户从界面上再也找不到预订单）",
         MODULES,
-        'ModuleEntry("预订单", Routes.DISPATCH_ORDER_TEMPLATES, Icons.Default.BookmarkAdded, color = 0xFF7A98D8L),',
+        'ModuleEntry("预订单", Routes.DISPATCH_ORDER_TEMPLATES, Icons.Default.BookmarkAdded, color = 0xFF7398E0L),',
         "",
         "那一格存在且指向它自己那一页",
     ),

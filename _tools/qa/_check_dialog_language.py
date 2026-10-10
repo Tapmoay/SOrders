@@ -224,8 +224,8 @@ def main() -> int:
          all(f"Icons.Filled.{n}" in icon for n in ("Info", "WarningAmber", "Dangerous")), "图标少了一个")
     c.present("警告橙是 import 来的（不是就地写一个橙色字面量）", comp_code,
               r"import com\.tapmoay\.sorders\.ui\.theme\.WarningAmber")
-    c.present("Color.kt 里那份橙色还在（WARN 档的色源；Color.kt 写的是 Long 字面量 0xFFD3A06EL）",
-              read(COLOR), r"val WarningAmber = 0xFFD3A06E")
+    c.present("Color.kt 里那份橙色还在（WARN 档的色源；Color.kt 写的是 Long 字面量 0xFFE19B51L）",
+              read(COLOR), r"val WarningAmber = 0xFFE19B51")
 
     print("== 4. DangerConfirmDialog 对齐到 DANGER（老调用点跟着走） ==")
     i_dcd = comp_code.find("fun DangerConfirmDialog(")

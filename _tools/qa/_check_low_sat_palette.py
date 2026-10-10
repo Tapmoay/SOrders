@@ -36,7 +36,7 @@
 4. **饱和度过低＝整片发灰**：用户点的是"低饱和"，但同一句话里还有「我不希望整体太过于灰」——
    这两条是**一对**。地板写死在单测里（`SAT_FLOOR`），谁把它往上提到 22%/30%，
    就是在"用尺子改设计"、逼每一格偏离用户画的色；谁把它删掉，发灰就没人拦。
-5. **主操作色上的白字读不清**：主操作上的白字对比度 **6.62:1**（`#28684B`；CHG-0101 那版 `#8B4A4A` 是 6.61:1，过 AA 的 4.5），
+5. **主操作色上的白字读不清**：主操作上的白字对比度 **6.62:1**（`#006C43`；CHG-0101 那版 `#8B4A4A` 是 6.61:1，过 AA 的 4.5），
    这是全套里唯一稳过的一条 —— 有人把主色提亮一点点（"看着更精神"），
    对比度就掉到 4.5 以下，而界面照常渲染、没有任何工具会说他。
 6. **账本入口页 7 格撞色**：这一页是**唯一被单测真的量了两两距离 ≥60** 的两处之一
@@ -65,7 +65,7 @@
    它的 KDoc 里写着"原来是 #00A870"这类历史，那是**注释**，判据只看代码）；
    例外白名单只有一条：报表现金流的深蓝（见 `ALLOW_OLD`）；
 3. **用色处的硬编码必须已经跟着换**：新值的硬编码出现次数 ≥ 一个下限，
-   且 `#FF9500` / `#00B578` / `#00A2C7` 这几个大户**一处都不许留**；
+   且 `#FF8700` / `#00B578` / `#00A2C7` 这几个大户**一处都不许留**；
 4. 单测 `ui/theme/ThemePaletteTest.kt` 在，且 `SAT_FLOOR = 0.15`
    （**既拦发灰、又不许被抬高**）+ 主操作色白字对比度 ≥ 4.5 那一条也在；
 5. 相交判据还在：`_check_ledger_dashboard.py` 的 7 格 ≥60、`ModulesEntryTest` 的账本入口页那一条、
@@ -100,20 +100,20 @@ HARD_MIN, HARD_MAX = 120, 900
 
 #: 用户图一/图三那七个语义色对应的 token（**值按 CHG-0105 现值**：老色相 ＋ H 档明度彩度）。
 #: ⚠️ "背景 #F7F6F3" 落在 `BackgroundLight`；"禁用辅助 #9B8F88" 落在 `AccountBrown`
-#:    —— CHG-0105 收尾按用户口径（`m06138`「工作台就按一开始那个题目那个方案」）**保留 CHG-0102 那版赭石 `#A2763D`**（CHG-0101 那次曾换成灰棕 `#97897F`，被用户否掉）。
+#:    —— CHG-0105 收尾按用户口径（`m06138`「工作台就按一开始那个题目那个方案」）**保留 CHG-0102 那版赭石 `#AC7217`**（CHG-0101 那次曾换成灰棕 `#97897F`，被用户否掉）。
 SEMANTIC = {
-    "ThemeGreen": "0xFF28684B",        # 主操作（确认接单）
-    "MgrGreen": "0xFF49A67A",          # 成功 / 完成 / 代理下单（H 档）
-    "WarningAmber": "0xFFD3A06E",      # 提醒 / 重要
-    "ShipperTeal": "0xFF4CA0BC",       # 普通 / 信息 / 地址与联系人（H 档）
-    "AccountBrown": "0xFFA2763D",      # 禁用 / 辅助 / 账户管理（H 档：赭石，⛔ 不再是灰）
+    "ThemeGreen": "0xFF006C43",        # 主操作（确认接单）
+    "MgrGreen": "0xFF00AC6E",          # 成功 / 完成 / 代理下单（H 档）
+    "WarningAmber": "0xFFE19B51",      # 提醒 / 重要
+    "ShipperTeal": "0xFF00A4CE",       # 普通 / 信息 / 地址与联系人（H 档）
+    "AccountBrown": "0xFFAC7217",      # 禁用 / 辅助 / 账户管理（H 档：赭石，⛔ 不再是灰）
 }
 
 #: 主操作色那一族（Primary 四件套）：浅底 / 深字必须同族。
 PRIMARY_KIT = {
-    "Primary": "Color(0xFF28684B)",
+    "Primary": "Color(0xFF006C43)",
     "PrimaryContainer": "Color(0xFFDBE8E1)",
-    "OnPrimaryContainer": "Color(0xFF192E24)",
+    "OnPrimaryContainer": "Color(0xFF0E3021)",
 }
 
 #: 页面底那四层暖砂白。
@@ -128,40 +128,40 @@ SURFACE = {
 #:
 #: 为什么必须逐个钉（2026-10-10 反向验证抓出来的真窟窿，在本表之前**判据是死的**）：
 #: 本单一共换了 **45 个** token 的值，可上面 `SEMANTIC` / `PRIMARY_KIT` / `SURFACE` 只覆盖了
-#: 12 个。把 `val MoneyOrange = 0xFFC9855A` 改回旧橙 `0xFFFF9500`，判据**一声不响**
+#: 12 个。把 `val MoneyOrange = 0xFFC9855A` 改回旧橙 `0xFFFF8700`，判据**一声不响**
 #: —— 界面不会报错、编译不会报错、`ThemePaletteTest` 也没钉它，只是账本那一族悄悄变回旧的。
 #: 换值 token 漏一个就是一个窟窿；这张表就是"逐个钉住"的机器判据（CHG-0105 起按现值重锚）。
 #:
 #: ⚠️ 与 `Color.kt` 一致：正则统一用 `[^\n]*$` 收尾，**别去钉 `\b` 或 `L`**
 #:    （那个文件里 token 的写法本来就不一致：有的带 `L`、有的不带、有的写成 `Color(0x…)`）。
 IDENTITY = {
-    "ThemeGreenDeep": "0xFF175036",        # 数量块那档深绿（CHG-0105；#0E7A50 与红棕那版都已作废）
+    "ThemeGreenDeep": "0xFF00532E",        # 数量块那档深绿（CHG-0105；#0E7A50 与红棕那版都已作废）
     "ProductRowTint": "0xFFDBE8E1",        # 商品行浅底
-    "OnProductRowTint": "0xFF1B2E22",      # 商品行上的字
-    "ProgressYellow": "0xFF908643",        # 订单管理 / 派单中（CHG-0105 收尾保留 CHG-0102 那版）
-    "MemberGold": "0xFFBA8F4A",            # 批发商管理
-    "ProductPurple": "0xFFA587D4",         # 商品管理
-    "InventoryTeal": "0xFF3F8F81",         # 货主管理（CHG-0105 收尾保留 CHG-0102 那版）
-    "MoneyOrange": "0xFFAF7C4D",           # 账本管理 / 收款
-    "ArrearsTangerine": "0xFFBA6947",      # 挂账单位
-    "ReportIndigo": "0xFF8075C0",          # 报表中心
-    "MessageRed": "0xFFDE7C81",            # 消息中心（CHG-0105 收尾保留 CHG-0102 那版）
-    "DriverLime": "0xFF7E8338",            # 司机管理
-    "OnDriverLime": "0xFF33380F",          # 橄榄底上的字
+    "OnProductRowTint": "0xFF12301E",      # 商品行上的字
+    "ProgressYellow": "0xFF91871D",        # 订单管理 / 派单中（CHG-0105 收尾保留 CHG-0102 那版）
+    "MemberGold": "0xFFC48C1D",            # 批发商管理
+    "ProductPurple": "0xFFA980F1",         # 商品管理
+    "InventoryTeal": "0xFF009481",         # 货主管理（CHG-0105 收尾保留 CHG-0102 那版）
+    "MoneyOrange": "0xFFBC7730",           # 账本管理 / 收款
+    "ArrearsTangerine": "0xFFCE5C2C",      # 挂账单位
+    "ReportIndigo": "0xFF7B70DE",          # 报表中心
+    "MessageRed": "0xFFE07B80",            # 消息中心（CHG-0105 收尾保留 CHG-0102 那版）
+    "DriverLime": "0xFF798502",            # 司机管理
+    "OnDriverLime": "0xFF303900",          # 橄榄底上的字
     "OnArrearsTangerine": "0xFFFFF3EE",    # 砖红底上的字
-    "OriginTeal": "0xFF6CA6B1",            # 线路起点
-    "DestOrange": "0xFFBA8F4A",            # 线路终点（与 MemberGold 同值）
-    "CashOut": "0xFF697290",               # 支出那档雾蓝
-    "QuickPriceGreen": "0xFF678C6E",       # 商品卡「改价」
-    "UnitConvRose": "0xFF937197",          # 单位换算
-    "SuccessGreen": "0xFF49A67A",          # 成功 / 正常
-    "DangerRed": "0xFFB65C4E",             # 危险 / 异常
+    "OriginTeal": "0xFF49AABA",            # 线路起点
+    "DestOrange": "0xFFC48C1D",            # 线路终点（与 MemberGold 同值）
+    "CashOut": "0xFF62729D",               # 支出那档雾蓝
+    "QuickPriceGreen": "0xFF588F64",       # 商品卡「改价」
+    "UnitConvRose": "0xFF9C6BA3",          # 单位换算
+    "SuccessGreen": "0xFF00AC6E",          # 成功 / 正常
+    "DangerRed": "0xFFCD4A3C",             # 危险 / 异常
     "SecondaryContainer": "Color(0xFFE2E4E3)",
-    "OnSecondaryContainer": "Color(0xFF003E2C)",
-    "Tertiary": "Color(0xFFAF7C4D)",
-    "ErrorLight": "Color(0xFFB65C4E)",
-    "ErrorContainerLight": "Color(0xFFF7E4E4)",
-    "Success": "Color(0xFF49A67A)",
+    "OnSecondaryContainer": "Color(0xFF004128)",
+    "Tertiary": "Color(0xFFBC7730)",
+    "ErrorLight": "Color(0xFFCD4A3C)",
+    "ErrorContainerLight": "Color(0xFFFDE2E2)",
+    "Success": "Color(0xFF00AC6E)",
     "OnBackgroundLight": "Color(0xFF2B2724)",
     "OnSurfaceVariantLight": "Color(0xFF434549)",
     "SurfaceContainerLow": "Color(0xFFEAE7E1)",
@@ -173,55 +173,55 @@ IDENTITY = {
 #: （由 `_tmp/probe_token_diff.py` 从 `git show HEAD:…/Color.kt` 与工作副本对账生成，40 个）。
 #: ⚠️ 与 `Color.kt` 现在任何一个 token 的值都**不重合** —— 这是本表能当红线的前提。
 OLD_VALUES = {
-    "00A2C7", "00A56E", "00A870", "00A8A8", "00B578", "00BCD4", "0B3D2E", "0B4A32",
-    "0E7A50", "10331F", "1565C0", "17181C", "2B1200", "3A3F00", "3B404A", "5B9E74",
-    "6950F5", "7A7F8C", "8455E6", "8D6E63", "9C27B0", "CDDC39", "CFD4E0", "D2F2E3",
-    "D6F2E4", "E6F7EE", "E9E7E3", "EDEFF4", "EFEEEB", "F3F2EF", "F57F17", "F5A623",
-    "FBFBFA", "FF4D4F", "FF5252", "FF6B2C", "FF9500", "FF9F1C", "FFB300", "FFECEC",
+    "00A2C7", "00A56E", "00A870", "00A8A8", "00B578", "00C2E7", "0B3D2E", "0B4A32",
+    "0E7A50", "003519", "1565C0", "17181C", "2B1200", "3A3F00", "3B404A", "5B9E74",
+    "6950F5", "7A7F8C", "8455E6", "8D6E63", "9C27B0", "C0E100", "CFD4E0", "D2F2E3",
+    "D6F2E4", "E0F9EC", "E9E7E3", "EDEFF4", "EFEEEB", "F3F2EF", "F57F17", "F5A623",
+    "FBFBFA", "FF4D4F", "FF5252", "FF6B2C", "FF8700", "FF9F1C", "FFAD00", "FFECEC",
     # ⚠️ 下面这三个**不是 `Color.kt` 的 token**，是 `Modules.kt` 里逐格写死的模块身份色
     #    （`_tmp/probe_token_diff.py` 只对账 token，所以它们本来不在表里）。反向验证抓出来的
     #    真窟窿：把「车辆管理」改回 `0xFF48F0F0L` 那个亮青，第 2 节一声不响
     #    —— 因为它压根不在黑名单里。模块身份色也是"换掉的颜色"，同样一处都不许回来。
     "48F0F0",   # 车辆管理（旧的亮青，换成了 #87B7B9 → #4AA6A8）
-    "8EC714",   # 计费规则（旧荧光黄绿，换成了 #8E9463 → #939F4E）
-    "3949AB",   # 预订单（旧靛蓝，换成了 #617190 → #7A98D8）
+    "8EC714",   # 计费规则（旧荧光黄绿，换成了 #8E9463 → #8CA222）
+    "3949AB",   # 预订单（旧靛蓝，换成了 #617190 → #7398E0）
     # ⚠️ 下面这些是 **CHG-0101 那一整套**（CHG-0102/0105 都换掉的那批）。
     #    它们是"用户看过之后仍然否掉的一半"：用户 2026-10-10 说
     #    「太灰了一点……我们应该叫做明度。他们并不是完全都是一致的只是在一个区间内」
     #    —— 那套的毛病是同屏彩度差 7 倍（账户管理 C*=8.1 / 消息中心 C*=58.4）。
     #    ⛔ 把其中任何一个改回去，都是把这套配色退回"有的灰有的艳"。
     #    ⚠️ 每行箭头后面写的是 **CHG-0101 当时换成的值**（历史）：CHG-0105 又把色相换回老的那套、
-    #       明度彩度取 H 档，所以现值与箭头不一样（例：#59A570 → #49A67A、#C26357 → #BA6947）。
+    #       明度彩度取 H 档，所以现值与箭头不一样（例：#59A570 → #00AC6E、#C26357 → #CE5C2C）。
     "567A5F",   # 成功/完成 雾绿 → #59A570
     "6B8FA6",   # 信息 雾蓝 → #529EBF
-    "C8B270",   # 订单管理 卡其 → #8D8340
+    "CDB24F",   # 订单管理 卡其 → #8D8340
     "9AA35F",   # 司机管理 橄榄 → #72863F
-    "6F9A93",   # 货主管理 雾青 → #3F8F81
+    "6F9A93",   # 货主管理 雾青 → #009481
     "C9A15E",   # 批发商管理 浅金 → #B98E4A（线路终点同值）
     "8A7BB0",   # 商品管理 雾紫 → #B084CE
     "C9855A",   # 账本管理 焦糖 → #BA6F45
     "BE5F4A",   # 挂账单位 砖红 → #C26357
-    "7A7CA8",   # 报表中心 雾靛 → #8075C0
-    "CA454E",   # 消息中心 砖红 → #DE7C81
-    "97897F",   # 账户管理 灰棕 → #A2763D（这就是"最灰那一格"，C* 只有 8.1）
-    "617190",   # 预订单 雾靛 → #7A98D8
-    "A16A5F",   # 退货申请 砖红 → #D97C65
-    "A98F76",   # 发票台账 卡其 → #CF8855
-    "6A8F99",   # 库存管理 雾青 → #278A9D
+    "7A7CA8",   # 报表中心 雾靛 → #7B70DE
+    "CA454E",   # 消息中心 砖红 → #E07B80
+    "97897F",   # 账户管理 灰棕 → #AC7217（这就是"最灰那一格"，C* 只有 8.1）
+    "617190",   # 预订单 雾靛 → #7398E0
+    "A16A5F",   # 退货申请 砖红 → #E0785E
+    "A98F76",   # 发票台账 卡其 → #E08034
+    "6A8F99",   # 库存管理 雾青 → #008EAB
     "87B7B9",   # 车辆管理 浅青 → #4AA6A8
-    "7A899D",   # 运费模板 雾蓝灰 → #5387B1
-    "8E9463",   # 计费规则 橄榄 → #939F4E
-    "CA8658",   # 账本页 订单账 → #C78A4F
-    "4D7053",   # 账本页 司机账 → #4A8A4E
-    "689780",   # 账本页 货主账 → #5BA592
-    "B8860B",   # 账本页 批发商账 → #8A7339
-    "7B5AA6",   # 账本页 客户收款 → #9C8AD7
-    "416D99",   # 账本页 收支 → #537BC6
-    "AD1457",   # 账本页 供应商/应付 → #CB6587
-    "C7B270",   # 货主端 我的订单 → #8D7A3C
-    "D58539",   # 货主端 我的账本 → #C29750
-    "B7766F",   # 货主端 退货申请 → #BC5A58
-    "885B90",   # 货主端 下游定价 → #A76BAF
+    "7A899D",   # 运费模板 雾蓝灰 → #1B89C6
+    "8E9463",   # 计费规则 橄榄 → #8CA222
+    "CA8658",   # 账本页 订单账 → #D68428
+    "4D7053",   # 账本页 司机账 → #208F37
+    "689780",   # 账本页 货主账 → #2AAA90
+    "B8860B",   # 账本页 批发商账 → #8F7215
+    "7B5AA6",   # 账本页 客户收款 → #9C88E0
+    "416D99",   # 账本页 收支 → #287BE0
+    "AD1457",   # 账本页 供应商/应付 → #E05288
+    "C7B270",   # 货主端 我的订单 → #917A16
+    "D58539",   # 货主端 我的账本 → #CC9423
+    "B7766F",   # 货主端 退货申请 → #D5444A
+    "885B90",   # 货主端 下游定价 → #B65DC4
 }
 
 #: 例外白名单：`旧值 -> {允许还留在这些文件里}`。
@@ -231,14 +231,14 @@ ALLOW_OLD: dict[str, set[str]] = {}
 
 #: 换色后这些值必须**出现过**（用色处的硬编码已经跟着换了的证据）。
 NEW_MUST_APPEAR = {
-    "49A67A": 20,   # 成功/完成（= MgrGreen；CHG-0105 起：老色相 ＋ H 档明度彩度）
-    "BA6947": 10,   # 挂账/欠款 陶土红
-    "AF7C4D": 10,   # 账本/金额 焦糖
-    "4CA0BC": 8,    # 信息 晴蓝
+    "00AC6E": 20,   # 成功/完成（= MgrGreen；CHG-0105 起：老色相 ＋ H 档明度彩度）
+    "CE5C2C": 10,   # 挂账/欠款 陶土红
+    "BC7730": 10,   # 账本/金额 焦糖
+    "00A4CE": 8,    # 信息 晴蓝
 }
 
 #: 换色后这几个大户**一处都不许留**（它们是最刺眼的几个，也是最容易漏的）。
-NEW_MUST_GONE = ["FF9500", "00B578", "00A2C7", "FFB300", "00BCD4", "00A8A8",
+NEW_MUST_GONE = ["FF8700", "00B578", "00A2C7", "FFAD00", "00C2E7", "00A8A8",
                  "567A5F", "CA454E", "97897F", "C9855A"]
 
 #: 单测里那个饱和度地板：既拦"发灰"（太低），也不许被抬高（用尺子改设计）。
@@ -281,7 +281,7 @@ def code_only(t: str) -> str:
     """去掉块注释与行注释（保留换行数，好让行号还对得上）。
 
     为什么必须这样：本单的"用户原话/为什么"全写在注释里，其中就抄着
-    `0xFF00A870`、`#FF9500` 这些**看起来就是代码**的字样 ——
+    `0xFF00A870`、`#FF8700` 这些**看起来就是代码**的字样 ——
     判据抓的是**代码里**还有没有人在用它，不是"文档里提没提过"。
     """
     t = re.sub(r"/\*[\s\S]*?\*/", lambda m: chr(10) * m.group(0).count(chr(10)), t)
@@ -340,32 +340,32 @@ MODULE_TABLES = {
 #: 用 token 名上色的格子不在这里（它们由 `MODULE_TOKEN_COLORS` 管）。
 MODULE_LITERALS = {
     "dispatcherEntries": {
-        "7A98D8",  # 预订单
-        "D97C65",  # 退货申请
-        "A2763D",  # 账户管理（= AccountBrown 现值；CHG-0105 收尾保留 CHG-0102 那版）
-        "CF8855",  # 发票台账
-        "278A9D",  # 库存管理
-        "4AA5A7",  # 车辆管理
-        "5387B1",  # 运费模板
-        "939F4E",  # 计费规则
+        "7398E0",  # 预订单
+        "E0785E",  # 退货申请
+        "AC7217",  # 账户管理（= AccountBrown 现值；CHG-0105 收尾保留 CHG-0102 那版）
+        "E08034",  # 发票台账
+        "008EAB",  # 库存管理
+        "00AAAE",  # 车辆管理
+        "1B89C6",  # 运费模板
+        "8CA222",  # 计费规则
     },
     "ledgerHomeEntries": {
-        "C78A4F",  # 订单账
-        "4A8A4E",  # 司机账 · 运费结算
-        "5BA592",  # 货主账
-        "8A7339",  # 批发商账
-        "9C8AD7",  # 客户收款
-        "537BC6",  # 收支
-        "CB6587",  # 供应商 / 应付
+        "D68428",  # 订单账
+        "208F37",  # 司机账 · 运费结算
+        "2AAA90",  # 货主账
+        "8F7215",  # 批发商账
+        "9C88E0",  # 客户收款
+        "287BE0",  # 收支
+        "E05288",  # 供应商 / 应付
     },
     "shipperEntries": {
-        "8D7A3C",  # 我的订单
-        "49A67A",  # 下单
-        "4CA0BC",  # 地址与联系人
-        "C29750",  # 我的账本
-        "DE7C81",  # 消息中心（同上，保留 CHG-0102 那版）
-        "BC5A58",  # 退货申请
-        "A76BAF",  # 下游定价
+        "917A16",  # 我的订单
+        "00AC6E",  # 下单
+        "00A4CE",  # 地址与联系人
+        "CC9423",  # 我的账本
+        "E07B80",  # 消息中心（同上，保留 CHG-0102 那版）
+        "D5444A",  # 退货申请
+        "B65DC4",  # 下游定价
     },
     "driverEntries": set(),  # 两格都读 token（MgrGreen / MoneyOrange）
 }
@@ -373,18 +373,18 @@ MODULE_LITERALS = {
 #: `Modules.kt` 里用 token 名给格子上色的那几个（其余格子是裸字面量）。
 #: ⚠️ 只有 token 名对不上字面量时才需要人来看 —— 这是本单"身份色落地"的机器判据。
 MODULE_TOKEN_COLORS = {
-    "MgrGreen": "49A67A",
-    "ShipperTeal": "4CA0BC",
-    "ProgressYellow": "908643",
-    "DriverLime": "7E8338",
-    "InventoryTeal": "3F8F81",
-    "MemberGold": "BA8F4A",
-    "ProductPurple": "A587D4",
-    "MoneyOrange": "AF7C4D",
-    "ArrearsTangerine": "BA6947",
-    "MessageRed": "DE7C81",
-    "AccountBrown": "A2763D",
-    "ReportIndigo": "8075C0",
+    "MgrGreen": "00AC6E",
+    "ShipperTeal": "00A4CE",
+    "ProgressYellow": "91871D",
+    "DriverLime": "798502",
+    "InventoryTeal": "009481",
+    "MemberGold": "C48C1D",
+    "ProductPurple": "A980F1",
+    "MoneyOrange": "BC7730",
+    "ArrearsTangerine": "CE5C2C",
+    "MessageRed": "E07B80",
+    "AccountBrown": "AC7217",
+    "ReportIndigo": "7B70DE",
     # AI 那一格是**品牌色**，用户点名保留（不属于这两单那套低饱和语义色）。
     "AiBlue": "4285F4",
 }
@@ -497,8 +497,8 @@ def main() -> int:
     print("\n== 1. Color.kt：七个语义色是用户图里那套，别名关系还在 ==")
     # ⚠️ `Color.kt` 里 token 的写法**不一致**：有的带 `L` 后缀、有的不带、有的写成 `Color(0x…)`。
     #    所以正则收尾统一用 `[^\n]*$`，别去钉 `\b` 或 `L`。
-    c.present("ThemeGreen = #28684B（CHG-0105 起：老色相 ＋ H 档明度彩度）", color,
-              r"^val ThemeGreen = 0xFF28684B[^\n]*$")
+    c.present("ThemeGreen = #006C43（CHG-0105 起：老色相 ＋ H 档明度彩度）", color,
+              r"^val ThemeGreen = 0xFF006C43[^\n]*$")
     c.present("NavBlue 是 ThemeGreen 的别名（全仓 16 处引用不改调用点）", color,
               r"^val NavBlue = ThemeGreen\b")
     c.present("InfoBlue 也跟着走（否则表里出现同一个色叫两个名 + 一个孤儿蓝）", color,
@@ -568,7 +568,7 @@ def main() -> int:
     print("\n== 3b. Modules.kt 的图标宫格：格子还在、表里不许撞色、token 没被偷换 ==")
     # 为什么要单开一节：`ModulesEntryTest` 只对**账本入口页 7 格**和**货主端**真量 ≥60
     # （`:210` / `:104`），派单端那 21 格它只查"完全同色"（`:91`）。反向验证抓出来的窟窿正是
-    # 这一块：把货主端「下单」那格从 `0xFF567A5FL` 改成 `0xFF28684BL`（与主色撞色），
+    # 这一块：把货主端「下单」那格从 `0xFF567A5FL` 改成 `0xFF006C43L`（与主色撞色），
     # 第 3 节那条计数下限（`567A5F` ≥20 而实际 59）一声不响 —— 少一处根本掉不出下限。
     modules = read(MODULES)
     tables = parse_module_tables(modules)
@@ -669,18 +669,18 @@ def main() -> int:
         c.present(f"变更单里留了 {ref} 的原话（「{word}」）", doc, re.escape(word))
     for hexv in ("8B4A4A", "B5726B", "567A5F", "C8A56A", "6B7F99", "9B8F88", "F7F6F3"):
         c.present(f"变更单里写着图三的 #{hexv}", doc, re.escape(hexv))
-    c.present("设计系统那张语义色总表已经是新主色 #28684B", design, r"#28684B")
+    c.present("设计系统那张语义色总表已经是新主色 #006C43", design, r"#006C43")
     # ⚠️ §6 主题那一行必须**点着名字**写新值：`stale_marked` 那条只能抓"没有沿革交代"的行，
     #    而这条行文里本来就带 `CHG-0101 起`（＝一个沿革标记），所以光靠它抓不住
     #    "把这一行换回旧绿"的注入（反向验证抓出来的）。这里补一条正向点名的。
-    c.present("设计系统 §6 主题那一行点着名字写的是新主色（ThemeGreen=**#28684B 深绿**）",
-              design, re.escape("ThemeGreen=**#28684B 深绿**"))
+    c.present("设计系统 §6 主题那一行点着名字写的是新主色（ThemeGreen=**#006C43 深绿**）",
+              design, re.escape("ThemeGreen=**#006C43 深绿**"))
     c.ok(
         "设计系统里那两个旧值只在「历史沿革」句里出现（前是 / 旧 / 换成 / 原来是 / 历史 / CHG-009x）",
-        stale_marked(design, ("#00A870", "#FF9500")) == [],
+        stale_marked(design, ("#00A870", "#FF8700")) == [],
         "这 %d 行像是一句**现在时**的说明却还写着旧色：%s"
-        % (len(stale_marked(design, ("#00A870", "#FF9500"))),
-           " ｜ ".join(stale_marked(design, ("#00A870", "#FF9500"))[:2])),
+        % (len(stale_marked(design, ("#00A870", "#FF8700"))),
+           " ｜ ".join(stale_marked(design, ("#00A870", "#FF8700"))[:2])),
     )
     # ⚠️ §4.25g 的收尾句是本节的**锚**（判据按它找这一节）。`§4.25g` 在文件里出现 3 次
     #    （收尾句里两次 ＋ 标题里没有），只查 `§4\.25g` 会被别的副本撑绿（反向验证抓出来的）。

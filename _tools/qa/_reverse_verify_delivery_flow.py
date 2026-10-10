@@ -96,7 +96,7 @@ MUTATIONS = [
         DETAIL,
         "                    OutlinedTextField(\n"
         "                        value = remark,\n",
-        '                    SectionTitle(Icons.Default.Notes, Color(0xFF1E6FFF), "内部备注")\n'
+        '                    SectionTitle(Icons.Default.Notes, Color(0xFF006DFF), "内部备注")\n'
         "                    OutlinedTextField(\n"
         "                        value = remark,\n",
         "内部备注在送达备注下面",

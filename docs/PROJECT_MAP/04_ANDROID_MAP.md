@@ -124,4 +124,4 @@ D:/AProjects/ASDH/orders/_agent/gradle/gradle-8.9/bin/gradle.bat -p D:/AProjects
 - 弹窗：设置类用 `AlertDialog`（非 ModalBottomSheet）；添加类抽屉/底部 sheet 用于表单
 - 下拉：`ExposedDropdownMenuBox` + readOnly + 回填（勿用点选 chips 代替下拉）
 - 顶部状态导航：`ui/common/SegmentedStatusTabs.kt`（段间分隔线+选段淡色底）
-- 金额：橙色 `0xFFFF9500`（钱橙），数量：蓝色 `0xFF1E6FFF`，商品名：`0xFF8455E6`（紫）
+- 金额：橙色 `0xFFFF8700`（钱橙），数量：蓝色 `0xFF006DFF`，商品名：`0xFF8455E6`（紫）

@@ -482,7 +482,7 @@ v2 初稿把它列为"第一个该给用户看的功能"，理由是"AI 只填�
 | ①b 补 `q` 的电话字段 | 同上（**两行代码**） | 把 `contact_boss_phone`/`contact_dongjia_phone` 加进 `or_()`（§4.1 缺口 2，147 单里 16 单会漏） |
 | ② 聚合端点 | `backend/app/api/v1/`（新模块或并入 reports） | 挂账×逾期×货主的聚合，数字由 SQL 算 |
 | ③（若仍要做 NL 入口） | `backend/app/api/v1/ai.py`、`schemas/ai.py`、`router.py`、`models/enums.py`（加 `AI_QUERY`，**零迁移**）、`core/config.py` + `.env.example` —— **这些文件v2 计划要建但从未创建，仅作历史记录** [ignore-ref] | `POST /api/v1/ai/query`：自然语言 → 白名单 DSL → 调 §3.2 的 4 个端点 → 结果 + 筛选条件摘要 + **否定式回显**（§4.3）。做完要重跑 `gen_endpoint_index.py`，并在 `08_CODE_LOCATOR.md` 加一行 |
-| ④ 表单预填（若做） | Android 的 Color.kt（见 v3） | 加语义色 `val AiMagenta = 0xFFFF2D95L`——⚠️ **现有已用 15 个语义色**（含 `Modules.kt` L58 棕色 `0xFF8D6E63L`、L63 `0xFF00BCD4L`；**v1 说 14 色是错的**），且**不能选青色系**（会撞 `ShipperTeal #00A2C7`、库存 `#00BCD4`） |
+| ④ 表单预填（若做） | Android 的 Color.kt（见 v3） | 加语义色 `val AiMagenta = 0xFFFF2D95L`——⚠️ **现有已用 15 个语义色**（含 `Modules.kt` L58 棕色 `0xFF8D6E63L`、L63 `0xFF00C2E7L`；**v1 说 14 色是错的**），且**不能选青色系**（会撞 `ShipperTeal #00A2C7`、库存 `#00C2E7`） |
 | ④ | `android/.../ui/ai/AiPrefillViewModel.kt`（新）、ai/KeyVault.kt（未创建）（新）、Android 的 AppContainer.kt（未改动） + `ui/nav/{Routes,NavGraph}.kt` [ignore-ref] | 自然语言 → 表单字段值；**平台 Keystore** 存 key（§7.7）；并处理 §5.1 的 4 个坑 |
 | ④ | 入口位置 | **贴在痛点页**（如待派池顶部），**不要加第 16 个并列图标**（审查意见） |
 | ⑤ 写入自动化 | — | **必须先在服务端加 `Idempotency-Key`**（§7.1）；并补 §7.3 的推送、§7.2 的 `source: ai` 标记 |

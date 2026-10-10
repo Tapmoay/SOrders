@@ -351,7 +351,7 @@ def main() -> int:
     c.ok("保存键是本池的深色底 + 白字（这三个深色对比度 ≥ 7:1）",
          "containerColor = poolAccent(pool)" in screen and "contentColor = Color.White" in screen)
     c.ok("poolAccent 仍是那三个深色（司机深橄榄 / 货主深蓝 / 批发商深金）",
-         all(v in screen for v in ("0xFF5A6B00", "0xFF0A3168", "0xFF7A5900")),
+         all(v in screen for v in ("0xFF4F6E00", "0xFF003181", "0xFF805700")),
          "浅色底压白字只有 1.x:1 —— 这三个是「圆底用它 16%、字用它本身」的深色")
     c.ok(f"两键同宽同高（weight(1f).height(48.dp) 实际 {screen.count('Modifier.weight(1f).height(48.dp)')} 处）",
          screen.count("Modifier.weight(1f).height(48.dp)") == 2)

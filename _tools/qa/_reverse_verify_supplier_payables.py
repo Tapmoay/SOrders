@@ -165,7 +165,7 @@ MUTATIONS = [
     (
         "⑮ 账本管理入口页那一格被删（用户从界面上再也找不到它）",
         MODULES,
-        'ModuleEntry("供应商/应付", Routes.DISPATCH_SUPPLIERS, Icons.Default.Factory, color = 0xFFCB6587L),',
+        'ModuleEntry("供应商/应付", Routes.DISPATCH_SUPPLIERS, Icons.Default.Factory, color = 0xFFE05288L),',
         "",
         "那一格的颜色与邻居分得开",
     ),

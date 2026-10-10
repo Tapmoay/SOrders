@@ -102,7 +102,7 @@ fun BatchPriceSheet(
                 Text("批发商", style = MaterialTheme.typography.titleSmall)
                 Surface(
                     shape = MaterialTheme.shapes.small,
-                    color = Color(0xFFBA8F4A).copy(alpha = 0.12f),
+                    color = Color(0xFFC48C1D).copy(alpha = 0.12f),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Row(
@@ -112,7 +112,7 @@ fun BatchPriceSheet(
                         Icon(
                             Icons.Default.Storefront,
                             contentDescription = null,
-                            tint = Color(0xFFB07700),
+                            tint = Color(0xFFBB7200),
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(Modifier.width(8.dp))
@@ -120,7 +120,7 @@ fun BatchPriceSheet(
                             shipperLabel,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFB07700),
+                            color = Color(0xFFBB7200),
                         )
                     }
                 }

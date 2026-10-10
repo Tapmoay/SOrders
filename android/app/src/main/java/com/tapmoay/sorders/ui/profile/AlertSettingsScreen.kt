@@ -112,7 +112,7 @@ fun AlertSettingsScreen(
             if (voiceKind != null) {
                 SwitchRow(
                     icon = Icons.Default.NotificationsActive,
-                    color = Color(0xFFDE7C81),
+                    color = Color(0xFFE07B80),
                     title = "新单语音提醒",
                     subtitle = if (role == Role.DISPATCHER) {
                         "有订单需要派时大声念「有新订单待派单」"
@@ -152,7 +152,7 @@ fun AlertSettingsScreen(
                         )
                     },
                     leadingContent = {
-                        TintedIcon(Icons.Default.PlayCircle, Color(0xFF49A67A), size = 18.dp, container = 34.dp)
+                        TintedIcon(Icons.Default.PlayCircle, Color(0xFF00AC6E), size = 18.dp, container = 34.dp)
                     },
                     modifier = Modifier
                         .clickable {
@@ -166,7 +166,7 @@ fun AlertSettingsScreen(
                 HorizontalDivider()
                 SwitchRow(
                     icon = Icons.Default.VolumeUp,
-                    color = Color(0xFFAF7C4D),
+                    color = Color(0xFFBC7730),
                     title = "响的时候自动提高音量",
                     subtitle = "手机音量太低时临时提到 80%，念完恢复原样",
                     checked = boost,
@@ -222,7 +222,7 @@ fun AlertSettingsScreen(
                             )
                         },
                         leadingContent = {
-                            TintedIcon(Icons.Default.NotificationsActive, Color(0xFF49A67A), size = 18.dp, container = 34.dp)
+                            TintedIcon(Icons.Default.NotificationsActive, Color(0xFF00AC6E), size = 18.dp, container = 34.dp)
                         },
                     )
                 }
@@ -321,12 +321,12 @@ private fun WarnCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.BatteryAlert,
 ) {
     Surface(
-        color = Color(0xFFFFF3E0),
+        color = Color(0xFFFFF2D7),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            TintedIcon(icon, Color(0xFFAF7C4D), size = 18.dp, container = 34.dp)
+            TintedIcon(icon, Color(0xFFBC7730), size = 18.dp, container = 34.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)

@@ -65,8 +65,8 @@ MUTATIONS = [
     (
         "货主端放两个 AI 入口（用户会以为是两个功能）",
         MOD,
-        'ModuleEntry("我的订单", Routes.SHIPPER_ORDERS, Icons.Default.ListAlt, color = 0xFF8D7A3CL),',
-        'ModuleEntry("我的订单", Routes.SHIPPER_ORDERS, Icons.Default.ListAlt, color = 0xFF8D7A3CL),\n'
+        'ModuleEntry("我的订单", Routes.SHIPPER_ORDERS, Icons.Default.ListAlt, color = 0xFF917A16L),',
+        'ModuleEntry("我的订单", Routes.SHIPPER_ORDERS, Icons.Default.ListAlt, color = 0xFF917A16L),\n'
         '        ModuleEntry("AI 助手副本", Routes.AI_CHAT, Icons.Default.AutoAwesome, color = AiBlue),',
         "货主工作台里 AI **恰好一个**入口",
     ),

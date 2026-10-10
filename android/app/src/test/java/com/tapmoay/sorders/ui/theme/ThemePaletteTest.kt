@@ -104,7 +104,7 @@ class ThemePaletteTest {
         // 「你怎么把我一些颜色给全部变成了棕色……功能性全丢掉了」；CHG-0105 起 **只还色相**
         // （老色相 ＋ H 档明度彩度），所以现在读到的值是墨绿 #28684B，不再是 #8B4A4A。
         // 它同时是 Primary（主按钮底）、NavBlue（底部导航）、InfoBlue（信息）三处读的那个值。
-        assertEquals("主操作色变了（用户画的那支绿，CHG-0105 起是 #28684B 墨绿）", 0xFF28684BL, ThemeGreen)
+        assertEquals("主操作色变了（用户画的那支绿，CHG-0105 起是 #28684B 墨绿）", 0xFF006C43L, ThemeGreen)
         assertEquals("NavBlue 必须还是主操作色的别名", ThemeGreen, NavBlue)
         assertEquals("InfoBlue 必须还是主操作色的别名", ThemeGreen, InfoBlue)
     }
@@ -118,10 +118,10 @@ class ThemePaletteTest {
         //    （用户看到红棕那版的原话是「你怎么把我一些颜色给全部变成了棕色……功能性全丢掉了」），
         //    所以底是极浅的薄荷灰绿 #DBE8E1、字是近黑的墨绿 #1B2E22。
         assertEquals("商品行底变了（CHG-0105 起是极浅薄荷灰绿）", 0xFFDBE8E1L, ProductRowTint)
-        assertEquals("商品行上的字变了（CHG-0105 起是近黑墨绿）", 0xFF1B2E22L, OnProductRowTint)
+        assertEquals("商品行上的字变了（CHG-0105 起是近黑墨绿）", 0xFF12301EL, OnProductRowTint)
         // ⛔ 这两条负向断言防的是 **CHG-0091 那支绿的原值**回来：还色相不等于把老值搬回来。
-        assertTrue("商品行底变回 CHG-0091 那支绿了", ProductRowTint != 0xFFE6F7EEL)
-        assertTrue("商品行上的字变回 CHG-0091 那支墨绿了", OnProductRowTint != 0xFF10331FL)
+        assertTrue("商品行底变回 CHG-0091 那支绿了", ProductRowTint != 0xFFE0F9ECL)
+        assertTrue("商品行上的字变回 CHG-0091 那支墨绿了", OnProductRowTint != 0xFF003519L)
     }
 
     @Test

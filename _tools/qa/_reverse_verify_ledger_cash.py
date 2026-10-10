@@ -120,7 +120,7 @@ MUTATIONS = [
         "支出那一组改用硬编码颜色（主题里那份语义色成了摆设）",
         SCREEN,
         "                            accent = Color(CashOut),",
-        "                            accent = Color(0xFF697290L),",
+        "                            accent = Color(0xFF62729DL),",
         "第二份硬编码",
     ),
     (
@@ -141,9 +141,9 @@ MUTATIONS = [
     (
         "「开销管理」又被加回入口页当第 7 格（用户点名的「整合」被回退）",
         MODULES,
-        'ModuleEntry("收支", Routes.DISPATCH_CASH, Icons.Default.SwapHoriz, color = 0xFF537BC6L),',
-        'ModuleEntry("收支", Routes.DISPATCH_CASH, Icons.Default.SwapHoriz, color = 0xFF537BC6L),\n'
-        '        ModuleEntry("开销管理", Routes.DISPATCH_EXPENSES, Icons.Default.Receipt, color = 0xFF537BC6L),',
+        'ModuleEntry("收支", Routes.DISPATCH_CASH, Icons.Default.SwapHoriz, color = 0xFF287BE0L),',
+        'ModuleEntry("收支", Routes.DISPATCH_CASH, Icons.Default.SwapHoriz, color = 0xFF287BE0L),\n'
+        '        ModuleEntry("开销管理", Routes.DISPATCH_EXPENSES, Icons.Default.Receipt, color = 0xFF287BE0L),',
         "没有第二个「开销管理」格",
     ),
     (

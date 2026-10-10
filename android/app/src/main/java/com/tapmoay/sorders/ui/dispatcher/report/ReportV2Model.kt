@@ -41,12 +41,12 @@ import java.util.Locale
  * · [gray] 灰 = 说不清的（接口没给的口径）。
  */
 internal object Palette {
-    val good = Color(0xFF49A67A)
-    val bad = Color(0xFFDE7C81)
-    val warn = Color(0xFFAF7C4D)
-    val info = Color(0xFF4CA0BC)
-    val violet = Color(0xFF8075C0)
-    val gray = Color(0xFF546E7A)
+    val good = Color(0xFF00AC6E)
+    val bad = Color(0xFFE07B80)
+    val warn = Color(0xFFBC7730)
+    val info = Color(0xFF00A4CE)
+    val violet = Color(0xFF7B70DE)
+    val gray = Color(0xFF477081)
 }
 
 /** 语义（不是颜色本身）：颜色随主题走的那一条由 [toneColor] 决定。 */
@@ -152,19 +152,19 @@ internal object ReportNodes {
  * ⛔ 这一份是**唯一一份**：老入口页 `ReportHomeScreen` 与 v2 的「详细报表」都读它。
  */
 internal val REPORT_ENTRIES: List<EntryCard> = listOf(
-    EntryCard("0", "营业纵览", Icons.Default.Payments, Color(0xFFAF7C4D)),
-    EntryCard("1", "商品经营", Icons.Default.Inventory2, Color(0xFFA587D4)),
-    EntryCard("2", "司机绩效", Icons.Default.LocalShipping, Color(0xFF49A67A)),
-    EntryCard("3", "客户经营", Icons.Default.Storefront, Color(0xFF4CA0BC)),
-    EntryCard("4", "资金收支", Icons.Default.SwapHoriz, Color(0xFF8075C0)),
+    EntryCard("0", "营业纵览", Icons.Default.Payments, Color(0xFFBC7730)),
+    EntryCard("1", "商品经营", Icons.Default.Inventory2, Color(0xFFA980F1)),
+    EntryCard("2", "司机绩效", Icons.Default.LocalShipping, Color(0xFF00AC6E)),
+    EntryCard("3", "客户经营", Icons.Default.Storefront, Color(0xFF00A4CE)),
+    EntryCard("4", "资金收支", Icons.Default.SwapHoriz, Color(0xFF7B70DE)),
     // 2026-10-05 CHG-0036：用户定「红色只给欠钱」（别人欠我 / 我欠别人 / 超额度）。异常不是欠账，
     // 所以它从红 #FF4D4F 换成设计系统里已有的琥珀 #F5A623（与「营业纵览」的金橙 #FF9500 同族但更深）。
-    EntryCard("5", "异常与审计", Icons.Default.ReportProblem, Color(0xFFBA8F4A)),
-    EntryCard("6", "经营利润", Icons.Default.CurrencyYuan, Color(0xFF00B3A4)),
-    EntryCard("7", "车辆成本", Icons.Default.DirectionsCar, Color(0xFF546E7A)),
-    EntryCard("8", "成本覆盖", Icons.Default.BarChart, Color(0xFF4CAF50)),
-    EntryCard("9", "税账", Icons.Default.Receipt, Color(0xFFCF8855)),
-    EntryCard("10", "客户欠款", Icons.Default.AccountBalanceWallet, Color(0xFFB71C1C)),
+    EntryCard("5", "异常与审计", Icons.Default.ReportProblem, Color(0xFFC48C1D)),
+    EntryCard("6", "经营利润", Icons.Default.CurrencyYuan, Color(0xFF00BAA6)),
+    EntryCard("7", "车辆成本", Icons.Default.DirectionsCar, Color(0xFF477081)),
+    EntryCard("8", "成本覆盖", Icons.Default.BarChart, Color(0xFF00B622)),
+    EntryCard("9", "税账", Icons.Default.Receipt, Color(0xFFE08034)),
+    EntryCard("10", "客户欠款", Icons.Default.AccountBalanceWallet, Color(0xFFD60000)),
 )
 
 /** 抽屉里每个老入口底下的**一句白话**（用户：「让不懂会计的人也看得懂」）。 */

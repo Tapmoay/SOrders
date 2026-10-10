@@ -70,7 +70,7 @@ fun LineChart(
 fun BarChart(
     values: List<Float>,
     labels: List<String>,
-    color: Color = Color(0xFF49A67A),
+    color: Color = Color(0xFF00AC6E),
     modifier: Modifier = Modifier,
 ) {
     Column(modifier) {

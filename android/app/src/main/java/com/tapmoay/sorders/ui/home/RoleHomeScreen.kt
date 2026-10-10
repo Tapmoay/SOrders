@@ -330,7 +330,7 @@ fun RoleHomeScreen(
                 Icon(
                     Icons.Default.NotificationsOff,
                     contentDescription = null,
-                    tint = Color(0xFFAF7C4D),
+                    tint = Color(0xFFBC7730),
                 )
             },
             title = { Text("手机上还没允许发通知") },

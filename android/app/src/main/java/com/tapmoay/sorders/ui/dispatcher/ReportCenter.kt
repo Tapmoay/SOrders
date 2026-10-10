@@ -185,11 +185,11 @@ fun ReportCenterScreen(container: AppContainer, onBack: () -> Unit, initialTab: 
 
 @Composable
 private fun GroupHeader(title: String) {
-    Surface(color = Color(0xFFF3F0FF), shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+    Surface(color = Color(0xFFF3EFFF), shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.width(4.dp).height(14.dp)
-                    .background(Color(0xFF8075C0), MaterialTheme.shapes.extraSmall)
+                    .background(Color(0xFF7B70DE), MaterialTheme.shapes.extraSmall)
             )
             Spacer(Modifier.width(8.dp))
             Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = Color(0xFF495057))
@@ -323,7 +323,7 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
                     Spacer(Modifier.height(4.dp))
                     StatRow("订单数", data.totalOrders.toString() + " 单")
                     StatRow("单均价", money(data.avgOrder))
-                    StatRow("司机运费支出", money(data.totalFreight), Color(0xFFAF7C4D))
+                    StatRow("司机运费支出", money(data.totalFreight), Color(0xFFBC7730))
                     if (data.cancelledOrders > 0) StatRow("已撤销订单数", data.cancelledOrders.toString() + " 单", Color(0xFF8A8A8E))
                 }
             }
@@ -335,7 +335,7 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
                 SectionCard {
                     Text("待处理异常", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
-                    StatRow("近 30 天（与本页时间无关）", vm.pendingExceptionCount.toString() + " 单", Color(0xFFE53935))
+                    StatRow("近 30 天（与本页时间无关）", vm.pendingExceptionCount.toString() + " 单", Color(0xFFFF0013))
                 }
             }
             item {
@@ -344,18 +344,18 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
                     Spacer(Modifier.height(4.dp))
                     val profit = grossProfit(data)
                     // ⚠️ 毛利为负 ⇒ 红（用户 2026-10-05 口径：带负号的金额一律红），非负仍是本页的绿。
-                    StatRow("商品毛利", "¥" + formatMoney(profit.toString()), if (profit >= 0) Color(0xFF49A67A) else Color(0xFFE53935))
+                    StatRow("商品毛利", "¥" + formatMoney(profit.toString()), if (profit >= 0) Color(0xFF00AC6E) else Color(0xFFFF0013))
                     CoverNote(data.costCoveredLines, data.totalLines, data.costAvgLines, data.costSnapshotLines)
-                    StatRow("货损金额", money(data.damageAmount), Color(0xFFE53935))
-                    if (data.damageQty > 0) StatRow("货损件数", data.damageQty.toString() + " 件", Color(0xFFE53935))
+                    StatRow("货损金额", money(data.damageAmount), Color(0xFFFF0013))
+                    if (data.damageQty > 0) StatRow("货损件数", data.damageQty.toString() + " 件", Color(0xFFFF0013))
                 }
             }
             item {
                 SectionCard {
                     Text("资金状态", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
-                    StatRow("已收", money(data.collected), Color(0xFF49A67A))
-                    StatRow("挂账未收", money(data.arrearsTotal), Color(0xFFBA6947))
+                    StatRow("已收", money(data.collected), Color(0xFF00AC6E))
+                    StatRow("挂账未收", money(data.arrearsTotal), Color(0xFFCE5C2C))
                     val all = (data.collected.toDoubleOrNull() ?: 0.0) + (data.arrearsTotal.toDoubleOrNull() ?: 0.0)
                     val rate = if (all > 0) ((data.collected.toDoubleOrNull() ?: 0.0) / all * 100).toInt() else 0
                     StatRow("收款率", rate.toString() + " %", Color(ThemeGreen))
@@ -365,22 +365,22 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
                 SectionCard {
                     Text("客户账汇总", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(6.dp))
-                    Text("货主账", style = MaterialTheme.typography.labelLarge, color = Color(0xFF4CA0BC))
+                    Text("货主账", style = MaterialTheme.typography.labelLarge, color = Color(0xFF00A4CE))
                     if (vm.shipperAccounts.isEmpty()) Text("暂无流水", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     vm.shipperAccounts.take(3).forEach { a ->
-                        StatRow(a.name, a.count.toString() + " 笔 · ¥" + formatMoney(a.total), Color(0xFF4CA0BC))
+                        StatRow(a.name, a.count.toString() + " 笔 · ¥" + formatMoney(a.total), Color(0xFF00A4CE))
                     }
                     Spacer(Modifier.height(6.dp))
-                    Text("批发商账", style = MaterialTheme.typography.labelLarge, color = Color(0xFFBA8F4A))
+                    Text("批发商账", style = MaterialTheme.typography.labelLarge, color = Color(0xFFC48C1D))
                     if (vm.memberAccounts.isEmpty()) Text("暂无流水", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     vm.memberAccounts.take(3).forEach { a ->
-                        StatRow(a.name, a.count.toString() + " 笔 · ¥" + formatMoney(a.total), Color(0xFFBA8F4A))
+                        StatRow(a.name, a.count.toString() + " 笔 · ¥" + formatMoney(a.total), Color(0xFFC48C1D))
                     }
                     if (data.arrearsUnits.isNotEmpty()) {
                         Spacer(Modifier.height(6.dp))
-                        Text("挂账未收 TOP5", style = MaterialTheme.typography.labelLarge, color = Color(0xFFBA6947))
+                        Text("挂账未收 TOP5", style = MaterialTheme.typography.labelLarge, color = Color(0xFFCE5C2C))
                         data.arrearsUnits.forEach { u ->
-                            StatRow(u.name, money(u.amount), Color(0xFFBA6947))
+                            StatRow(u.name, money(u.amount), Color(0xFFCE5C2C))
                         }
                     }
                 }
@@ -398,7 +398,7 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
                     val labels = data.series.map { it.label }
                     when {
                         vals.any { it > 0f } && vm.chartType == "line" -> LineChart(vals, labels, Color(ThemeGreen))
-                        vals.any { it > 0f } -> BarChart(vals, labels, Color(0xFF49A67A))
+                        vals.any { it > 0f } -> BarChart(vals, labels, Color(0xFF00AC6E))
                         else -> ChartEmpty("该时段暂无送达数据")
                     }
                 }
@@ -411,7 +411,7 @@ private fun TurnoverTab(vm: ReportCenterViewModel) {
                 SectionCard {
                     data.series.forEach { s ->
                         Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            AccentBar(Color(0xFF8075C0))
+                            AccentBar(Color(0xFF7B70DE))
                             Spacer(Modifier.width(10.dp))
                             Text(s.label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
                             Text(s.orders.toString() + " 单", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End, modifier = Modifier.width(48.dp))
@@ -439,8 +439,8 @@ private fun ProductTab(vm: ReportCenterViewModel) {
         if (data != null) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatBig("商品总金额", money(data.totalAmount), Color(0xFFA587D4), Modifier.weight(1f))
-                    StatBig("出库总件数", data.totalQty.toString() + " 件", Color(0xFF3F8F81), Modifier.weight(1f))
+                    StatBig("商品总金额", money(data.totalAmount), Color(0xFFA980F1), Modifier.weight(1f))
+                    StatBig("出库总件数", data.totalQty.toString() + " 件", Color(0xFF009481), Modifier.weight(1f))
                 }
             }
             item {
@@ -449,9 +449,9 @@ private fun ProductTab(vm: ReportCenterViewModel) {
                     Spacer(Modifier.height(4.dp))
                     val profit = productGrossProfit(data)
                     // ⚠️ 毛利为负 ⇒ 红（用户 2026-10-05 口径：带负号的金额一律红），非负仍是本页的绿。
-                    StatRow("商品毛利", "¥" + formatMoney(profit.toString()), if (profit >= 0) Color(0xFF49A67A) else Color(0xFFE53935))
+                    StatRow("商品毛利", "¥" + formatMoney(profit.toString()), if (profit >= 0) Color(0xFF00AC6E) else Color(0xFFFF0013))
                     CoverNote(data.costCoveredLines, data.totalLines, data.costAvgLines, data.costSnapshotLines)
-                    StatRow("货损金额", money(data.damageAmount), Color(0xFFE53935))
+                    StatRow("货损金额", money(data.damageAmount), Color(0xFFFF0013))
                 }
             }
             item {
@@ -460,7 +460,7 @@ private fun ProductTab(vm: ReportCenterViewModel) {
                     Spacer(Modifier.height(8.dp))
                     val top = data.items.take(8)
                     if (top.isEmpty()) ChartEmpty("暂无数据")
-                    else BarChart(top.map { it.amount.toDoubleOrNull()?.toFloat() ?: 0f }, top.map { it.productName }, Color(0xFFA587D4))
+                    else BarChart(top.map { it.amount.toDoubleOrNull()?.toFloat() ?: 0f }, top.map { it.productName }, Color(0xFFA980F1))
                 }
             }
             item {
@@ -503,7 +503,7 @@ private fun ProductTab(vm: ReportCenterViewModel) {
             items(shown, key = { vm.productSort + "|" + it.productName }) { p ->
                 SectionCard {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        AccentBar(Color(0xFFA587D4))
+                        AccentBar(Color(0xFFA980F1))
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(p.productName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -518,10 +518,10 @@ private fun ProductTab(vm: ReportCenterViewModel) {
                                     (if (p.damageQty > 0) " · 货损 ¥" + formatMoney(p.damageAmount) else ""),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (profit == null) MaterialTheme.colorScheme.onSurfaceVariant
-                                        else if (profit < 0) Color(0xFFE53935) else Color(0xFF49A67A),
+                                        else if (profit < 0) Color(0xFFFF0013) else Color(0xFF00AC6E),
                             )
                         }
-                        Text(money(p.amount), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFFAF7C4D))
+                        Text(money(p.amount), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFFBC7730))
                     }
                 }
             }
@@ -563,9 +563,9 @@ private fun DriverTab(vm: ReportCenterViewModel) {
                     Text("绩效总览", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
                     StatRow("完成单量", totalOrders.toString() + " 单")
-                    StatRow("平均准时率", avgOt.toString() + " %", Color(0xFF49A67A))
-                    StatRow("平均拍照率", avgPr.toString() + " %", Color(0xFF4CA0BC))
-                    StatRow("计件司机待结运费", "¥" + formatMoney(owed.toString()), Color(0xFFBA6947))
+                    StatRow("平均准时率", avgOt.toString() + " %", Color(0xFF00AC6E))
+                    StatRow("平均拍照率", avgPr.toString() + " %", Color(0xFF00A4CE))
+                    StatRow("计件司机待结运费", "¥" + formatMoney(owed.toString()), Color(0xFFCE5C2C))
                     Text("待结运费 = 计件（PIECE）司机应结运费 − 已结算金额；工资制司机不计。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -573,7 +573,7 @@ private fun DriverTab(vm: ReportCenterViewModel) {
                 SectionCard {
                     Text("完成单量 TOP（条形图）", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(8.dp))
-                    BarChart(data.drivers.take(8).map { it.completedCount.toFloat() }, data.drivers.take(8).map { it.driverName }, Color(0xFF49A67A))
+                    BarChart(data.drivers.take(8).map { it.completedCount.toFloat() }, data.drivers.take(8).map { it.driverName }, Color(0xFF00AC6E))
                 }
             }
             item {
@@ -583,7 +583,7 @@ private fun DriverTab(vm: ReportCenterViewModel) {
             items(data.drivers, key = { it.driverId }) { d ->
                 SectionCard {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        AccentBar(Color(0xFF49A67A))
+                        AccentBar(Color(0xFF00AC6E))
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(d.driverName.ifBlank { "司机 " + d.driverId }, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -593,9 +593,9 @@ private fun DriverTab(vm: ReportCenterViewModel) {
                                 "PIECE" -> (d.freightOwed?.let { "待结运费 ¥" + formatMoney(it) } ?: "计件")
                                 else -> ""
                             }
-                            if (modeText.isNotBlank()) Text(modeText, style = MaterialTheme.typography.bodySmall, color = if ((d.billingMode ?: "").uppercase() == "SALARY") Color(0xFF8A8A8E) else Color(0xFFBA6947))
+                            if (modeText.isNotBlank()) Text(modeText, style = MaterialTheme.typography.bodySmall, color = if ((d.billingMode ?: "").uppercase() == "SALARY") Color(0xFF8A8A8E) else Color(0xFFCE5C2C))
                         }
-                        Text(d.completedCount.toString() + " 单", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF49A67A))
+                        Text(d.completedCount.toString() + " 单", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF00AC6E))
                     }
                 }
             }
@@ -626,8 +626,8 @@ private fun CustomerTab(vm: ReportCenterViewModel) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StatBig("订货总额", money(totalAmount.toString()), Color(0xFF4CA0BC), Modifier.weight(1f))
-                StatBig("客户数", all.size.toString() + " 家", Color(0xFF49A67A), Modifier.weight(1f))
+                StatBig("订货总额", money(totalAmount.toString()), Color(0xFF00A4CE), Modifier.weight(1f))
+                StatBig("客户数", all.size.toString() + " 家", Color(0xFF00AC6E), Modifier.weight(1f))
             }
         }
         item {
@@ -647,26 +647,26 @@ private fun CustomerTab(vm: ReportCenterViewModel) {
             SectionCard {
                 Text("客户账分组", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
-                Text("货主账", style = MaterialTheme.typography.labelLarge, color = Color(0xFF4CA0BC))
+                Text("货主账", style = MaterialTheme.typography.labelLarge, color = Color(0xFF00A4CE))
                 if (shippers.isEmpty()) Text("暂无流水", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 shippers.take(5).forEach { a ->
-                    StatRow(a.name, a.count.toString() + " 笔 · ¥" + formatMoney(a.total), Color(0xFF4CA0BC))
+                    StatRow(a.name, a.count.toString() + " 笔 · ¥" + formatMoney(a.total), Color(0xFF00A4CE))
                 }
                 Spacer(Modifier.height(6.dp))
-                Text("批发商账", style = MaterialTheme.typography.labelLarge, color = Color(0xFFBA8F4A))
+                Text("批发商账", style = MaterialTheme.typography.labelLarge, color = Color(0xFFC48C1D))
                 if (members.isEmpty()) Text("暂无流水", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 members.take(5).forEach { a ->
-                    StatRow(a.name, a.count.toString() + " 笔 · ¥" + formatMoney(a.total), Color(0xFFBA8F4A))
+                    StatRow(a.name, a.count.toString() + " 笔 · ¥" + formatMoney(a.total), Color(0xFFC48C1D))
                 }
             }
         }
         if (vm.customerArrears.isNotEmpty()) {
             item {
                 SectionCard {
-                    Text("挂账未收", style = MaterialTheme.typography.titleMedium, color = Color(0xFFBA6947))
+                    Text("挂账未收", style = MaterialTheme.typography.titleMedium, color = Color(0xFFCE5C2C))
                     Spacer(Modifier.height(6.dp))
                     vm.customerArrears.take(8).forEach { u ->
-                        StatRow(u.name, money(u.amount), Color(0xFFBA6947))
+                        StatRow(u.name, money(u.amount), Color(0xFFCE5C2C))
                     }
                 }
             }
@@ -677,37 +677,37 @@ private fun CustomerTab(vm: ReportCenterViewModel) {
         }
         if (shippers.isNotEmpty()) {
             item {
-                Text("货主 · 临时货主", style = MaterialTheme.typography.labelLarge, color = Color(0xFF4CA0BC))
+                Text("货主 · 临时货主", style = MaterialTheme.typography.labelLarge, color = Color(0xFF00A4CE))
                 Spacer(Modifier.height(6.dp))
             }
             items(shippers, key = { "s" + (it.id ?: it.tempName) }) { a ->
                 SectionCard {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        AccentBar(Color(0xFF4CA0BC))
+                        AccentBar(Color(0xFF00A4CE))
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(a.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                             if (a.tempName != null) Text("临时货主", style = MaterialTheme.typography.bodySmall, color = Color(0xFF8A8A8E))
                         }
-                        Text(a.count.toString() + " 笔 · ¥" + formatMoney(a.total), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFF4CA0BC))
+                        Text(a.count.toString() + " 笔 · ¥" + formatMoney(a.total), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFF00A4CE))
                     }
                 }
             }
         }
         if (members.isNotEmpty()) {
             item {
-                Text("批发商", style = MaterialTheme.typography.labelLarge, color = Color(0xFFBA8F4A))
+                Text("批发商", style = MaterialTheme.typography.labelLarge, color = Color(0xFFC48C1D))
                 Spacer(Modifier.height(6.dp))
             }
             items(members, key = { "m" + it.id }) { a ->
                 SectionCard {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        AccentBar(Color(0xFFBA8F4A))
+                        AccentBar(Color(0xFFC48C1D))
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(a.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                         }
-                        Text(a.count.toString() + " 笔 · ¥" + formatMoney(a.total), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFFBA8F4A))
+                        Text(a.count.toString() + " 笔 · ¥" + formatMoney(a.total), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFFC48C1D))
                     }
                 }
             }
@@ -737,15 +737,15 @@ private fun FinanceTab(vm: ReportCenterViewModel) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StatBig("资金流入", money(income.toString()), Color(0xFF49A67A), Modifier.weight(1f))
-                StatBig("资金流出", money(expense.toString()), Color(0xFFBA6947), Modifier.weight(1f))
+                StatBig("资金流入", money(income.toString()), Color(0xFF00AC6E), Modifier.weight(1f))
+                StatBig("资金流出", money(expense.toString()), Color(0xFFCE5C2C), Modifier.weight(1f))
             }
         }
         item {
             SectionCard {
                 Text("净额", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(4.dp))
-                StatRow("净流入", money((income - expense).toString()), if (income - expense >= 0) Color(0xFF49A67A) else Color(0xFFE53935))
+                StatRow("净流入", money((income - expense).toString()), if (income - expense >= 0) Color(0xFF00AC6E) else Color(0xFFFF0013))
             }
         }
         if (expByCat.isNotEmpty()) {
@@ -754,7 +754,7 @@ private fun FinanceTab(vm: ReportCenterViewModel) {
                     Text("开销分类汇总", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
                     expByCat.entries.sortedByDescending { it.value }.forEach { (cat, amt) ->
-                        StatRow(cat, money(amt.toString()), Color(0xFFAF7C4D))
+                        StatRow(cat, money(amt.toString()), Color(0xFFBC7730))
                     }
                 }
             }
@@ -778,7 +778,7 @@ private fun FinanceTab(vm: ReportCenterViewModel) {
             val isIn = ReportFinance.isIncome(f.direction)
             SectionCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    AccentBar(if (isIn) Color(0xFF49A67A) else Color(0xFFBA6947))
+                    AccentBar(if (isIn) Color(0xFF00AC6E) else Color(0xFFCE5C2C))
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text(f.partyName?.takeIf { it.isNotBlank() } ?: (if (isIn) "收入" else "支出"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -788,7 +788,7 @@ private fun FinanceTab(vm: ReportCenterViewModel) {
                         (if (isIn) "+" else "-") + money(f.amount),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = if (isIn) Color(0xFF49A67A) else Color(0xFFBA6947),
+                        color = if (isIn) Color(0xFF00AC6E) else Color(0xFFCE5C2C),
                     )
                 }
             }
@@ -830,7 +830,7 @@ private fun ExceptionTab(vm: ReportCenterViewModel) {
     Column(Modifier.fillMaxSize()) {
         SegmentedStatusTabs(
             labels = listOf("要处理 " + pending.size, "审计 " + vm.operationLogs.take(60).size, "已过去 " + past.size),
-            colors = listOf(Color(0xFFE53935), Color(0xFF8075C0), Color(0xFF8A8A8E)),
+            colors = listOf(Color(0xFFFF0013), Color(0xFF7B70DE), Color(0xFF8A8A8E)),
             selected = pane,
             onSelect = { pane = it },
         )
@@ -838,8 +838,8 @@ private fun ExceptionTab(vm: ReportCenterViewModel) {
         if (pane == 0) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatBig("要处理", pending.size.toString() + " 单", Color(0xFFE53935), Modifier.weight(1f))
-                    StatBig("其中钱货风险", pending.count { exceptionRisk(it) == RiskLevel.MONEY }.toString() + " 单", Color(0xFFFF8A65), Modifier.weight(1f))
+                    StatBig("要处理", pending.size.toString() + " 单", Color(0xFFFF0013), Modifier.weight(1f))
+                    StatBig("其中钱货风险", pending.count { exceptionRisk(it) == RiskLevel.MONEY }.toString() + " 单", Color(0xFFFF7544), Modifier.weight(1f))
                 }
             }
             item {
@@ -849,9 +849,9 @@ private fun ExceptionTab(vm: ReportCenterViewModel) {
                     Text("异常总账（近 30 天）", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
                     StatRow("总共 " + total.toString() + " 单", "要处理 " + pending.size + " + 已过去 " + past.size + " + 已解决 " + resolved.size)
-                    StatRow("解决率", rate.toString() + " %", Color(0xFF49A67A))
+                    StatRow("解决率", rate.toString() + " %", Color(0xFF00AC6E))
                     val oldest = pending.maxOfOrNull { stuckDays(it) } ?: 0
-                    if (oldest >= 3) StatRow("最久已拖", oldest.toString() + " 天", Color(0xFFFF8A65))
+                    if (oldest >= 3) StatRow("最久已拖", oldest.toString() + " 天", Color(0xFFFF7544))
                 }
             }
             // 分组渲染：同一危险层级的连在一起，层级标题写清"为什么这组要先看"
@@ -944,7 +944,7 @@ private fun ExceptionTab(vm: ReportCenterViewModel) {
 
 @Composable
 private fun AuditChip(label: String, count: Int, selected: Boolean, onClick: () -> Unit) {
-    val bg = if (selected) Color(0xFF8075C0) else MaterialTheme.colorScheme.surfaceVariant
+    val bg = if (selected) Color(0xFF7B70DE) else MaterialTheme.colorScheme.surfaceVariant
     val fg = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
     Surface(color = bg, shape = RoundedCornerShape(50), modifier = Modifier.clickable { onClick() }) {
         Text(
@@ -960,11 +960,11 @@ private fun AuditChip(label: String, count: Int, selected: Boolean, onClick: () 
 @Composable
 private fun LevelHeader(lv: RiskLevel, count: Int) {
     val color = when (lv) {
-        RiskLevel.MONEY -> Color(0xFFE53935)
-        RiskLevel.STUCK -> Color(0xFFFF8A65)
+        RiskLevel.MONEY -> Color(0xFFFF0013)
+        RiskLevel.STUCK -> Color(0xFFFF7544)
         RiskLevel.OTHER -> Color(0xFF8A8A8E)
         RiskLevel.PAST -> Color(0xFF8A8A8E)
-        RiskLevel.DONE -> Color(0xFF49A67A)
+        RiskLevel.DONE -> Color(0xFF00AC6E)
     }
     val why = when (lv) {
         RiskLevel.MONEY -> "已经在赔钱/可能丢货，先处理这些"
@@ -1011,7 +1011,7 @@ private fun AuditLogCard(log: OperationLogDto) {
             }
             // 涉及哪一单：写**单号**（不是内部编号 `#404`）
             log.orderNo?.takeIf { it.isNotBlank() }?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF8075C0))
+                Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF7B70DE))
             }
         }
     }
@@ -1050,11 +1050,11 @@ private fun KindBadge(text: String, color: Color) {
 }
 
 private fun levelColor(lv: RiskLevel): Color = when (lv) {
-    RiskLevel.MONEY -> Color(0xFFE53935)
-    RiskLevel.STUCK -> Color(0xFFFF8A65)
+    RiskLevel.MONEY -> Color(0xFFFF0013)
+    RiskLevel.STUCK -> Color(0xFFFF7544)
     RiskLevel.OTHER -> Color(0xFF8A8A8E)
     RiskLevel.PAST -> Color(0xFF8A8A8E)
-    RiskLevel.DONE -> Color(0xFF49A67A)
+    RiskLevel.DONE -> Color(0xFF00AC6E)
 }
 
 /**
@@ -1282,11 +1282,11 @@ private fun ExceptionCard(e: ExceptionOrderDto, onResolve: (() -> Unit)?) {
                     // 「已过去」的不显示——单子已经了结，没有"拖"可言。
                     if (lv != RiskLevel.DONE && lv != RiskLevel.PAST && days > 0) {
                         Spacer(Modifier.width(6.dp))
-                        KindBadge("已拖 " + days + " 天", if (days >= 3) Color(0xFFE53935) else Color(0xFFFF8A65))
+                        KindBadge("已拖 " + days + " 天", if (days >= 3) Color(0xFFFF0013) else Color(0xFFFF7544))
                     }
                 }
                 // **哪里异常**放第二行（用户最先要看的）——它就是后端给的 exception_reason。
-                Text(e.exceptionReason, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFE53935))
+                Text(e.exceptionReason, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFFF0013))
                 // **谁的异常**：货主/司机各一段，**缺哪个就不显示哪个**，不用 `?: ""` 拼出
                 // 「司机：  货主：老张」这种空壳（用户原话：「没必要的数据不需要存在」）。
                 val who = listOfNotNull(
@@ -1302,7 +1302,7 @@ private fun ExceptionCard(e: ExceptionOrderDto, onResolve: (() -> Unit)?) {
                 if (st.isNotBlank()) {
                     Text("状态：$st", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (e.exceptionResolvedAt != null) Text("解决：" + e.exceptionResolution, style = MaterialTheme.typography.bodySmall, color = Color(0xFF49A67A))
+                if (e.exceptionResolvedAt != null) Text("解决：" + e.exceptionResolution, style = MaterialTheme.typography.bodySmall, color = Color(0xFF00AC6E))
             }
             if (onResolve != null) TextButton(onClick = onResolve) { Text("解决") }
         }
@@ -1333,7 +1333,7 @@ private fun ProfitTab(vm: ReportCenterViewModel) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (data != null) {
             val op = data.operatingProfit.toDoubleOrNull() ?: 0.0
-            val opColor = if (op >= 0) Color(0xFF49A67A) else Color(0xFFE53935)
+            val opColor = if (op >= 0) Color(0xFF00AC6E) else Color(0xFFFF0013)
             item {
                 StatBig("营业利润", money(data.operatingProfit), opColor)
             }
@@ -1349,10 +1349,10 @@ private fun ProfitTab(vm: ReportCenterViewModel) {
                     StatRow("= 参与毛利的收入", money(data.revenueCovered), Color(ThemeGreen))
                     StatRow("− 商品成本", money(data.costTotal))
                     val gp = data.grossProfit.toDoubleOrNull() ?: 0.0
-                    val gpColor = if (gp >= 0) Color(0xFF49A67A) else Color(0xFFE53935)
+                    val gpColor = if (gp >= 0) Color(0xFF00AC6E) else Color(0xFFFF0013)
                     StatRow("= 商品毛利", money(data.grossProfit), gpColor)
-                    StatRow("− 配送成本(司机应得)", money(data.deliveryCost), Color(0xFFAF7C4D))
-                    StatRow("− 期间费用", money(data.operatingExpenseTotal), Color(0xFFBA6947))
+                    StatRow("− 配送成本(司机应得)", money(data.deliveryCost), Color(0xFFBC7730))
+                    StatRow("− 期间费用", money(data.operatingExpenseTotal), Color(0xFFCE5C2C))
                     // ⚠️ 折旧必须**单独一行**（FEAT-0012）：它已经真的从营业利润里减掉了，
                     //    不画出来的话上面减完不等于下面那一格 —— 2026-10-04 真机实测栽过一次的形状。
                     StatRow("− 车辆折旧", money(data.depreciationTotal), Color(0xFF8A8A8E))
@@ -1368,14 +1368,14 @@ private fun ProfitTab(vm: ReportCenterViewModel) {
                     Text("增值税（价外税，不进上面的营业利润）", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
                     StatRow("销项税额（开出去的票）", money(data.vatOutput), Color(ThemeGreen))
-                    StatRow("进项税额（拿到手的票）", money(data.vatInput), Color(0xFF49A67A))
+                    StatRow("进项税额（拿到手的票）", money(data.vatInput), Color(0xFF00AC6E))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     // ⚠️ 留抵（进项比销项多，带负号）⇒ 红（CHG-0037：「带负号的金额一律红」）；
                     //    正数仍然是橙 —— 该交的税，和「欠钱」不是同一件事。
                     StatRow(
                         "= 该交的增值税",
                         money(data.vatPayable),
-                        Color(if ((data.vatPayable.toDoubleOrNull() ?: 0.0) < 0.0) 0xFFE53935 else 0xFFBA6947),
+                        Color(if ((data.vatPayable.toDoubleOrNull() ?: 0.0) < 0.0) 0xFFFF0013 else 0xFFCE5C2C),
                     )
                     Spacer(Modifier.height(4.dp))
                     Hint(
@@ -1445,7 +1445,7 @@ private fun ProfitTab(vm: ReportCenterViewModel) {
                         Text("期间费用明细", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(4.dp))
                         data.operatingExpenses.forEach { e ->
-                            StatRow(e.category, money(e.amount), Color(0xFFBA6947))
+                            StatRow(e.category, money(e.amount), Color(0xFFCE5C2C))
                         }
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         StatRow("合计", money(data.operatingExpenseTotal))
@@ -1469,12 +1469,12 @@ private fun ProfitTab(vm: ReportCenterViewModel) {
                 SectionCard {
                     Text("资金状态", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
-                    StatRow("已收", money(data.collected), Color(0xFF49A67A))
-                    StatRow("挂账未收", money(data.arrearsTotal), Color(0xFFBA6947))
+                    StatRow("已收", money(data.collected), Color(0xFF00AC6E))
+                    StatRow("挂账未收", money(data.arrearsTotal), Color(0xFFCE5C2C))
                     if (data.cancelledOrders > 0) StatRow("已撤销订单数", data.cancelledOrders.toString() + " 单", Color(0xFF8A8A8E))
-                    if (data.damageQty > 0) StatRow("货损件数", data.damageQty.toString() + " 件", Color(0xFFE53935))
+                    if (data.damageQty > 0) StatRow("货损件数", data.damageQty.toString() + " 件", Color(0xFFFF0013))
                     if ((data.damageAmount.toDoubleOrNull() ?: 0.0) != 0.0) {
-                        StatRow("货损金额（已含在期间费用里）", money(data.damageAmount), Color(0xFFE53935))
+                        StatRow("货损金额（已含在期间费用里）", money(data.damageAmount), Color(0xFFFF0013))
                     }
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -1511,7 +1511,7 @@ private fun VehicleCostTab(vm: ReportCenterViewModel) {
             item { ChartEmpty("该时段暂无车辆成本数据") }
         } else {
             item {
-                StatBig("车辆成本合计", money(data.totalCost), Color(0xFFE53935))
+                StatBig("车辆成本合计", money(data.totalCost), Color(0xFFFF0013))
                 Spacer(Modifier.height(4.dp))
                 // TB-03（2026-10-09 财务方向测试）：这一格 = 折旧 + 这台车的开销 + 挂靠司机的配送成本，
                 // 而"配送成本"只算**现在挂在这台车上**的那位司机 —— 没挂车的司机的运费一分钱不在这一格。
@@ -1528,8 +1528,8 @@ private fun VehicleCostTab(vm: ReportCenterViewModel) {
                     Text("这一段的三笔成本", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
                     StatRow("车辆折旧", money(data.depreciationTotal), Color(0xFF8A8A8E))
-                    StatRow("车辆开销（燃油/维修/保险…）", money(data.expenseTotal), Color(0xFFBA6947))
-                    StatRow("挂靠司机配送成本", money(data.deliveryCostTotal), Color(0xFFAF7C4D))
+                    StatRow("车辆开销（燃油/维修/保险…）", money(data.expenseTotal), Color(0xFFCE5C2C))
+                    StatRow("挂靠司机配送成本", money(data.deliveryCostTotal), Color(0xFFBC7730))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     // 标签里带上限定（TB-03）：这个"成本合计"不是全店的配送成本，只有挂靠司机那部分。
                     StatRow("= 成本合计（只含挂靠司机）", money(data.totalCost))
@@ -1579,8 +1579,8 @@ private fun VehicleCostTab(vm: ReportCenterViewModel) {
                             StatRow("每月折旧", money(v.monthlyDepreciation), Color(0xFF8A8A8E))
                         }
                         StatRow("车辆折旧（这一段）", money(v.depreciation), Color(0xFF8A8A8E))
-                        StatRow("这台车的开销", money(v.expenseTotal), Color(0xFFBA6947))
-                        StatRow("配送成本（司机应得）", money(v.deliveryCost), Color(0xFFAF7C4D))
+                        StatRow("这台车的开销", money(v.expenseTotal), Color(0xFFCE5C2C))
+                        StatRow("配送成本（司机应得）", money(v.deliveryCost), Color(0xFFBC7730))
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         // 同上：逐台车的合计也只含挂靠在这台车上的司机（TB-03）。
                         StatRow("= 成本合计（只含挂靠司机）", money(v.totalCost))
@@ -1644,8 +1644,8 @@ private fun CostCoverageTab(vm: ReportCenterViewModel) {
                     Text("收入里有多少带着成本出处", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
                     StatRow("收入合计", money(data.revenueTotal))
-                    StatRow("有成本出处的收入", money(data.revenueCovered), Color(0xFF49A67A))
-                    StatRow("没有成本出处的收入", money(data.revenueUncovered), Color(0xFFE53935))
+                    StatRow("有成本出处的收入", money(data.revenueCovered), Color(0xFF00AC6E))
+                    StatRow("没有成本出处的收入", money(data.revenueUncovered), Color(0xFFFF0013))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     Text(
                         "按明细行数：" + data.coveredLines.toString() + " / " + data.totalLines.toString() + " 行算得出成本；" +
@@ -1736,7 +1736,7 @@ private fun TaxTab(vm: ReportCenterViewModel) {
         } else {
             val payable = data.vatPayable.toDoubleOrNull() ?: 0.0
             // ⚠️ 留抵（带负号）⇒ 红（CHG-0037）；正数仍是橙。
-            val payableColor = if (payable < 0.0) Color(0xFFE53935) else Color(0xFFBA6947)
+            val payableColor = if (payable < 0.0) Color(0xFFFF0013) else Color(0xFFCE5C2C)
             item {
                 StatBig("该交的增值税", money(data.vatPayable), payableColor)
             }
@@ -1762,7 +1762,7 @@ private fun TaxTab(vm: ReportCenterViewModel) {
                     StatRow("张数", data.input.count.toString() + " 张")
                     StatRow("价税合计", money(data.input.amount))
                     StatRow("不含税", money(data.input.netAmount))
-                    StatRow("税额", money(data.input.taxAmount), Color(0xFF49A67A))
+                    StatRow("税额", money(data.input.taxAmount), Color(0xFF00AC6E))
                     if (data.input.untaxedCount > 0) {
                         StatRow(
                             "其中未税票",
@@ -1788,7 +1788,7 @@ private fun TaxTab(vm: ReportCenterViewModel) {
                         Text("不算进税汇的票", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(4.dp))
                         if (data.voidedCount > 0) {
-                            StatRow("已作废", data.voidedCount.toString() + " 张", Color(0xFFE53935))
+                            StatRow("已作废", data.voidedCount.toString() + " 张", Color(0xFFFF0013))
                         }
                         if (data.output.untaxedCount > 0) {
                             StatRow(
@@ -1897,7 +1897,7 @@ private fun CustomerBalanceTab(vm: ReportCenterViewModel) {
     }
     // 展开的那一行：按「类型 + 编号或名字」记，⛔ 不按下标（刷新一屏数据后下标会串行）
     var expanded by remember { mutableStateOf("") }
-    val warnRed = Color(0xFFE53935)
+    val warnRed = Color(0xFFFF0013)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (data == null) {
             item { ChartEmpty("该时段还没有客户欠款") }
@@ -1912,7 +1912,7 @@ private fun CustomerBalanceTab(vm: ReportCenterViewModel) {
                         money(t.balance),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFFBA6947),
+                        color = Color(0xFFCE5C2C),
                     )
                     Spacer(Modifier.height(4.dp))
                     Text("截止 " + data.asOf, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1937,7 +1937,7 @@ private fun CustomerBalanceTab(vm: ReportCenterViewModel) {
                         StatRow("减：预收（客户先打的钱）", money(t.prepaid))
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    StatRow("= 该收的钱", money(t.balance), Color(0xFFBA6947))
+                    StatRow("= 该收的钱", money(t.balance), Color(0xFFCE5C2C))
                     Spacer(Modifier.height(4.dp))
                     // ⛔ 这里不许用 Hint(...)：这句话里带「额度」，而「额度」在
                     //    _hint_inventory.PRIVACY_COST_WORDS 这张四族词表里 —— 四族句子
@@ -2070,7 +2070,7 @@ private fun CustomerBalanceTab(vm: ReportCenterViewModel) {
                                 Text(
                                     "点这一行看逐单明细（这一行一共 " + row.orderCount.toString() + " 张单）",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFF8075C0),
+                                    color = Color(0xFF7B70DE),
                                 )
                             }
                         }

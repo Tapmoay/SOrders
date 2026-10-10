@@ -622,7 +622,7 @@ internal fun CostHistoryRow(h: ProductCostHistoryDto, unit: String) {
                 modifier = Modifier.weight(1f),
             )
             if (live) {
-                Surface(color = Color(0xFFE3F1E8), shape = MaterialTheme.shapes.small) {
+                Surface(color = Color(0xFFDEF3E6), shape = MaterialTheme.shapes.small) {
                     Text(
                         "至今",
                         style = MaterialTheme.typography.labelSmall,

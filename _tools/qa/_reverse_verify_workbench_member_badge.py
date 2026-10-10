@@ -47,7 +47,7 @@ BT = chr(96)
 Q = chr(34)
 
 #: 色源里那一支（一整行，与 Components.kt 里逐字一致）
-ARM = f"{Q}shipper_member{Q} -> RolePalette({Q}批发商{Q}, Color(0xFF005A78), Color(0xFF8FDCF0))"
+ARM = f"{Q}shipper_member{Q} -> RolePalette({Q}批发商{Q}, Color(0xFF005D89), Color(0xFF5EE1FE))"
 #: 纯函数里那一行（含两个维度的判断）
 GATE = f"if (roleKey == {Q}shipper{Q} && memberShipper) {Q}shipper_member{Q} else roleKey"
 #: 工作台里那条注释（拿它当「往文件里塞东西」的落点 —— 注释被改不影响别的判据）
@@ -100,8 +100,8 @@ def _arm_borrows_roster_amber(s: str) -> str:
     return s.replace(
         ARM,
         ARM.replace(
-            "Color(0xFF005A78), Color(0xFF8FDCF0)",
-            "Color(0xFFFFF1C6), Color(0xFF7A5900)",
+            "Color(0xFF005D89), Color(0xFF5EE1FE)",
+            "Color(0xFFFFF1B2), Color(0xFF805700)",
         ),
     )
 

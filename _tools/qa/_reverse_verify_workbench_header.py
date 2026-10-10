@@ -112,8 +112,8 @@ MUTATIONS = [
     (
         "某一支少给一档色（暗色页面上那颗胶囊就糊了）",
         COMPONENTS,
-        '    "shipper" -> RolePalette("货主", Color(0xFF005A78), Color(0xFF8FDCF0))',
-        '    "shipper" -> RolePalette("货主", Color(0xFF005A78))',
+        '    "shipper" -> RolePalette("货主", Color(0xFF005D89), Color(0xFF5EE1FE))',
+        '    "shipper" -> RolePalette("货主", Color(0xFF005D89))',
         "亮/暗两档色",
     ),
     (

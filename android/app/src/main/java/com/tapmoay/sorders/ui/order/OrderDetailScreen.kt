@@ -1051,7 +1051,7 @@ private fun DetailBody(
                         Icon(
                             Icons.Default.Call,
                             contentDescription = null,
-                            tint = androidx.compose.ui.graphics.Color(0xFF49A67A),
+                            tint = androidx.compose.ui.graphics.Color(0xFF00AC6E),
                             modifier = Modifier.size(22.dp),
                         )
                         Spacer(Modifier.width(8.dp))
@@ -1059,7 +1059,7 @@ private fun DetailBody(
                             "收货人 " + who,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                            color = if (dongjiaWho != null) androidx.compose.ui.graphics.Color(0xFF0A6CFF)
+                            color = if (dongjiaWho != null) androidx.compose.ui.graphics.Color(0xFF006AFF)
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         // ⛔ 这里原来右边还有一句「点击拨打」。用户 2026-09-22：「那个**点击拨打**那个提示
@@ -1087,7 +1087,7 @@ private fun DetailBody(
                         Icon(
                             Icons.Default.Person,
                             contentDescription = null,
-                            tint = androidx.compose.ui.graphics.Color(0xFF49A67A),
+                            tint = androidx.compose.ui.graphics.Color(0xFF00AC6E),
                             modifier = Modifier.size(22.dp),
                         )
                         Spacer(Modifier.width(8.dp))
@@ -1104,7 +1104,7 @@ private fun DetailBody(
                             "下单人 " + bossText,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                            color = if (bossWho != null) androidx.compose.ui.graphics.Color(0xFF49A67A)
+                            color = if (bossWho != null) androidx.compose.ui.graphics.Color(0xFF00AC6E)
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         if (canEditInfo) EditHint(onClick = { edit.startEdit(OrderEditField.BOSS) })
@@ -1272,7 +1272,7 @@ private fun DetailBody(
                             // 量列宽与渲染用**同一个函数**（不同的话右对齐当场错位）。
                             "×" + qtyWithUnitConverted(netQty(line), line.unit, conversions),
                             style = qtyStyle,
-                            color = androidx.compose.ui.graphics.Color(0xFFA587D4),
+                            color = androidx.compose.ui.graphics.Color(0xFFA980F1),
                             textAlign = TextAlign.End,
                             modifier = Modifier.width(qtyW),
                         )
@@ -1361,7 +1361,7 @@ private fun DetailBody(
                             netTotal,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                            color = androidx.compose.ui.graphics.Color(0xFFAF7C4D),
+                            color = androidx.compose.ui.graphics.Color(0xFFBC7730),
                         )
                     }
                 }
@@ -1713,7 +1713,7 @@ private fun DetailBody(
                         enabled = !acting,
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = androidx.compose.ui.graphics.Color(0xFF49A67A),
+                            containerColor = androidx.compose.ui.graphics.Color(0xFF00AC6E),
                             contentColor = androidx.compose.ui.graphics.Color.White,
                         ),
                     ) {
@@ -1996,7 +1996,7 @@ private fun NavigationBlock(
             Icon(
                 Icons.Default.MyLocation,
                 contentDescription = null,
-                tint = Color(0xFF49A67A),
+                tint = Color(0xFF00AC6E),
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(6.dp))
@@ -2018,7 +2018,7 @@ private fun NavigationBlock(
                 Icon(
                     Icons.Default.Warning,
                     contentDescription = null,
-                    tint = Color(0xFFE6A23C),
+                    tint = Color(0xFFF59C00),
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.width(6.dp))
@@ -2035,7 +2035,7 @@ private fun NavigationBlock(
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = onFillClick,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CA0BC), contentColor = Color.White),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A4CE), contentColor = Color.White),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Default.AddLocationAlt, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -2048,7 +2048,7 @@ private fun NavigationBlock(
             Icon(
                 Icons.Default.Warning,
                 contentDescription = null,
-                tint = Color(0xFFE6A23C),
+                tint = Color(0xFFF59C00),
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(6.dp))
@@ -2406,7 +2406,7 @@ private fun PaymentBadge(order: OrderDto) {
                 MaterialTheme.colorScheme.errorContainer,
                 MaterialTheme.colorScheme.onErrorContainer,
             )
-        order.paid -> Triple("已收款", Color(0xFFD9F0DA), Color(0xFF1B7A3D))
+        order.paid -> Triple("已收款", Color(0xFFD1F3D3), Color(0xFF007F25))
         else -> Triple("未收款", MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Surface(color = bg, shape = MaterialTheme.shapes.small) {
@@ -2478,7 +2478,7 @@ private fun ChargeSheet(
                 Hint(
                     "名册里已经有一个很像的「" + existing + "」—— 如果就是同一家，直接从下面选它，别建重了",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFE6A23C),
+                    color = Color(0xFFF59C00),
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }

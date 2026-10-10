@@ -159,7 +159,7 @@ def _vm_caps_at_six(s: str) -> str:
 def _home_drops_the_card(s: str) -> str:
     """入口第 8 格去掉（报表中心那一页从此进不去）。"""
     return s.replace("EntryCard(" + Q + "7" + Q + ", " + Q + "车辆成本" + Q +
-                     ", Icons.Default.DirectionsCar, Color(0xFF546E7A))," + NL, "")
+                     ", Icons.Default.DirectionsCar, Color(0xFF477081))," + NL, "")
 
 
 def _chain_loses_depreciation_row(s: str) -> str:

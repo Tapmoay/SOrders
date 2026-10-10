@@ -253,7 +253,7 @@ internal fun ImageCropDialog(
                 error?.let {
                     Text(
                         text = it,
-                        color = Color(0xFFFF6B6B),
+                        color = Color(0xFFFF3E56),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }

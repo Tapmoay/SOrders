@@ -215,7 +215,7 @@ def main() -> int:
          "clip(CircleShape).background(accent.copy(alpha = 0.16f))" in card
          and "u.fullName.ifBlank { u.username }" in card and "RosterPhoneRowOf(u)" in card)
     c.ok("批发商徽章与「已停用」徽章都还在",
-         "Surface(color = Color(0xFFFFF1C6)" in card and '"已停用"' in card)
+         "Surface(color = Color(0xFFFFF1B2)" in card and '"已停用"' in card)
     c.ok("司机池的车型 chip 与计费 chip 没动（计费仍优先显示后端算好的那句话）",
          "MiniChip(driverKindLabel(u.vehicleType), Color(NavBlue))" in card
          and "MiniChip(pay, Color(MoneyOrange))" in card and "u.paySummary.ifBlank {" in card)
@@ -224,7 +224,7 @@ def main() -> int:
          and 'if (plates.isEmpty()) "配车" else "换车 / 解绑",' in card
          and "onBindVehicle()" in card)
     c.ok("三个池的强调色没动（poolAccent 三个深色）",
-         "0xFF5A6B00" in users and "0xFF0A3168" in users and "0xFF7A5900" in users)
+         "0xFF4F6E00" in users and "0xFF003181" in users and "0xFF805700" in users)
     c.ok("搜索仍是服务端那一个（SearchField + vm.onQueryChange）",
          "SearchField(value = vm.query, onValueChange = { vm.onQueryChange(it) })" in users)
     c.ok("账号仍然只停用、不删除（本页不出现 repo.delete）", "repo.delete" not in users)

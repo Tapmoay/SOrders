@@ -3,8 +3,8 @@ package com.tapmoay.sorders.ui.theme
 import androidx.compose.ui.graphics.Color
 
 // 品牌种子色：明快物流蓝（参考日式街边招牌：饱和、明亮、高对比、不刺眼）
-val SeedBlue = Color(0xFF1E6FFF)
-val SeedBlueDark = Color(0xFF90CAF9)
+val SeedBlue = Color(0xFF006DFF)
+val SeedBlueDark = Color(0xFF67CDFF)
 
 // ===== 模块语义色（一色一功能：老人可快速定位；均为亮色高对比）=====
 //
@@ -20,7 +20,7 @@ val SeedBlueDark = Color(0xFF90CAF9)
 //    中途还专门叮嘱（m02683）：「继续继续，但**我不希望整体太过于灰**啊」。
 //    所以本单取色的两条底线是：① 照着参考图走；② 饱和度的地板是 **≥30%**（不能压成灰）。
 //    ⛔ 改的是这些 token 的**数值**，名字、别名关系、语义分工一个都没动。
-val ThemeGreen = 0xFF28684B         // 主操作 / 派单作业 / 信息：深红棕（用户图一「确认接单」#8B4A4A）
+val ThemeGreen = 0xFF006C43         // 主操作 / 派单作业 / 信息：深红棕（用户图一「确认接单」#8B4A4A）
 // ⚠️ 旧名保留成**同一个值的别名**：全仓 16 处引用（`ui/nav/Modules.kt` 的底部 Tab、
 //    `ui/dispatcher/` 那一批页面里的编辑动作等）不改调用点，语义也没变——它指的一直是"主操作色"。
 //    将来若真要拆开（例如"编辑"该有自己的色），再一处一处换掉，别在这一轮顺手改行为。
@@ -29,16 +29,16 @@ val ThemeGreen = 0xFF28684B         // 主操作 / 派单作业 / 信息：深�
 //    误以为块注释开始了，一路吃到下一个块注释结尾 —— 实测把本文件第 18~110 行整片吃掉，
 //    `_check_ledger_cash.py` 当场找不到 92/93 行的收支色）。写目录名时**不要带通配符**。
 val NavBlue = ThemeGreen
-val MgrGreen = 0xFF49A67A          // 下单 / 代理下单：草绿（CHG-0102 起按 H 档算：L*61.8 C*41.2 h150.2）
-val ProgressYellow = 0xFF908643    // 进行中 / 订单管理：橄榄金（CHG-0102：L*54.2 C*37.4 h98.3）
-val ShipperTeal = 0xFF4CA0BC       // 地址与联系人：晴蓝（CHG-0102：L*61.8 C*28.0 h239.8）
-val MemberGold = 0xFFBA8F4A        // 批发商（高级货主）：金棕（CHG-0102：L*61.8 C*42.9 h78.3）
-val ProductPurple = 0xFFA587D4     // 商品管理：薰衣草紫（CHG-0102：L*61.8 C*44.0 h314.0）
-val InventoryTeal = 0xFF3F8F81     // 货主管理：松绿（CHG-0102：L*54.2 C*28.0 h179.8）
-val MoneyOrange = 0xFFAF7C4D       // 账本 / 收款：焦糖（CHG-0102：L*54.2 C*44.0 h53.6）
-val ArrearsTangerine = 0xFFBA6947  // 挂账单位（欠款警示）：陶土红（CHG-0102：L*53.0 C*44.0 h33.6）
-val ReportIndigo = 0xFF8075C0      // 报表中心：蓝紫（CHG-0102：L*53.0 C*44.0 h299.8）
-val MessageRed = 0xFFDE7C81        // 消息 / 通知：玫瑰红（CHG-0102：L*63.0 C*40.7 h20.4；仍是最跳的一格）
+val MgrGreen = 0xFF00AC6E          // 下单 / 代理下单：草绿（CHG-0102 起按 H 档算：L*61.8 C*41.2 h150.2）
+val ProgressYellow = 0xFF91871D    // 进行中 / 订单管理：橄榄金（CHG-0102：L*54.2 C*37.4 h98.3）
+val ShipperTeal = 0xFF00A4CE       // 地址与联系人：晴蓝（CHG-0102：L*61.8 C*28.0 h239.8）
+val MemberGold = 0xFFC48C1D        // 批发商（高级货主）：金棕（CHG-0102：L*61.8 C*42.9 h78.3）
+val ProductPurple = 0xFFA980F1     // 商品管理：薰衣草紫（CHG-0102：L*61.8 C*44.0 h314.0）
+val InventoryTeal = 0xFF009481     // 货主管理：松绿（CHG-0102：L*54.2 C*28.0 h179.8）
+val MoneyOrange = 0xFFBC7730       // 账本 / 收款：焦糖（CHG-0102：L*54.2 C*44.0 h53.6）
+val ArrearsTangerine = 0xFFCE5C2C  // 挂账单位（欠款警示）：陶土红（CHG-0102：L*53.0 C*44.0 h33.6）
+val ReportIndigo = 0xFF7B70DE      // 报表中心：蓝紫（CHG-0102：L*53.0 C*44.0 h299.8）
+val MessageRed = 0xFFE07B80        // 消息 / 通知：玫瑰红（CHG-0102：L*63.0 C*40.7 h20.4；仍是最跳的一格）
 
 // ===== 账户管理的棕（2026-10-05，CHG-0023 从工作台宫格提上来）=====
 //
@@ -56,21 +56,21 @@ val MessageRed = 0xFFDE7C81        // 消息 / 通知：玫瑰红（CHG-0102：L
 // ≈ 4.5:1 而且显脏，所以 FAB 用白字 —— 与 [OnDriverLime] / [OnArrearsTangerine] 是同一件事。
 // ⚠️ 2026-10-09 CHG-0101：值跟着整套换（用户图二「账户管理」量测 #968C86 的深一档）。
 //    仍与 `ui/nav/Modules.kt` 那一行的裸字面量**同值**（判据 `_check_roster_cards.py` 对账）。
-val AccountBrown = 0xFFA2763D      // 账户管理：赭石（CHG-0102：L*53.0 C*39.2 h73.6；⛔ 不再是灰棕）
+val AccountBrown = 0xFFAC7217      // 账户管理：赭石（CHG-0102：L*53.0 C*39.2 h73.6；⛔ 不再是灰棕）
 val OnAccountBrown = 0xFFFFFFFFL   // 棕底上的字（右下角 FAB）
 
 // ===== 车辆台账（司机管理）的黄绿（2026-10-04，CHG-0016 从 VehicleManageScreen.kt 提上来）=====
 //
 // 规范 §2 的模块色表里「司机管理」那一格一直是黄绿 #CDDC39，但**常量列写的是「-」** ——
-// 于是要它的地方只能手写 Color(0xFFCDDC39)：车辆管理页 2 处、司机管理页 2 处，加上
+// 于是要它的地方只能手写 Color(0xFFC0E100)：车辆管理页 2 处、司机管理页 2 处，加上
 // 黄绿底上那行字用的深橄榄 2 处，同一个概念在三个文件里手写了两遍以上。
 // 「一个概念一个色」要成立，前提是这个色**有个名字** —— 否则改色时总会漏掉一处
 // （CHG-0014 的起点 / 终点是同一个问题：那次也是把值从使用处提上来）。
 //
 // [OnDriverLime] 是**站在这块黄绿上的字**：黄绿很亮，白字在上面只有 1.4:1（读不出来），
 // 所以 FAB 的文字与选中的车型用的都是这个深橄榄（对黄绿 ≈ 8:1）。
-val DriverLime = 0xFF7E8338L       // 司机管理 / 车辆台账：橄榄绿（CHG-0102：L*53.0 C*40.5 h118.3）
-val OnDriverLime = 0xFF33380FL     // 橄榄底上的字（FAB 文字 / 选中的车型）
+val DriverLime = 0xFF798502L       // 司机管理 / 车辆台账：橄榄绿（CHG-0102：L*53.0 C*40.5 h118.3）
+val OnDriverLime = 0xFF303900L     // 橄榄底上的字（FAB 文字 / 选中的车型）
 
 // ===== 挂账单位橙红底上那行字（2026-10-04，CHG-0020）=====
 //
@@ -93,8 +93,8 @@ val OnArrearsTangerine = 0xFFFFF3EEL // 砖红底上的字（保存键）
 //     模块语义色那条「14 色互异」管的是**模块宫格**里的那 14 格；起点圆点 / 终点定位针
 //     与宫格格子不会同屏出现，所以复用值不冲突。
 // ⛔ 别把这两个 token 借去别处（「进行中」「提醒」之类）：它们只表示**一条线路的起点 / 终点**。
-val OriginTeal = 0xFF6CA6B1L       // 一条线路的「起点」：雾青（用户图二「车辆管理」#87B7B9 一族）
-val DestOrange = 0xFFBA8F4A        // 一条线路的「终点」：金棕（与 MemberGold 同值，同 CHG-0014 的做法）
+val OriginTeal = 0xFF49AABAL       // 一条线路的「起点」：雾青（用户图二「车辆管理」#87B7B9 一族）
+val DestOrange = 0xFFC48C1D        // 一条线路的「终点」：金棕（与 MemberGold 同值，同 CHG-0014 的做法）
 
 // ===== 收支（账本管理「收支」页，2026-09-22）=====
 //
@@ -105,7 +105,7 @@ val DestOrange = 0xFFBA8F4A        // 一条线路的「终点」：金棕（与
 //
 // 两者 RGB 欧氏距离 ≈110（≥60），同屏并排不会撞色。
 val CashIn = MgrGreen              // 收入（进账）
-val CashOut = 0xFF697290L          // 支出（出账）= 原「开销管理」蓝，CHG-0101 换成雾蓝
+val CashOut = 0xFF62729DL          // 支出（出账）= 原「开销管理」蓝，CHG-0101 换成雾蓝
 
 /**
  * 商品卡上「改价」快捷入口的颜色：**低饱和绿**。
@@ -123,7 +123,7 @@ val CashOut = 0xFF697290L          // 支出（出账）= 原「开销管理」�
  * 那是"状态"的语言。这个按钮不是状态，压低到 ≈27% 才不会跟它们混成一家。
  * 与上面两个绿的 RGB 欧氏距离 92 / 94，都过了本项目"同屏不许撞色"的 ≥60 判据。
  */
-val QuickPriceGreen = 0xFF678C6EL  // 商品卡「改价」：低饱和绿（S≈27%；CHG-0101 换成雾绿）
+val QuickPriceGreen = 0xFF588F64L  // 商品卡「改价」：低饱和绿（S≈27%；CHG-0101 换成雾绿）
 
 /**
  * 单位换算（一车 = 8 方，2026-09-24 用户要求）：**洋红紫**。
@@ -133,7 +133,7 @@ val QuickPriceGreen = 0xFF678C6EL  // 商品卡「改价」：低饱和绿（S�
  * 与 `ReportIndigo #6950F5` 距离 **95**、与 AI 的 `AiPurple #9B72CB` 距离 **80**，
  * 都过了本项目"同屏不许撞色"的 ≥60 判据（`ModulesEntryTest` 会当场算）。
  */
-val UnitConvRose = 0xFF937197L     // 单位换算：雾紫（CHG-0101 跟着商品紫一起换）
+val UnitConvRose = 0xFF9C6BA3L     // 单位换算：雾紫（CHG-0101 跟着商品紫一起换）
 // ===== AI 助手：Google AI 智能体（Gemini）配色 =====
 //
 // 用户 2026-09-15 的要求："颜色改成谷歌的 AI 智能体的配色方法，它里面的颜色也要按这个方法配色"。
@@ -187,9 +187,9 @@ val AiPink = 0xFFD96570L           // Google 粉（渐变终点）
 val AiChatGreen = 0xFF4B8C5EL       // AI 聊天页强调色：图标 / 浅底 / 选中 / 描边（白字 4.03:1，别压字）
 val AiChatGreenDeep = 0xFF3D734DL   // AI 聊天页实心底：按钮 + 白字（5.59:1，过 AA）
 
-val SuccessGreen = 0xFF49A67A      // 成功 / 正常（与 MgrGreen 同值，CHG-0102）
-val WarningAmber = 0xFFD3A06E      // 提醒 / 待处理（= 用户图三「提醒 / 重要」#C8A56A）
-val DangerRed = 0xFFB65C4E         // 危险 / 异常（2026-10-09 CHG-0101：原来的 #FF5252 太亮，压成砖红）
+val SuccessGreen = 0xFF00AC6E      // 成功 / 正常（与 MgrGreen 同值，CHG-0102）
+val WarningAmber = 0xFFE19B51      // 提醒 / 待处理（= 用户图三「提醒 / 重要」#C8A56A）
+val DangerRed = 0xFFCD4A3C         // 危险 / 异常（2026-10-09 CHG-0101：原来的 #FF5252 太亮，压成砖红）
 val InfoBlue = ThemeGreen          // 信息（原 #1E6FFF：跟着主操作色一起换）
 
 // ===== 商品行（2026-10-09 CHG-0091：绿主题）=====
@@ -199,7 +199,7 @@ val InfoBlue = ThemeGreen          // 信息（原 #1E6FFF：跟着主操作色�
 //
 // ⚠️ 2026-10-09 当天还立过一条"页面顶上一段深绿→白渐变"，同一天被用户撤掉
 //    （ref m02715：「那个背景的渐变，就去掉吧……就是白色的默认色」）⇒ 那个起色 token
-//    （`PageGradientGreen = 0xFF0B6644L`）**已经删掉**，页面背景不留绿。
+//    （`PageGradientGreen = 0xFF006A3AL`）**已经删掉**，页面背景不留绿。
 //
 // ⛔ 这一组**只给商品行用**，不要借去别的语义位置。
 // ⚠️ 必须跟上面那批一样用 `0x…L` 这种字面量（不是 `Color(0x…)`）：
@@ -208,9 +208,9 @@ val InfoBlue = ThemeGreen          // 信息（原 #1E6FFF：跟着主操作色�
 //    （`TintedIcon(…, Color(ThemeGreen))` 与 `TintedIcon(…, ProductPurple)` 才是同一种）。
 // 深一档：数量块的底。压白字 ≈ 5.2:1（对 #00A870 更差，只有 2.9:1）⇒ **只许大色块 / 大字号**，
 // 小字不要往这两种绿上放（要用就再压深一档，别直接刷白字上去）。
-val ThemeGreenDeep = 0xFF175036L   // CHG-0101：红棕的深一档（原来是绿的 #0E7A50）
+val ThemeGreenDeep = 0xFF00532EL   // CHG-0101：红棕的深一档（原来是绿的 #0E7A50）
 val ProductRowTint = 0xFFDBE8E1L      // 商品行：极浅红棕底（用户图三「商品订单」#B5726B 兑白）
-val OnProductRowTint = 0xFF1B2E22L    // 浅红棕底上的品名（近黑的暖棕，对比 ≈ 13:1）
+val OnProductRowTint = 0xFF12301EL    // 浅红棕底上的品名（近黑的暖棕，对比 ≈ 13:1）
 
 // AI 回答正文里的「重要信息」用色（台账 L-24 / CHG-0060）。
 // ⛔ 只借上面这四个语义色，**一个新色都不造**。颜色由界面按类别确定性地地上
@@ -231,15 +231,15 @@ val AiToneOk = SuccessGreen        // 成功 / 正常
 //    （主按钮、整条顶栏），小字用 [OnPrimaryContainer] 那种深绿（对浅绿底 ≈ 8:1）。
 // ⚠️ 2026-10-09 CHG-0101：四件套跟着主操作色换（原来是绿 #00A870 / #D6F2E4 / #0B4A32）。
 //    白字压在 #8B4A4A 上 ≈ 6.6:1（**过 AA 的 4.5:1** —— 比原来那个绿还好，绿只有 2.9:1）。
-val Primary = Color(0xFF28684B)
+val Primary = Color(0xFF006C43)
 val OnPrimary = Color(0xFFFFFFFF)
 val PrimaryContainer = Color(0xFFDBE8E1)
-val OnPrimaryContainer = Color(0xFF192E24)
+val OnPrimaryContainer = Color(0xFF0E3021)
 val SecondaryContainer = Color(0xFFE2E4E3)
-val OnSecondaryContainer = Color(0xFF003E2C)
-val Tertiary = Color(0xFFAF7C4D)
-val ErrorLight = Color(0xFFB65C4E)
-val ErrorContainerLight = Color(0xFFF7E4E4)
+val OnSecondaryContainer = Color(0xFF004128)
+val Tertiary = Color(0xFFBC7730)
+val ErrorLight = Color(0xFFCD4A3C)
+val ErrorContainerLight = Color(0xFFFDE2E2)
 // ── 暖白家族（台账 L-19 · CHG-0063，2026-10-06）──────────────────────────────
 // 用户口径（ref m00481）：「我们的整体背景基调，颜色太过于灰蓝了不好看。我更偏向于
 // 稍微偏白一点啊，整体的基调。」随后选定方向：**偏白**（亮、且不偏蓝），不是灰蓝。
@@ -298,18 +298,18 @@ val SheetSurface = Color(0xFFF0F0F0)
 
 val OutlineLight = Color(0xFF838383)
 val OutlineVariantLight = Color(0xFFD0D0D0)
-val Success = Color(0xFF49A67A)          // 成功（与 SuccessGreen 同值，CHG-0102）
+val Success = Color(0xFF00AC6E)          // 成功（与 SuccessGreen 同值，CHG-0102）
 
 // Dark
-val PrimaryDark = Color(0xFFAAC7FF)
-val OnPrimaryDark = Color(0xFF002F65)
-val PrimaryContainerDark = Color(0xFF0F4690)
-val OnPrimaryContainerDark = Color(0xFFD6E3FF)
-val SecondaryContainerDark = Color(0xFF404658)
-val OnSecondaryContainerDark = Color(0xFFDCE3F8)
-val TertiaryDark = Color(0xFF4DD9E0)
-val ErrorDark = Color(0xFFFFB4AB)
-val ErrorContainerDark = Color(0xFF93000A)
+val PrimaryDark = Color(0xFF96C8FF)
+val OnPrimaryDark = Color(0xFF002F7E)
+val PrimaryContainerDark = Color(0xFF0046B2)
+val OnPrimaryContainerDark = Color(0xFFCFE3FF)
+val SecondaryContainerDark = Color(0xFF3C4660)
+val OnSecondaryContainerDark = Color(0xFFD8E3FF)
+val TertiaryDark = Color(0xFF00E0EC)
+val ErrorDark = Color(0xFFFFAA9F)
+val ErrorContainerDark = Color(0xFFAE0000)
 val BackgroundDark = Color(0xFF0E1014)
 val OnBackgroundDark = Color(0xFFE2E2E9)
 /**
@@ -334,7 +334,7 @@ val SurfaceContainerDark = Color(0xFF1E1F25)
 val SurfaceContainerHighDark = Color(0xFF292A31)
 val OutlineDark = Color(0xFF8E9099)
 val OutlineVariantDark = Color(0xFF44464F)
-val SuccessDark = Color(0xFF81C784)
+val SuccessDark = Color(0xFF5FCD6C)
 
 // ===== 「我的」页头部：深墨蓝（用户 2026-09-21 给的参考图的「背景」）=====
 //
@@ -344,5 +344,5 @@ val SuccessDark = Color(0xFF81C784)
 // ⚠️ 两个模式**共用同一组值**（头部在暗色下不跟着变浅）—— 但下端必须**比暗色页面底
 //    `BackgroundDark #0E1014` 亮**，否则暗色模式下头部和页面糊成一片，
 //    与 2026-09-18 那次「卡片和背景同色、信息丢失」是同一类事故。
-val ProfileHeaderTop = Color(0xFF131A2B)
-val ProfileHeaderBottom = Color(0xFF22304F)
+val ProfileHeaderTop = Color(0xFF0C1A33)
+val ProfileHeaderBottom = Color(0xFF10305D)

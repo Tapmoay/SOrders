@@ -276,7 +276,7 @@ fun ProfileScreen(
                     RowMotion(3, jelly) {
                         ProfileRow(
                             icon = Icons.Default.Lightbulb,
-                            tint = Color(0xFF00A2C8),
+                            tint = Color(0xFF00A7DF),
                             title = "提示",
                             // ⚠️ 状态文字**放在右边、和标题同一行**（用户 2026-09-21 第二次反馈：
                             //    「那个不显示说明能不能放在提示的后面，就不要做两排，跟着一个线一个杠」
@@ -338,7 +338,7 @@ fun ProfileScreen(
                     RowMotion(5, jelly) {
                         ProfileRow(
                             icon = if (vm.updateState == "downloading") Icons.Default.Download else Icons.Default.Update,
-                            tint = Color(0xFF49A67A),
+                            tint = Color(0xFF00AC6E),
                             title = when (vm.updateState) {
                                 "checking" -> "正在检查更新…"
                                 "downloading" -> "正在下载更新 " + vm.downloadProgress + "%"
@@ -371,7 +371,7 @@ fun ProfileScreen(
                                         modifier = Modifier
                                             .width(90.dp)
                                             .height(8.dp),
-                                        color = Color(0xFF49A67A),
+                                        color = Color(0xFF00AC6E),
                                     )
                                 } else {
                                     Text(

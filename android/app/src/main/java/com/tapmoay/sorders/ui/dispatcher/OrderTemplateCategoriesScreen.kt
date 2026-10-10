@@ -364,4 +364,4 @@ private val CATEGORY_ROW_HEIGHT = 88.dp
  * `#7A98D8`，原来是 `#3949AB` —— 换色的口径是"整套低饱和"，那个靛蓝在 21 格里最扎眼）。
  * ⛔ 别改用橙色 —— 橙色在这个 App 里是**钱**（账本 / 收款）。
  */
-private const val TemplateIndigo = 0xFF7A98D8L
+private const val TemplateIndigo = 0xFF7398E0L

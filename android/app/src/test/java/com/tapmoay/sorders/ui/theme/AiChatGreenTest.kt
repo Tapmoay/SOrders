@@ -90,7 +90,7 @@ class AiChatGreenTest {
     }
 
     /** 微信品牌绿 —— 用户点名的那一家。⚠️ 只用来比**色相**，⛔ 不用来比值（它自己没过 AA）。 */
-    private val WeChatGreen = 0xFF07C160L
+    private val WeChatGreen = 0xFF00C939L
 
     private val White = 0xFFFFFFFFL
 

@@ -10,7 +10,7 @@
 
 ⇒ 两件事：① AI 这一片的主色**是绿的**；② **绿值我们定**，方向是「像微信」。
    ⛔ 不是「把全 App 主色改回绿」—— 全 App 主操作色 `ThemeGreen` 是用户 2026-10-09
-   亲手画的那一族（CHG-0105 起：老色相 ＋ H 档明度彩度，值是 `#28684B`）。
+   亲手画的那一族（CHG-0105 起：老色相 ＋ H 档明度彩度，值是 `#006C43`）。
 
 ## 为什么这条必须有机器的判据
 
@@ -33,7 +33,7 @@
 
 ## R4-BOUNDARY-JUSTIFICATION: 为什么代码边界解决不了这件事
 
-色值是 `Long`（裸 ARGB）或 `Color`，两者之间**没有类型差**：`#4B8C5E` 与 `#28684B`
+色值是 `Long`（裸 ARGB）或 `Color`，两者之间**没有类型差**：`#4B8C5E` 与 `#006C43`
 在类型系统里是同一个东西。编译器、detekt、Kotlin 的类型检查都**不可能**表达
 「这个值必须是一个色相 ≈150° 的绿」「白字压上去必须 ≥ 4.5:1」。
 后一条更是**只在算完对比度之后才成立的性质**，连"值的集合"都不是 ——
@@ -89,7 +89,7 @@ WANT_ACCENT = "4B8C5E"      # 强调色：图标 / 浅底 / 选中 / 描边
 WANT_DEEP = "3D734D"        # 实心底：按钮 + 白字
 
 #: 微信品牌绿（用户点名的那一家）—— 只用来比色相，⛔ 不用来比值
-WECHAT_GREEN = "07C160"
+WECHAT_GREEN = "00C939"
 
 #: AA 阈值。白字压色块要 4.5；「图形」那一档 WCAG 只要 3.0。
 AA_TEXT = 4.5
@@ -205,7 +205,7 @@ def hex_in(text: str, name: str) -> str:
     """从源码里读出某个 `val <name> = 0xFF……[L]` 的十六进制（大写、无 0x）。
 
     ⚠️ 本仓库**两种写法并存**（`08_CODE_LOCATOR.md` 专门警告过这条）：
-    `val MoneyOrange = 0xFFFF9500L`（裸 Long）与 `val BackgroundLight = Color(0xFFF7F6F3)`
+    `val MoneyOrange = 0xFFFF8700L`（裸 Long）与 `val BackgroundLight = Color(0xFFF7F6F3)`
     （包了 `Color()`、没有 `L`）。只认一种就会读出空串 —— 本脚本第一版就栽在这，
     表现是「页面底读到了（#）」这种空值假红。
     """
@@ -329,15 +329,15 @@ def main() -> int:
     c.present("操作流水页分段控件走深档", ops, r"accent = Color\(AiChatGreenDeep\),")
 
     print("\n== 6. 不许误伤：主操作色与 AI 品牌渐变一个字都不许动 ==")
-    # ⚠️ `ThemeGreen` 那一行是**6 位裸 ARGB**（`0xFF28684B`，而 CHG-0104 当时是 8 位的
-    #    `0xFFFF8B4A4A`），`ThemeGreenDeep` 则是**8 位 ＋ `L` 后缀**（`0xFF175036L`）——
+    # ⚠️ `ThemeGreen` 那一行是**6 位裸 ARGB**（`0xFF006C43`，而 CHG-0104 当时是 8 位的
+    #    `0xFFFF8B4A4A`），`ThemeGreenDeep` 则是**8 位 ＋ `L` 后缀**（`0xFF00532EL`）——
     #    两者写法不同，别把两句正则写成一样。
-    # ⚠️ CHG-0105 起这两个值都换了：老色相 ＋ H 档明度彩度（`#8B4A4A` → `#28684B`、
-    #    `#6E3636` → `#175036`）。这里钉的是**现值**，不再是用户画的那两个 hex。
-    c.present("主操作色还在用户画的那一族里（老色相 ＋ H 档，`#28684B`）",
-              color, r"^val ThemeGreen = 0xFF28684B\b")
-    c.present("深一档还是 `#175036`（订单卡的确认接单读它）",
-              color, r"^val ThemeGreenDeep = 0xFF175036L")
+    # ⚠️ CHG-0105 起这两个值都换了：老色相 ＋ H 档明度彩度（`#8B4A4A` → `#006C43`、
+    #    `#6E3636` → `#00532E`）。这里钉的是**现值**，不再是用户画的那两个 hex。
+    c.present("主操作色还在用户画的那一族里（老色相 ＋ H 档，`#006C43`）",
+              color, r"^val ThemeGreen = 0xFF006C43\b")
+    c.present("深一档还是 `#00532E`（订单卡的确认接单读它）",
+              color, r"^val ThemeGreenDeep = 0xFF00532EL")
     for name, want in (("AiBlue", "4285F4"), ("AiPurple", "9B72CB"), ("AiPink", "D96570")):
         c.present("AI 品牌渐变 %s 还是 #%s（用户没让动过）" % (name, want),
                   color, r"^val %s = 0xFF%sL" % (name, want))

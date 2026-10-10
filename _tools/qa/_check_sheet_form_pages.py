@@ -420,8 +420,8 @@ def main() -> int:
         c.ok("顶栏不再挂那三个动作（AppTopBar 没有 actions）", "actions = {" not in fr,
              "顶栏又有动作了 —— 待定价 / 分类管理 / 新建 都该在底栏")
         bbar = slice_fun(fr, "fun FreightBottomBar(")
-        c.ok("中间是**语义色圆钮**（FilledIconButton + 运费模板的深靛 0xFF283593）",
-             "FilledIconButton(" in bbar and "0xFF283593" in bbar,
+        c.ok("中间是**语义色圆钮**（FilledIconButton + 运费模板的深靛 0xFF0030BB）",
+             "FilledIconButton(" in bbar and "0xFF0030BB" in bbar,
              "主操作要居中、且用这一块的语义色（一色一功能）")
         c.ok("左右两格是「图标 + 文字」的无边框格（不是描边按钮）",
              "FreightBottomCell(" in bbar and "OutlinedButton" not in bbar)

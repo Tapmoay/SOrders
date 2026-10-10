@@ -677,11 +677,11 @@ private fun AccountSecretRow(
 
 /** 角色标签配色：浅底 + 深字（与其他页面包章风格一致） */
 private fun labelColors(u: UserDto): Pair<Color, Color> = when {
-    u.role == "dispatcher" -> Color(0xFFDBE9FF) to Color(0xFF0A4DAF)
-    u.role == "driver" && u.vehicleType == "trailer" -> Color(0xFFFFE0B2) to Color(0xFFE65100)
-    u.role == "driver" && u.vehicleType == "large" -> Color(0xFFF0F4C3) to Color(0xFF827717)
-    u.role == "driver" && u.vehicleType == "small" -> Color(0xFFE0F7FA) to Color(0xFF006064)
-    u.role == "driver" -> Color(0xFFF0F4C3) to Color(0xFF827717)
-    u.isMember -> Color(0xFFFFF1C6) to Color(0xFF7A5900)
-    else -> Color(0xFFD6F3FA) to Color(0xFF005A78)
+    u.role == "dispatcher" -> Color(0xFFD4EAFF) to Color(0xFF004CDB)
+    u.role == "driver" && u.vehicleType == "trailer" -> Color(0xFFFFDE9B) to Color(0xFFFF0F00)
+    u.role == "driver" && u.vehicleType == "large" -> Color(0xFFEFF6AE) to Color(0xFF817800)
+    u.role == "driver" && u.vehicleType == "small" -> Color(0xFFD7F9FD) to Color(0xFF00646A)
+    u.role == "driver" -> Color(0xFFEFF6AE) to Color(0xFF817800)
+    u.isMember -> Color(0xFFFFF1B2) to Color(0xFF805700)
+    else -> Color(0xFFCAF5FF) to Color(0xFF005D89)
 }

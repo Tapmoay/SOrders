@@ -36,12 +36,12 @@ import androidx.compose.ui.unit.dp
  */
 val ORDER_TAB_COLORS = listOf(
     Color(ThemeGreen),  // 全部 · 主色绿（CHG-0091 前是蓝 #1E6FFF）
-    Color(0xFF908643),  // 派单中 · 黄
-    Color(0xFF4CA0BC),  // 已接单 · 湖蓝
-    Color(0xFF49A67A),  // 已送达 · 绿
+    Color(0xFF91871D),  // 派单中 · 黄
+    Color(0xFF00A4CE),  // 已接单 · 湖蓝
+    Color(0xFF00AC6E),  // 已送达 · 绿
     Color(0xFF8A8A8E),  // 已撤销 · 灰
-    Color(0xFFBF5B00),  // 已退货 · 棕橙
-    Color(0xFF7C4DFF),  // 已派单 · 紫（2026-09-24 加：DISPATCHED 之前一个档位都没有）
+    Color(0xFFD54800),  // 已退货 · 棕橙
+    Color(0xFF602EFF),  // 已派单 · 紫（2026-09-24 加：DISPATCHED 之前一个档位都没有）
 )
 
 /** 档位格子里文字左右的呼吸。**只在「放不下、要滑动」那一支用**（原因见下面 `needEqual` 那段注释）。 */

@@ -124,13 +124,13 @@ fun productNameColor(raw: String?): Color = try {
 const val DEFAULT_PRODUCT_NAME_COLOR = "#5C7590"
 
 /** [DEFAULT_PRODUCT_NAME_COLOR] 的 `Color` 形态（`const` 里不能调 `toInt()`，所以单列一个）。 */
-private val FallbackNameColor = Color(0xFF697290)
+private val FallbackNameColor = Color(0xFF62729D)
 
 // 库存那三个颜色：**判据的配色跟着判据走**（放在这里，别散回各页面）。
 // 「库存管理」的模块语义色是蓝青 #00BCD4（与 `Modules.kt` 里那一格同色：跨端同功能同色）。
-private val StockOutRed = Color(0xFFE53935)
-private val StockLowYellow = Color(0xFF908643)
-private val StockOkCyan = Color(0xFF6CA6B1)
+private val StockOutRed = Color(0xFFFF0013)
+private val StockLowYellow = Color(0xFF91871D)
+private val StockOkCyan = Color(0xFF49AABA)
 
 /**
  * 库存这个数字用什么颜色 —— **它不是装饰，是"这一行要你处理"的信号**
@@ -205,7 +205,7 @@ fun productReservedFact(reserved: Int, unit: String?): ProductFact = ProductFact
 )
 
 /** 占用数量的颜色（挂账单位模块色 `#FF6B2C`）。 */
-private val ReservedOrange = Color(0xFFBA6947)
+private val ReservedOrange = Color(0xFFCE5C2C)
 
 /**
  * 库存状态角标的**文案**（`null` = 这个状态不出角标）。
@@ -232,8 +232,8 @@ fun productStockBadgeText(stock: Int, lowStockAlert: Int): String? = when {
 fun ProductStockBadge(stock: Int, lowStockAlert: Int) {
     val text = productStockBadgeText(stock, lowStockAlert) ?: return
     val (fg, bg) = when {
-        stock <= 0 -> StockOutRed to Color(0xFFFFE8E8)
-        else -> LowStockInk to Color(0xFFFFF3D0)
+        stock <= 0 -> StockOutRed to Color(0xFFFFE6E6)
+        else -> LowStockInk to Color(0xFFFFF3C0)
     }
     Surface(color = bg, shape = MaterialTheme.shapes.small) {
         Text(
@@ -246,7 +246,7 @@ fun ProductStockBadge(stock: Int, lowStockAlert: Int) {
 }
 
 /** 「低库存」角标的字色（深一档的琥珀，见 [ProductStockBadge] 的说明）。 */
-private val LowStockInk = Color(0xFF8A6100)
+private val LowStockInk = Color(0xFF925E00)
 
 /**
  * **一件商品上要显示的那两条事实** —— 顺序钉在这里：**售价在前、库存在后**。

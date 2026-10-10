@@ -21,7 +21,7 @@
 - 把 `Spacer(Modifier.width(ExportActionGap))` 删掉 —— 布局照样成立，只是两颗按钮贴一起；
 - 把 `IconButton` 包进 `if (actions.downloadEnabled)` —— 编译过、跑得动，
   但"这里到底有几颗按钮"从此随时会变（本单口径：**一直都在，只灰不藏**）；
-- 把 `contentColor = Color(MoneyOrange)` 换成 `Color(0xFFAF7C4D)` —— 单测测的是 `Boolean`。
+- 把 `contentColor = Color(MoneyOrange)` 换成 `Color(0xFFBC7730)` —— 单测测的是 `Boolean`。
 
 类型系统能表达"这里要一个 Color"，表达不了"这里必须有两个按钮、它们之间必须留 12dp"。
 所以在纯函数那一半交给 `AiExportCardTest` 之后，**形状那一半**只能靠这里的注入来证明判据活着。

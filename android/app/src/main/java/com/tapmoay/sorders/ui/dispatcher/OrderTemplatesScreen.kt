@@ -479,9 +479,9 @@ private fun TemplateCard(
             }
             val receiver = (t.receiverName + " " + t.receiverPhone).trim()
             if (receiver.isNotBlank()) {
-                TemplateFactRow(Icons.Default.Badge, "收货人", receiver, Color(0xFF49A67A))
+                TemplateFactRow(Icons.Default.Badge, "收货人", receiver, Color(0xFF00AC6E))
             }
-            TemplateFactRow(Icons.Default.Inventory2, "商品", goodsText(t), Color(0xFFA587D4))
+            TemplateFactRow(Icons.Default.Inventory2, "商品", goodsText(t), Color(0xFFA980F1))
             TemplateFactRow(
                 Icons.Default.Payments, "参考运费",
                 if (t.freightFee == null) "不预设" else "¥" + formatMoney(t.freightFee),
@@ -609,4 +609,4 @@ private const val GOODS_SHOWN = 3
  * ⛔ 别改成接近 `ProductPurple`（雾紫）或 `ProgressYellow`（订单管理的卡其）——
  * 前者是商品、后者是订单流转，两个都会让人认错格子。
  */
-internal const val TemplateBlue = 0xFF7A98D8L
+internal const val TemplateBlue = 0xFF7398E0L

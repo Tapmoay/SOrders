@@ -187,7 +187,7 @@ CASES: list[tuple[str, str, object, str]] = [
 
     # ── 6. 页脚 ──────────────────────────────────────────────────────────
     ("保存键换成浅黄绿底（白字压不住）",
-     SCREEN, lambda s: s.replace("containerColor = poolAccent(pool),", "containerColor = Color(0xFF7E8338),"),
+     SCREEN, lambda s: s.replace("containerColor = poolAccent(pool),", "containerColor = Color(0xFF798502),"),
      "保存键是本池的深色底"),
     ("两个键不再同宽同高",
      SCREEN, lambda s: kill(s, "modifier = Modifier.weight(1f).height(48.dp)," + NL, 2),

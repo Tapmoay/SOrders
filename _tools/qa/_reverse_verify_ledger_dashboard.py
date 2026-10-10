@@ -49,7 +49,7 @@ MUTATIONS = [
         MODULES,
         # ⚠️ 这一格 CHG-0101 起是**裸字面量**（不再是 MoneyOrange）——7 格要两两 ≥60，
         #    所以账本本体单独定了一个焦糖色；锚点跟着源码走，改色不再让这条注入恒 SKIP。
-        '        ModuleEntry("订单账", Routes.dispatcherLedger(0), Icons.Default.AccountBalanceWallet, color = 0xFFC78A4FL),     // 焦糖 · 账本本体（与工作台「账本管理」同族；CHG-0102 为满足 7 格 ≥60 单独定值）\n',
+        '        ModuleEntry("订单账", Routes.dispatcherLedger(0), Icons.Default.AccountBalanceWallet, color = 0xFFD68428L),     // 焦糖 · 账本本体（与工作台「账本管理」同族；CHG-0102 为满足 7 格 ≥60 单独定值）\n',
         "",
         "正好 7 格",
     ),
@@ -63,7 +63,7 @@ MUTATIONS = [
     (
         "「车辆管理」不放桌面上了（用户明确要求放桌面）",
         MODULES,
-        '        ModuleEntry("车辆管理", Routes.DISPATCH_VEHICLES, Icons.Default.DirectionsCar, color = 0xFF4AA5A7L),            // 湖青 · 车与车况（CHG-0102 起按 H 档：L*63.0 C*28.0 h199.8）\n',
+        '        ModuleEntry("车辆管理", Routes.DISPATCH_VEHICLES, Icons.Default.DirectionsCar, color = 0xFF00AAAEL),            // 湖青 · 车与车况（CHG-0102 起按 H 档：L*63.0 C*28.0 h199.8）\n',
         "",
         "「车辆管理」在网格里",
     ),
@@ -72,14 +72,14 @@ MUTATIONS = [
         MODULES,
         '        ModuleEntry("账本管理", Routes.LEDGER_HOME, Icons.Default.AccountBalanceWallet, color = MoneyOrange),           // 焦糖 · 账本（跨端同色）\n',
         '        ModuleEntry("账本管理", Routes.LEDGER_HOME, Icons.Default.AccountBalanceWallet, color = MoneyOrange),\n'
-        '        ModuleEntry("开销管理", Routes.DISPATCH_EXPENSES, Icons.Default.Receipt, color = 0xFF697290L),\n',
+        '        ModuleEntry("开销管理", Routes.DISPATCH_EXPENSES, Icons.Default.Receipt, color = 0xFF62729DL),\n',
         "网格里没有「开销管理」",
     ),
     (
         "「司机结算」又单独占一格（用户点名要合并成一个）",
         MODULES,
-        '        ModuleEntry("客户收款", Routes.DISPATCH_RECEIPTS, Icons.Default.Payments, color = 0xFF9C8AD7L),                 // 兰紫\n',
-        '        ModuleEntry("客户收款", Routes.DISPATCH_RECEIPTS, Icons.Default.Payments, color = 0xFF9C8AD7L),\n'
+        '        ModuleEntry("客户收款", Routes.DISPATCH_RECEIPTS, Icons.Default.Payments, color = 0xFF9C88E0L),                 // 兰紫\n',
+        '        ModuleEntry("客户收款", Routes.DISPATCH_RECEIPTS, Icons.Default.Payments, color = 0xFF9C88E0L),\n'
         '        ModuleEntry("司机结算", Routes.DISPATCH_SETTLEMENTS, Icons.Default.Handshake, color = 0xFF7CB342L),\n',
         "7 格里没有旧名「司机结算」",
     ),
@@ -258,8 +258,8 @@ MUTATIONS = [
     (
         "3 类账里有一格自己建了页面（不再走同一条带参数的路由）",
         MODULES,
-        "        ModuleEntry(\"货主账\", Routes.dispatcherLedger(1), Icons.Default.PeopleAlt, color = 0xFF5BA592L),               // 松石绿 · 货主欠多少\n",
-        "        ModuleEntry(\"货主账\", Routes.SHIPPER_LEDGER, Icons.Default.PeopleAlt, color = 0xFF5BA592L),\n",
+        "        ModuleEntry(\"货主账\", Routes.dispatcherLedger(1), Icons.Default.PeopleAlt, color = 0xFF2AAA90L),               // 松石绿 · 货主欠多少\n",
+        "        ModuleEntry(\"货主账\", Routes.SHIPPER_LEDGER, Icons.Default.PeopleAlt, color = 0xFF2AAA90L),\n",
         "3 类账走**同一条带参数的路由**",
     ),
     (
@@ -272,7 +272,7 @@ MUTATIONS = [
     (
         "车辆管理那一格换成「太深」的色（用户否过这一类）",
         MODULES,
-        "color = 0xFF4AA5A7L),            // 湖青 · 车与车况",
+        "color = 0xFF00AAAEL),            // 湖青 · 车与车况",
         "color = 0xFF4E342EL),            // 深棕",
         "没有新增「太深/太沉」的格子",
     ),
@@ -288,14 +288,14 @@ MUTATIONS = [
         "工作台那格「司机运费结算」又长回来（两个入口 = 两种时间口径，两边都看着对）",
         MODULES,
         '        ModuleEntry("账本管理", Routes.LEDGER_HOME, Icons.Default.AccountBalanceWallet, color = MoneyOrange),           // 焦糖 · 账本（跨端同色）\n',
-        '        ModuleEntry("账本管理", Routes.LEDGER_HOME, Icons.Default.AccountBalanceWallet, color = MoneyOrange),           // 焦糖 · 账本（跨端同色）\n        ModuleEntry("司机运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.Payments, color = 0xFFFF8A65L),\n',
+        '        ModuleEntry("账本管理", Routes.LEDGER_HOME, Icons.Default.AccountBalanceWallet, color = MoneyOrange),           // 焦糖 · 账本（跨端同色）\n        ModuleEntry("司机运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.Payments, color = 0xFFFF7544L),\n',
         "工作台那格「司机运费结算」已删（合并后入口只在入口页）",
     ),
     (
         "入口页那格退回「司机账」= 账本页第 4 档（合并白做了）",
         MODULES,
-        '        ModuleEntry("司机账 · 运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.LocalShipping, color = 0xFF4A8A4EL),   // 草绿 · 司机该拿多少 + 给他结账\n',
-        '        ModuleEntry("司机账", Routes.dispatcherLedger(3), Icons.Default.LocalShipping, color = 0xFF4A8A4EL),\n',
+        '        ModuleEntry("司机账 · 运费结算", Routes.FREIGHT_SETTLEMENT, Icons.Default.LocalShipping, color = 0xFF208F37L),   // 草绿 · 司机该拿多少 + 给他结账\n',
+        '        ModuleEntry("司机账", Routes.dispatcherLedger(3), Icons.Default.LocalShipping, color = 0xFF208F37L),\n',
         "入口页里没有单独的「司机账」那一格（合并后叫「司机账 · 运费结算」）",
     ),
     (

@@ -265,7 +265,7 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "⑰ poolAccent 的货主深蓝被换成主操作蓝",
         USERS,
-        lambda s: s.replace("    UserPool.SHIPPERS -> Color(0xFF0A3168)", "    UserPool.SHIPPERS -> Color(0xFF1E6FFF)", 1),
+        lambda s: s.replace("    UserPool.SHIPPERS -> Color(0xFF003181)", "    UserPool.SHIPPERS -> Color(0xFF006DFF)", 1),
         "poolAccent 三个深色",
     ),
     (
@@ -287,7 +287,7 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "⑳ 批发商徽章的底色被改（黄底金字的对应关系丢了）",
         USERS,
-        lambda s: s.replace("Surface(color = Color(0xFFFFF1C6)", "Surface(color = Color(0xFFFFE0A3)", 1),
+        lambda s: s.replace("Surface(color = Color(0xFFFFF1B2)", "Surface(color = Color(0xFFFFE0A3)", 1),
         "批发商徽章与「已停用」徽章都还在",
     ),
     (

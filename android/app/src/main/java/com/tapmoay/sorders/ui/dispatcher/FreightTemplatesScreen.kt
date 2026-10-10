@@ -172,7 +172,7 @@ fun FreightTemplatesScreen(
  *
  * ⛔ 左右两格是**无边框的「图标 + 文字」**，不是描边按钮 —— 参考图那一栏就是这么分主次的，
  *    摆三个描边按钮会变成"三个并排的框"（商品管理那一轮已经否掉过一次）。
- * ⛔ 颜色用**运费模板的语义色深靛** `0xFF283593`（一色一功能：工作台那一格、卡片上的车图标同色）。
+ * ⛔ 颜色用**运费模板的语义色深靛** `0xFF0030BB`（一色一功能：工作台那一格、卡片上的车图标同色）。
  *    不要用钱的橙：同屏每张卡上的价格已经是橙的。
  *
  * ⚠️ **这是同一套形态的第二处**（第一处是商品管理）。若第三页也要，就把它提成共用件
@@ -184,7 +184,7 @@ private fun FreightBottomBar(
     onAdd: () -> Unit,
     onUnpriced: () -> Unit,
 ) {
-    val accent = Color(0xFF283593)
+    val accent = Color(0xFF0030BB)
     Surface(shadowElevation = 8.dp) {
         Row(
             Modifier
@@ -318,7 +318,7 @@ private fun FreightTemplateCard(
                 "¥" + formatMoney(t.fee),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFFAF7C4D),
+                color = Color(0xFFBC7730),
             )
         }
         Spacer(Modifier.height(8.dp))
@@ -438,7 +438,7 @@ private fun FreightTemplateSheet(vm: FreightTemplatesViewModel) {
         FormGroup(
             icon = Icons.Default.LocalShipping,
             title = "线路与价格",
-            tint = Color(0xFF283593),
+            tint = Color(0xFF0030BB),
         ) {
             // 线路：**从线路库选**（价目是按路线定价的）
             ExposedDropdownMenuBox(expanded = routeExpanded, onExpandedChange = { routeExpanded = it }) {

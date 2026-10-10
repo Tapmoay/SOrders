@@ -57,7 +57,7 @@
 静默空转保护：`MIN_KT = 100`（目录被搬走 / 一个 .kt 都没扫到就红，不许"扫了 0 个也全绿"）。
 
 ## 判据
-1. `Color.kt`：`ThemeGreen = 0xFF28684B`、`NavBlue = ThemeGreen`、`InfoBlue = ThemeGreen`；
+1. `Color.kt`：`ThemeGreen = 0xFF006C43`、`NavBlue = ThemeGreen`、`InfoBlue = ThemeGreen`；
    Primary 四件套是同一族红棕；商品块四个 token（浅底 / 深字 / 深色块 / 块首图标）都在且是**裸 ARGB**；
 2. 页面底四层是**暖砂白**（并交叉要求 `_check_warm_surface_palette.py` 认得这四个值）；
 3. `OrderCard`：商品块是一块一行的圆角胶囊（`shapes.medium` ＋ `ProductRowTint` ＋ 8/6 内边距），
@@ -69,7 +69,7 @@
 5. `RoleHomeScreen`：**不许**再出现 `TopGreenFade` / `Brush` / `PageGradientGreen`，
    `Scaffold` 也不再被铺背景、不再透明（页面底就跟着 `colorScheme.background` 走）；
 6. `Components.kt` 的 `AppTopBar` 读 `background`（跟页面底同一档），**不再**读 `primaryContainer`；
-7. 全仓不再有任何**硬编码的** `0xFF1E6FFF`（`Color.kt` 的 `SeedBlue` 那一行是唯一豁免）。
+7. 全仓不再有任何**硬编码的** `0xFF006DFF`（`Color.kt` 的 `SeedBlue` 那一行是唯一豁免）。
 
 用法：python _tools/qa/_check_green_theme.py
 """
@@ -92,21 +92,21 @@ MIN_KT = 100
 
 #: 主操作色那几个语义 token。
 #: ⚠️ 本表在 **CHG-0101（2026-10-09 晚）** 随用户第三套整体配色图整体换过一次：
-#:    原来是绿主题（#00A870 系）；CHG-0101 曾换成低饱和红棕（#8B4A4A 系），CHG-0105 起改成**老色相 ＋ H 档明度彩度**（深绿 #28684B 系）。
+#:    原来是绿主题（#00A870 系）；CHG-0101 曾换成低饱和红棕（#8B4A4A 系），CHG-0105 起改成**老色相 ＋ H 档明度彩度**（深绿 #006C43 系）。
 #:    判据的形状没变 —— 还是"哪个 token 等于哪个值、必须是裸 Long"，
 #:    换的只是被钉住的那个值。为什么换、换成什么，见 CHG-0101 的 ⑥。
 GREEN_TOKENS = {
-    "ThemeGreen": "0xFF28684B",
-    "ThemeGreenDeep": "0xFF175036",
+    "ThemeGreen": "0xFF006C43",
+    "ThemeGreenDeep": "0xFF00532E",
     "ProductRowTint": "0xFFDBE8E1",
-    "OnProductRowTint": "0xFF1B2E22",
+    "OnProductRowTint": "0xFF12301E",
 }
 
 #: 亮色四件套（Primary 家族）。
 PRIMARY_KIT = {
-    "Primary": "Color(0xFF28684B)",
+    "Primary": "Color(0xFF006C43)",
     "PrimaryContainer": "Color(0xFFDBE8E1)",
-    "OnPrimaryContainer": "Color(0xFF192E24)",
+    "OnPrimaryContainer": "Color(0xFF0E3021)",
 }
 
 #: 商品块里那句"数量的拼法"——§4.20 的唯一实现点，⛔ 一个字符都不许动。
@@ -142,7 +142,7 @@ def code_only(t: str) -> str:
     """去掉块注释与行注释（保留换行数，好让行号还对得上）。
 
     为什么要这样：本单的"用户原话/为什么"全写在注释里，其中就抄着
-    `#1E6FFF`、`ProductPurple` 这些**看起来像代码**的字样 ——
+    `#006DFF`、`ProductPurple` 这些**看起来像代码**的字样 ——
     判据抓的是**代码里**还有没有人在用它。
     """
     t = re.sub(r"/\*[\s\S]*?\*/", lambda m: chr(10) * m.group(0).count(chr(10)), t)
@@ -169,15 +169,15 @@ def main() -> int:
     c.ok(f"扫到 {len(kt)} 个 .kt（下限 {MIN_KT}）", len(kt) >= MIN_KT)
 
     print("\n== 1. Color.kt：主操作色是用户画的那套，旧名保留成别名 ==")
-    # ⚠️ 这一行**没有** `L` 后缀（作者写的是 `0xFF28684B`，不是 `0xFF28684BL`）——
+    # ⚠️ 这一行**没有** `L` 后缀（作者写的是 `0xFF006C43`，不是 `0xFF006C43L`）——
     #    所以收尾用 `[^\n]*$`，别去钉 `\b`（`A` 之后就是行尾注释，`\b` 会匹配不上）。
-    c.present("ThemeGreen = #28684B（CHG-0105 起：老色相 ＋ H 档明度彩度）", color,
-              r"^val ThemeGreen = 0xFF28684B[^\n]*$")
+    c.present("ThemeGreen = #006C43（CHG-0105 起：老色相 ＋ H 档明度彩度）", color,
+              r"^val ThemeGreen = 0xFF006C43[^\n]*$")
     c.present("NavBlue 是 ThemeGreen 的别名（16 处引用不改调用点）", color,
               r"^val NavBlue = ThemeGreen\b")
     c.present("InfoBlue 也跟着换成 ThemeGreen", color,
               r"^val InfoBlue = ThemeGreen\b")
-    # ⚠️ 这些 token 行尾**带对齐注释**（`val ThemeGreen = 0xFF28684BL  // 主操作…`），
+    # ⚠️ 这些 token 行尾**带对齐注释**（`val ThemeGreen = 0xFF006C43L  // 主操作…`），
     #    所以收尾必须是 `[^\n]*$` 而不是 `\s*$`（`\s*` 遇到行尾注释就匹配不上）。
     for name, want in GREEN_TOKENS.items():
         c.present(f"{name} = {want}", color,
@@ -259,14 +259,14 @@ def main() -> int:
     hits: list[str] = []
     for p in kt:
         for i, line in enumerate(code_only(read(p)).splitlines(), 1):
-            if "1E6FFF" not in line:
+            if "006DFF" not in line:
                 continue
             if "SeedBlue" in line:
                 continue
             hits.append(f"{p.relative_to(ROOT)}:{i}")
-    c.ok(f"全仓没有残留的硬编码 0xFF1E6FFF（豁免 SeedBlue）", not hits,
+    c.ok(f"全仓没有残留的硬编码 0xFF006DFF（豁免 SeedBlue）", not hits,
          "还在：" + ", ".join(hits[:6]) + ("…" if len(hits) > 6 else ""))
-    c.present("SeedBlue 那一行还在（暗色主题还在用）", color, r"^val SeedBlue = Color\(0xFF1E6FFF\)")
+    c.present("SeedBlue 那一行还在（暗色主题还在用）", color, r"^val SeedBlue = Color\(0xFF006DFF\)")
 
     print("\n" + "=" * 60)
     if c.fails:
@@ -274,7 +274,7 @@ def main() -> int:
         for f in c.fails:
             print(f"   - {f}")
         return 1
-    print(f"✅ 全部 {c.passes} 项通过：主操作色是 CHG-0105 还原的老色相深绿 #28684B、"
+    print(f"✅ 全部 {c.passes} 项通过：主操作色是 CHG-0105 还原的老色相深绿 #006C43、"
           f"商品行是一块一块的胶囊、页面背景与顶栏同档（那条绿渐变早已撤掉）。")
     return 0
 

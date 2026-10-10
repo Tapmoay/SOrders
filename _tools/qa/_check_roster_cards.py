@@ -15,7 +15,7 @@
    + `PhoneGreen`（青绿）+ 15sp **前景色**（不是灰字），整行长按复制。两条都住
    `ui/common/RosterCard.kt`（一份实现，四个页面共用）。
 
-顺带（同一次复核）：账户管理页拿回自己的棕（`AccountBrown = 0xFFA2763D`，与工作台宫格那一格
+顺带（同一次复核）：账户管理页拿回自己的棕（`AccountBrown = 0xFFAC7217`，与工作台宫格那一格
 同值），司机 / 货主 / 批发商页的胶囊与 FAB 改成按池子取模块色，「管理分类」面板里四颗裸
 `IconButton` 换成 `CardActionIcon`、条数与撤销条装在纯白卡上。
 
@@ -216,10 +216,10 @@ def main() -> int:
     #    `L?` 是因为 `Color.kt` 里这一行**没写** `L` 后缀（`Modules.kt` 那行写了）——
     #    写死任一种都会让另一边永远对不上。
     c.ok('主题 token 里有 AccountBrown（账户管理：棕）',
-         re.search(r'val AccountBrown = 0xFFA2763DL?\b', color) is not None)
+         re.search(r'val AccountBrown = 0xFFAC7217L?\b', color) is not None)
     c.ok('棕底上的字也有 token（OnAccountBrown）', 'val OnAccountBrown = 0xFFFFFFFFL' in color)
     c.ok('工作台宫格那一格与 token 同值（一处定义、一处对账）',
-         'color = 0xFFA2763DL' in mods,
+         'color = 0xFFAC7217L' in mods,
          '宫格那行故意保留裸字面量：_check_ledger_dashboard.py 的 BAND_EXEMPT 按裸值扫')
     c.ok('账户页的胶囊 / 名称圈底图标 / FAB 都用这个棕（⛔ 不再借地址页的湖蓝）',
          acct.count('Color(AccountBrown)') >= 3 and 'ShipperTeal' not in acct)
@@ -241,7 +241,7 @@ def main() -> int:
          'ExtendedFloatingActionButton(' in users
          and len(re.findall(r'(?<!Extended)FloatingActionButton\(', users)) == 0)
     c.ok('⛔ 卡片上那三个深色（姓氏圆底 / 徽章）一个字没动',
-         'Color(0xFF5A6B00)' in users and 'Color(0xFF0A3168)' in users and 'Color(0xFF7A5900)' in users)
+         'Color(0xFF4F6E00)' in users and 'Color(0xFF003181)' in users and 'Color(0xFF805700)' in users)
     # CHG-0062：商品可见范围多了一个整屏第二层，它自带一颗返回键 ⇒ 两处（都不是卡片动作）。
     c.ok('整个文件里的裸 IconButton 只有两处返回键（判据 _check_users_ui.py 钉着）',
          users.count('IconButton(') == 2)
@@ -250,8 +250,8 @@ def main() -> int:
     c.section('9. 规范写死了这两件事')
     c.ok('规范 §4.24 在（名册卡两条事实 + 抽屉半展开）',
          re.search(r'^### 4\.24 ', spec, re.M) is not None)
-    c.ok('规范 §2 表里有账户管理那一行（赭石 #A2763D / AccountBrown，CHG-0102 换的）',
-         re.search(r'\| 账户管理 \| 赭石 #A2763D \| AccountBrown \|', spec) is not None)
+    c.ok('规范 §2 表里有账户管理那一行（赭石 #AC7217 / AccountBrown，CHG-0102 换的）',
+         re.search(r'\| 账户管理 \| 赭石 #AC7217 \| AccountBrown \|', spec) is not None)
     c.ok('规范里写着抽屉宽度 240dp、为什么是它、以及哪三个抽屉不收窄',
          'CategoryDrawerWidth = 240.dp' in spec and '选人' in spec
          and ('PersonDrawer' in spec or 'CustomerDrawer' in spec))

@@ -103,7 +103,7 @@ fun PriceMatrixScreen(
                                     "另有 " + vm.hiddenInactive + " 个已停用或已删除的批发商没有列出" +
                                         "（给他们设价不会生效）。",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFFBA6947),
+                                    color = Color(0xFFCE5C2C),
                                 )
                             }
                             // ⚠️ 截断位放在条件**最前面**：`_check_page_truncation_wiring.py`
@@ -199,11 +199,11 @@ private fun PriceRow(
                     }
                 }
                 if (hasRule) {
-                    Surface(color = Color(0xFFD5F5E9), shape = MaterialTheme.shapes.small) {
+                    Surface(color = Color(0xFFC9F8E7), shape = MaterialTheme.shapes.small) {
                         Text(
                             "已设专属价",
                             style = MaterialTheme.typography.labelMedium,
-                            color = Color(0xFF00624A),
+                            color = Color(0xFF006645),
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         )
                     }

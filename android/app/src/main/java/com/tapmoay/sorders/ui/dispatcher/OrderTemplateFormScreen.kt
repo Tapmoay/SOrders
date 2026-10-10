@@ -350,7 +350,7 @@ fun OrderTemplateFormScreen(
                     }
                 }
                 item {
-                    FormGroup(Icons.Default.LocalShipping, "这一单送给谁、送到哪", Color(0xFF4CA0BC)) {
+                    FormGroup(Icons.Default.LocalShipping, "这一单送给谁、送到哪", Color(0xFF00A4CE)) {
                         FormPickRow(
                             label = "货主",
                             value = vm.shipperLabel(),
@@ -390,7 +390,7 @@ fun OrderTemplateFormScreen(
                             placeholder = "请输入手机号",
                             keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone,
                             icon = Icons.Default.Phone,
-                            iconTint = Color(0xFF49A67A),
+                            iconTint = Color(0xFF00AC6E),
                         )
                         FormInputRow(
                             label = "参考运费",
@@ -399,7 +399,7 @@ fun OrderTemplateFormScreen(
                             placeholder = "留空 = 不预设",
                             keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal,
                             icon = Icons.Default.Payments,
-                            iconTint = Color(0xFFAF7C4D),
+                            iconTint = Color(0xFFBC7730),
                         )
                         // ⛔ 这两句是**业务事实**，不能丢（预订单页那份说明搬到这里来）：
                         //    它们解释的是"为什么这一页没有价、为什么运费只是个参考"。
@@ -416,12 +416,12 @@ fun OrderTemplateFormScreen(
                     }
                 }
                 item {
-                    FormGroup(Icons.Default.Inventory2, "商品与数量", Color(0xFFA587D4)) {
+                    FormGroup(Icons.Default.Inventory2, "商品与数量", Color(0xFFA980F1)) {
                         FormActionRow(
                             label = if (vm.lines.isEmpty()) "选商品" else "继续添加商品",
                             onClick = { vm.showPicker = true },
                             icon = Icons.Default.AddShoppingCart,
-                            iconTint = Color(0xFFA587D4),
+                            iconTint = Color(0xFFA980F1),
                         )
                         if (vm.lines.isEmpty()) {
                             // ⚠️ 这句是**空态文案**（"这里现在是空的、去哪加"），按 `docs/HINT_STYLE.md` §2

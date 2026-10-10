@@ -205,22 +205,22 @@ fun FreightSettlementScreen(
 /**
  * 这一页的语义色 = **司机运费结算**那一格的深雾绿（CHG-0101，用户 2026-10-09 给的三张图）。
  *
- * ⚠️ 原来是珊瑚橙 `0xFFFF8A65`（当年"这一页自己认的一个色"）。换色时两个理由必须一起换：
- *    ① 工作台账本入口页那格「司机账 · 运费结算」现在是 `0xFF4A8A4E`（深雾绿，
+ * ⚠️ 原来是珊瑚橙 `0xFFFF7544`（当年"这一页自己认的一个色"）。换色时两个理由必须一起换：
+ *    ① 工作台账本入口页那格「司机账 · 运费结算」现在是 `0xFF208F37`（深雾绿，
  *       `ui/nav/Modules.kt`），**同一件事在两个讲法下不能是两个色**；
  *    ② 用户点名的口径是"低饱和、不要刺眼"，珊瑚橙是那一批里最亮的几个之一。
  * ⛔ 改回去会同时撞 `_tools/qa/_check_freight_settlement_ui.py` 与 `_check_low_sat_palette.py`。
  */
-private val Accent = 0xFF49A67AL
+private val Accent = 0xFF00AC6EL
 
 /**
  * 应得那个数用的橙（与报表/账本的金额色同一个）。
  *
- * ⚠️ 原来是 `0xFFFF9500`（旧的 `MoneyOrange`）。CHG-0101 把 `MoneyOrange` 换成
- *    `0xFFAF7C4D`（低饱和焦糖橙），这一页当时**漏在外面**（它是本文件自己定义的私有常量，
+ * ⚠️ 原来是 `0xFFFF8700`（旧的 `MoneyOrange`）。CHG-0101 把 `MoneyOrange` 换成
+ *    `0xFFBC7730`（低饱和焦糖橙），这一页当时**漏在外面**（它是本文件自己定义的私有常量，
  *    不在 `ui/theme/Color.kt` 里，逐文件替换时没被扫到）—— 现在补上，与报表中心/账本对齐。
  */
-private val MoneyO = 0xFFAF7C4DL
+private val MoneyO = 0xFFBC7730L
 
 /**
  * 「全部」那一屏：**这个月一共要付多少**（仪表盘卡）+ **每人一行**（点一行进他的结算）。
@@ -269,7 +269,7 @@ private fun AllDrivers(vm: FreightSettlementViewModel, groups: List<FreightSettl
                     Text(
                         "有 " + unpriced + " 单还没定价（运费待补），它现在的应得按 0 计 —— 补价后这里会自动变",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFBA6947),
+                        color = Color(0xFFCE5C2C),
                     )
                 }
             }
@@ -450,7 +450,7 @@ private fun DriverDetail(
                     Text(
                         "有 " + unpriced + " 单还没定价（运费待补），它现在的应得按 0 计 —— 补价后这里会自动变",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFBA6947),
+                        color = Color(0xFFCE5C2C),
                     )
                 }
             }
@@ -519,7 +519,7 @@ private fun SettlementOrderRow(o: FreightSettlementOrderDto) {
             Text(
                 if (o.freightFee != null) "运费 ¥" + formatMoney(o.freightFee) else "运费 待定价",
                 style = MaterialTheme.typography.labelSmall,
-                color = if (o.freightFee != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFFBA6947),
+                color = if (o.freightFee != null) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFFCE5C2C),
             )
         }
         Spacer(Modifier.width(2.dp))

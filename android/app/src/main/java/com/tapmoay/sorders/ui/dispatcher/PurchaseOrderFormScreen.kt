@@ -388,7 +388,7 @@ fun PurchaseOrderFormScreen(
                     FormGroup(
                         icon = Icons.Default.ShoppingCart,
                         title = "这一单是谁供的货",
-                        tint = Color(0xFF4CAF50),
+                        tint = Color(0xFF00B622),
                     ) {
                         FormPickRow(
                             label = "供应商",
@@ -397,7 +397,7 @@ fun PurchaseOrderFormScreen(
                             required = true,
                             placeholder = "点这里选一家",
                             icon = Icons.Default.Storefront,
-                            iconTint = Color(0xFF49A67A),
+                            iconTint = Color(0xFF00AC6E),
                         )
                         FormPickRow(
                             label = "进货日期",
@@ -421,7 +421,7 @@ fun PurchaseOrderFormScreen(
                     FormGroup(
                         icon = Icons.Default.Inventory2,
                         title = "进了哪些货（${vm.lines.size} 行）",
-                        tint = Color(0xFF4CAF50),
+                        tint = Color(0xFF00B622),
                     ) {
                         if (vm.lines.isEmpty()) {
                             Text(
@@ -444,7 +444,7 @@ fun PurchaseOrderFormScreen(
                             label = "加一行商品",
                             onClick = { showProductPicker = true },
                             icon = Icons.Default.Add,
-                            iconTint = Color(0xFF4CAF50),
+                            iconTint = Color(0xFF00B622),
                         )
                     }
 
@@ -453,7 +453,7 @@ fun PurchaseOrderFormScreen(
                         FormGroup(
                             icon = Icons.Default.ReceiptLong,
                             title = "这一单的应付单",
-                            tint = Color(0xFFE53935),
+                            tint = Color(0xFFFF0013),
                         ) {
                             FormRow(label = "已付", icon = Icons.Default.Payments) {
                                 Text(yuan(vm.paidText), style = MaterialTheme.typography.bodyLarge)
@@ -612,7 +612,7 @@ private fun PurchaseLineEditor(
             keyboardType = KeyboardType.Decimal,
             placeholder = "0.00",
             icon = Icons.Default.Payments,
-            iconTint = Color(0xFFE53935),
+            iconTint = Color(0xFFFF0013),
         )
         Text(
             "这一行的小计与整单合计都由后端算（界面上不做乘法）。",

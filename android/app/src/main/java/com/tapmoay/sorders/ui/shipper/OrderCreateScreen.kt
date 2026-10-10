@@ -214,7 +214,7 @@ fun OrderCreateScreen(
                             else "提交订单 ¥" + formatMoney(vm.totalAmount().toString()),
                             onClick = { vm.submit { onCreated() } },
                             enabled = !vm.submitting,
-                            containerColor = Color(0xFF49A67A),
+                            containerColor = Color(0xFF00AC6E),
                             icon = Icons.Default.Send,
                             modifier = Modifier.width(200.dp),
                         )
@@ -235,9 +235,9 @@ fun OrderCreateScreen(
         vm.toast?.let { msg ->
             item {
                 Surface(
-                    color = Color(0xFFFFF7E6),
+                    color = Color(0xFFFFF7DE),
                     shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFFF0D9A8)),
+                    border = BorderStroke(1.dp, Color(0xFFF7D890)),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Row(
@@ -247,7 +247,7 @@ fun OrderCreateScreen(
                         Text(
                             msg,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF8A6D1F),
+                            color = Color(0xFF8F6C00),
                             modifier = Modifier.weight(1f),
                         )
                         IconButton(onClick = { vm.dismissToast() }) {
@@ -292,7 +292,7 @@ fun OrderCreateScreen(
                                 Text(
                                     if (isTemp) "临时货主（未注册）" else "已注册货主",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = if (isTemp) Color(0xFFE6A23C) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = if (isTemp) Color(0xFFF59C00) else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
@@ -453,7 +453,7 @@ fun OrderCreateScreen(
                         Text(
                             "还没选坐标",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFE6A23C),
+                            color = Color(0xFFF59C00),
                         )
                         HintOnce(
                             container.hintPrefs,
@@ -474,14 +474,14 @@ fun OrderCreateScreen(
                                     Icon(
                                         Icons.Default.CheckCircle,
                                         contentDescription = null,
-                                        tint = Color(0xFF49A67A),
+                                        tint = Color(0xFF00AC6E),
                                         modifier = Modifier.size(18.dp),
                                     )
                                     Spacer(Modifier.width(6.dp))
                                     Text(
                                         "已在共享库里",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color(0xFF49A67A),
+                                        color = Color(0xFF00AC6E),
                                     )
                                 }
                                 // ⚠️ 提示必须放在**用户刚点的那一行下面**，不能塞到页面底部的
@@ -493,7 +493,7 @@ fun OrderCreateScreen(
                                     Text(
                                         it,
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color(0xFF49A67A),
+                                        color = Color(0xFF00AC6E),
                                     )
                                 }
                             }
@@ -615,7 +615,7 @@ fun OrderCreateScreen(
                         placeholder = "请输入手机号",
                         keyboardType = KeyboardType.Phone,
                         icon = Icons.Default.Phone,
-                        iconTint = Color(0xFF49A67A),
+                        iconTint = Color(0xFF00AC6E),
                     )
                     // P9（2026-10-03 的 E2E 走查）：选线路 / 选地点会**带出**收货人，而带出可能把
                     // 用户刚挑好的那位静默换掉（挑的是人、带出来的是线路/地点上的快照）。
@@ -627,7 +627,7 @@ fun OrderCreateScreen(
                         Text(
                             msg,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFE6A23C),
+                            color = Color(0xFFF59C00),
                         )
                     }
                     // 下单人：名称 + 电话。**填谁由角色决定，不要在这里再判一次**（判据在
@@ -654,7 +654,7 @@ fun OrderCreateScreen(
                         placeholder = if (vm.proxyMode) "选货主后自动填入" else "选填",
                         keyboardType = KeyboardType.Phone,
                         icon = Icons.Default.Phone,
-                        iconTint = Color(0xFF49A67A),
+                        iconTint = Color(0xFF00AC6E),
                     )
                     FormTextAreaRow(
                         label = "备注",
@@ -1418,7 +1418,7 @@ private fun SheetRow(
     /** 行尾 `⋮` 里的管理动作（**只有派单员**会给；空 = 不画那个按钮）。 */
     actions: List<RowAction> = emptyList(),
 ) {
-    val headColor = if (isPlace) Color(0xFF4CA0BC) else Color(ThemeGreen)
+    val headColor = if (isPlace) Color(0xFF00A4CE) else Color(ThemeGreen)
     val headIcon = if (isPlace) Icons.Default.Place else Icons.Default.Person
     // ⛔ 2026-09-22 用户：「那个**共享库**…那个**不要用列表的形式**，也使用**卡片**的形式，
     //    就是**类似商品一样**…而且那个共享库那个卡片形式要改一下，**重要的信息要优先显示**」。
@@ -1465,13 +1465,13 @@ private fun SheetRow(
                 )
                 if (!phone.isNullOrBlank()) {
                     Spacer(Modifier.width(8.dp))
-                    Icon(Icons.Default.Call, contentDescription = null, tint = Color(0xFF49A67A), modifier = Modifier.size(11.dp))
+                    Icon(Icons.Default.Call, contentDescription = null, tint = Color(0xFF00AC6E), modifier = Modifier.size(11.dp))
                     Spacer(Modifier.width(3.dp))
                     Text(phone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
                 if (badge != null) {
                     Spacer(Modifier.width(8.dp))
-                    Text(badge, style = MaterialTheme.typography.labelSmall, color = Color(0xFFA587D4))
+                    Text(badge, style = MaterialTheme.typography.labelSmall, color = Color(0xFFA980F1))
                 }
             }
         } else {
@@ -1504,12 +1504,12 @@ private fun SheetRow(
             )
             if (!phone.isNullOrBlank()) {
                 Spacer(Modifier.width(10.dp))
-                Icon(Icons.Default.Call, contentDescription = null, tint = Color(0xFF49A67A), modifier = Modifier.size(14.dp))
+                Icon(Icons.Default.Call, contentDescription = null, tint = Color(0xFF00AC6E), modifier = Modifier.size(14.dp))
                 Spacer(Modifier.width(3.dp))
                 Text(
                     phone,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF49A67A),
+                    color = Color(0xFF00AC6E),
                     maxLines = 1,
                 )
             }
@@ -1533,7 +1533,7 @@ private fun SheetRow(
             Text(
                 badge,
                 style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFFA587D4),
+                color = Color(0xFFA980F1),
             )
         }
         }
@@ -1554,7 +1554,7 @@ private fun SheetRowTrailing(hasCoords: Boolean, actions: List<RowAction>) {
         Text(
             "有导航",
             style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFF49A67A),
+            color = Color(0xFF00AC6E),
             fontWeight = FontWeight.Bold,
         )
     }
@@ -1632,7 +1632,7 @@ fun LineEditDialog(
                     onValueChange = { name = it },
                     placeholder = "商品名",
                     icon = Icons.Default.Inventory2,
-                    iconTint = Color(0xFFA587D4),
+                    iconTint = Color(0xFFA980F1),
                 )
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {

@@ -252,7 +252,7 @@ private fun PurchaseOrderRowCard(
             Icon(
                 Icons.Default.ShoppingCart,
                 contentDescription = null,
-                tint = Color(0xFF4CAF50),
+                tint = Color(0xFF00B622),
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(8.dp))

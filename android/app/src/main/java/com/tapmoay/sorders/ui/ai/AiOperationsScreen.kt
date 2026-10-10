@@ -218,10 +218,10 @@ private fun AiOperationCard(row: AiOperationDto) {
 @Composable
 private fun ResultBadge(row: AiOperationDto) {
     val dark = ThemeMode.isDark
-    val bg = if (row.ok) (if (dark) Color(0xFF0E3A28) else Color(0xFFD9F0DA))
-    else (if (dark) Color(0xFF44201F) else Color(0xFFFFE1E1))
+    val bg = if (row.ok) (if (dark) Color(0xFF003C23) else Color(0xFFD1F3D3))
+    else (if (dark) Color(0xFF4D191A) else Color(0xFFFFDEDE))
     val fg = if (row.ok) (if (dark) SuccessDark else Success)
-    else (if (dark) Color(0xFFFFB4AB) else Color(0xFF9C2B2B))
+    else (if (dark) Color(0xFFFFAA9F) else Color(0xFFB50019))
     Surface(color = bg, shape = RoundedCornerShape(50)) {
         Text(
             AiOperationRows.resultLabel(row),

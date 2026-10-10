@@ -406,7 +406,7 @@ private fun MovementRow(m: InventoryMovementDto, onOpenPurchaseOrder: (Long) -> 
                         else -> "自动"
                     }
                     Surface(
-                        color = Color(0xFFE8F1FF),
+                        color = Color(0xFFE4F1FF),
                         shape = MaterialTheme.shapes.small,
                     ) {
                         Text(
