@@ -767,8 +767,11 @@ interface ProductApi {
     @GET("products")
     suspend fun listProducts(
         @Query("include_inactive") includeInactive: Boolean = true,
-        // 回收站（BUG-0035 / 测试台账 TA-11）：`deleted_only=true` 只回被软删的商品
-        // （后端按删除时间倒序）。缺省 false ⇒ 不带参数时的行为与加这个参数之前**逐字一致**。
+        // `deleted_only=true` 只回被软删的商品（后端按删除时间倒序）。
+        // ⚠️ 2026-10-10 用户改口径：商品**界面上不要回收站**（多一个按钮不好看、误删重建成本低）
+        // —— 界面档位与取数路径都撤了（CHG-0106），这个查询参数**保留**：它在 AI 读能力面
+        // （`ai/AiReadCatalog.kt` / `docs/ai/ai_read_catalog.json` 的 `products.list_products`）在册，
+        // AI 撤回/恢复那条路要用。缺省 false ⇒ 不带参数时的行为与加这个参数之前**逐字一致**。
         @Query("deleted_only") deletedOnly: Boolean = false,
     ): List<ProductDto>
 

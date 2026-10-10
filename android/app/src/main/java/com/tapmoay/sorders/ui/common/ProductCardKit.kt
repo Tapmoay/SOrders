@@ -482,28 +482,6 @@ fun ProductSoldOutBadge() {
 }
 
 /**
- * 「**已删除**」角标 —— 回收站里的那一行用它（全库唯一一处）。
- *
- * 与上面那枚「已沽清」**刻意分开**：沽清是"还在卖、只是暂时不卖"，已删除是"它已经在回收站里"。
- * 用户 2026-09-20 的硬规矩是删除一律软删 + 界面上要有恢复入口 —— 那界面上就必须一眼看出
- * "这一条是删过的"，而不是被说成"沽清了"（那会让人以为它还好端端挂在商品列表里）。
- *
- * ⛔ 同样**不给参数**：一旦能传文案，下一页就会传「已下架」「已撤销」，又变成"同一个状态几种说法"。
- * ⛔ 灰底（`surfaceVariant`）用的是共用件这一处 —— `_check_sold_out_card_grey.py` 盯着
- *    「商品管理页里不许自己再画一层灰底」，所以这枚角标必须住在这里、不许搬回去。
- */
-@Composable
-fun RecycleBinBadge() {
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
-        Text(
-            "已删除",
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-        )
-    }
-}
-
-/**
  * 「**沽清（下架）/ 上架**」的二次确认 —— 全库**唯一一份**文案与形态（CHG-0025 / P29，2026-10-03）。
  *
  * ## 为什么要有这个弹层

@@ -29,7 +29,7 @@ import kotlinx.coroutines.launch
  * |---|---|
  * | 批量改分组 | `PATCH /products/{id}` `{category}`（后端会自动把这个分类补进名册） |
  * | 批量沽清 / 上架 | `PATCH /products/{id}` `{is_active}` |
- * | 批量删除 | `DELETE /products/{id}`（**软删**，去「回收站」恢复） |
+ * | 批量删除 | `DELETE /products/{id}`（**软删**，界面上撤不回来 —— 误删重建即可，见 CHG-0106） |
  *
  * ⛔ **不做"批量改库存"**：库存只能走出入库流水（`inventory_service` 里那条
  * `UPDATE ... WHERE stock + delta >= 0`）。批量改数字 = 账实不符，而且整套流水对不上。
@@ -158,7 +158,7 @@ class ProductBatchViewModel(private val container: AppContainer) : ViewModel() {
         container.api.productApi.updateProduct(p.id, ProductUpdateRequest(isActive = active))
     }
 
-    fun delete() = run("删除（软删，可去回收站恢复）") { p ->
+    fun delete() = run("删除（软删，界面撤不回来）") { p ->
         container.api.productApi.deleteProduct(p.id)
     }
 }
@@ -287,7 +287,7 @@ fun ProductBatchScreen(
         DangerConfirmDialog(
             title = "删除选中的 " + vm.selected.size + " 个商品？",
             message = "删除是软删：它们从列表里消失，但库存流水、订单行、账本都原样留着。" +
-                "商品管理页最上面那一排的「回收站」里可以逐个恢复。",
+                "界面上撤不回来，删错了逐个重新建即可（商品重建成本低）。",
             confirmText = "删除",
             onConfirm = { confirmingDelete = false; vm.delete() },
             onDismiss = { confirmingDelete = false },

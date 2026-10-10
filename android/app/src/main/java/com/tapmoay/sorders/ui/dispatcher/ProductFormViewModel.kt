@@ -368,16 +368,15 @@ class ProductFormViewModel(
     }
 
     /**
-     * 删除商品（**软删**：后端只是打标记，`POST /products/{id}/restore` 能恢复）。
+     * 删除商品（**软删**：后端只打 `is_deleted/deleted_at` 标记、行还在库里，
+     * 库存流水 / 订单行 / 账本一条都不动）。
      *
-     * ⚠️ 用户 2026-09-20 定的硬规矩：**所有删除一律软删 + 界面上要有一个手边的恢复入口**。
-     * 所以删完回列表之后，**商品管理页最上面那一排的「回收站」**要能把它捞回来 ——
-     * 那个入口 2026-10-10 才做出来（BUG-0035 / 测试台账 TA-11）：
-     * `ProductsScreen` 的 `SegmentedPicker(在用 / 回收站)` → `ProductsViewModel.restoreFromBin`
-     * → `POST /products/{id}/restore`。只把恢复藏在 AI 撤回卡里是不算的。
-     *
-     * ⛔ 这段原来引用的是列表页里一条**从来不存在**的「撤销条」，
-     *    正是这一轮在修的那种"承诺了没做"（文案指的入口必须真的在）。
+     * ⚠️ 商品这一类**界面上没有回收站**（用户 2026-10-10 改口径，见 `docs/changes/CHG-0106.md`）：
+     * 「不需要加回收站……误删了它可以重新建的，因为这个建的成本并不是很高的」。
+     * ⇒ 这条删除在界面上**撤不回来**，弹窗与提示必须如实这么写
+     *   （⛔ 不许再承诺"去商品管理页顶端的回收站找回"—— 那个入口已经撤掉，写了就是假话）。
+     * 后端 `POST /products/{id}/restore` 仍在，但那扇门只服务 **AI 自己发起的删除**
+     * （AI 撤回卡，见 `AiWriteMasterData.kt` 的 `restoreAction("商品", …)`）；人手删的没有这条退路。
      */
     fun delete(onDone: (String) -> Unit) {
         val id = productId ?: return

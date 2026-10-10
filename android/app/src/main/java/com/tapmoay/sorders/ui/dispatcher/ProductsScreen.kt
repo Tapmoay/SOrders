@@ -160,31 +160,12 @@ fun ProductsScreen(
         }
 
         Column(Modifier.fillMaxSize().padding(padding)) {
-            // ------------------------------------------------------------ 回收站（BUG-0035）
-            // 删除确认弹窗承诺的就是这个位置：「列表顶端的『回收站』里可以把它恢复回来」
-            // （`ProductFormScreen.kt` 的删除确认 + 批量删除确认三处都这么写）。
-            // ⛔ 它必须画在内容区**最上面**：这一排就是那句话里的"列表顶端"，
-            //    往下一挪（比如挪到搜索框下面）文案就成了假话 —— 承诺与实现必须是同一件事。
-            // 体例照 `DriverBillingRulesScreen`：撤回底线是"删错了要能拿回来"，那条路摆在明面上。
-            SegmentedPicker(
-                labels = listOf("在用", "回收站"),
-                selected = if (vm.recycleBin) 1 else 0,
-                onSelect = { vm.switchRecycleBin(it == 1) },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
             // 搜索框**横跨整页**（在分类条上面）—— 与库存管理页同一版式。
             // 放右栏会被压成半宽，而且分类为空时它会跟着消失；而"找不到某个商品"正是最需要它的时候。
             OutlinedTextField(
                 value = vm.query,
                 onValueChange = { vm.query = it },
-                // 回收站那一档搜的是**已删的**商品：同一句"搜索商品名称"在两个档里指的是两批东西，
-                // 说清搜哪一批（`_check_product_recycle_bin.py` 钉着这一句）。
-                placeholder = {
-                    Text(
-                        if (vm.recycleBin) "搜索已删商品名称" else "搜索商品名称",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                },
+                placeholder = { Text("搜索商品名称", style = MaterialTheme.typography.bodySmall) },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
                 trailingIcon = {
                     if (vm.query.isNotEmpty()) {
@@ -198,18 +179,7 @@ fun ProductsScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
             )
             Box(Modifier.weight(1f)) {
-            // 点图看大图：整页只留**这一份** lambda（判据 _check_image_preview.py 要求
-            // `openStaticPaths(listOf(` 恰好 1 处 —— 回收站那张卡也用它）。
-            val showImage: (String) -> Unit = { url -> preview.openStaticPaths(listOf(url), 0) }
             when {
-                // 回收站那一档换的是**这一整块内容**（页面最上面那排决定看哪一份）。
-                // ⚠️ 它必须排在最前面：下面那几条（有没有商品 / 在不在售）说的是**在用**那一份，
-                //    混进回收站就会把"回收站是空的"说成"暂无商品，点下方「商品新增」"。
-                vm.recycleBin -> RecycleBinBody(
-                    vm = vm,
-                    keyword = keyword,
-                    onShowImage = showImage,
-                )
                 vm.loading -> LoadingBox()
                 vm.loadError != null && vm.products.isEmpty() -> ErrorView(vm.loadError.orEmpty(), onRetry = { vm.load() })
                 vm.products.isEmpty() -> EmptyView("暂无商品，点下方「商品新增」", Modifier.align(Alignment.Center))
@@ -247,7 +217,7 @@ fun ProductsScreen(
                                         //    P29 的病就是这一行一点即改（一次误触 = 静默下架）。
                                         onToggle = { toggleFor = p },
                                         onQuickPrice = { quickPriceFor = p },
-                                        onShowImage = showImage,
+                                        onShowImage = { url -> preview.openStaticPaths(listOf(url), 0) },
                                     )
                                 }
                             }
@@ -447,16 +417,6 @@ private fun BottomCell(
  * 它仍然是共用件 `ProductSoldOutBadge`（文案只有「已沽清」、⛔ 不参数化），
  * 选品页那一处用的也是它（见 `:421` 上面那段"同一个状态两个词两种颜色"的教训）。
  */
-/**
- * 商品缩略图**点开看大图**的唯一入口（整页只有这里调 `productImageClickable`）。
- *
- * 为什么要多这一层（2026-10-10，BUG-0035 商品回收站）：管理列表与回收站两张卡各写了一遍同一句话，
- * 判据 `_check_image_preview.py` 要求这一页的 `productImageClickable(` 恰好 1 处 —— 于是把
- * 「点开哪一张、没图就不给热区」收成这一个零件，两张卡只传自己的 url 与回调。
- */
-private fun Modifier.productThumbClickable(url: String?, onShowImage: (String) -> Unit): Modifier =
-    productImageClickable(url) { url?.let(onShowImage) }
-
 @Composable
 private fun ProductCard(
     p: ProductDto,
@@ -490,7 +450,7 @@ private fun ProductCard(
                         nameColor = p.nameColor,
                         size = 88.dp,
                         // 点图＝看这一张的大图（台账 L-37；没图就不给热区，规则在 ProductCardKit）
-                        modifier = Modifier.productThumbClickable(p.imageUrl, onShowImage),
+                        modifier = Modifier.productImageClickable(p.imageUrl) { p.imageUrl?.let(onShowImage) },
                         shape = MaterialTheme.shapes.medium,
                     )
                 },
@@ -777,113 +737,3 @@ private fun QuickPriceDialog(
 // 2026-09-21 抽屉改成单独一页之后，它换成 `ui/common/CategoryPickerSheet.kt` 里的
 // `CategoryNameDialog`（**名册页与选择页共用的那一份**）—— 商品表单里那个
 // 「新建分组」走的就是它，见 `ProductFormScreen` 的分类选择页。
-
-// ---------------------------------------------------------------- 回收站（2026-10-10 · BUG-0035）
-//
-// 这三块（身子 / 一行 / 角标）是那个**承诺了很久才做出来**的入口的落点：
-// 删除确认弹窗一直写着「列表顶端的『回收站』里可以把它恢复回来」，
-// 而"列表顶端"就是 `ProductsScreen` 内容区最上面那排 `SegmentedPicker(在用 / 回收站)` ——
-// 切到第二档画的就是下面这些东西。
-//
-// ⚠️ 改动这里之前先读两句话：
-//   ① 它是**只读 + 一个恢复动作**：回收站里不许出现「改价 / 沽清 / 编辑」——
-//      那些动作的对象是在用商品，出现在一条已删商品上只会让人以为它还在卖；
-//   ② 「已删除」与「已沽清」是**两件事**，各自的词只有一处实现（这里是前者唯一的一处）。
-
-/**
- * 回收站那一档的身子。
- *
- * ⚠️ 三层状态**分开说**，不许合并成一句「没有商品」：
- *   · 取数失败（[ProductsViewModel.binError]）→ 留在页面上 + 一个「重试」；
- *   · 确实空（`binItems` 空）→「回收站是空的」；
- *   · 只是搜索没命中 →「回收站里没有名称含…的商品」。
- *   三句话说的是三件不同的事：混成一句，用户就分不清"我删的东西丢了"还是"我搜错了"。
- */
-@Composable
-private fun RecycleBinBody(
-    vm: ProductsViewModel,
-    keyword: String,
-    onShowImage: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    // 本地过滤（与「在用」那一档同一个判据）：回收站的量级是几十条，打字时就地过滤比每次打后端快。
-    val rows = remember(vm.binItems, keyword) {
-        vm.binItems.filter { keyword.isEmpty() || it.name.contains(keyword, ignoreCase = true) }
-    }
-    Box(modifier.fillMaxSize()) {
-        when {
-            vm.binLoading -> LoadingBox()
-            vm.binError != null && vm.binItems.isEmpty() ->
-                ErrorView(vm.binError.orEmpty(), onRetry = { vm.loadBin() })
-            vm.binItems.isEmpty() -> EmptyView("回收站是空的", Modifier.align(Alignment.Center))
-            rows.isEmpty() ->
-                EmptyView("回收站里没有名称含「$keyword」的商品", Modifier.align(Alignment.Center))
-            else -> LazyColumn(
-                Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                // ⚠️ 顺序由**后端**给（`deleted_at` 倒序：刚删的在最上面）—— 这里不再排一次：
-                //    两处排序规则迟早会对不上，而"我刚删的那个去哪了"正是用户唯一的线索。
-                items(rows, key = { it.id }) { p ->
-                    RecycleBinCard(
-                        p = p,
-                        busy = vm.restoringId == p.id,
-                        onRestore = { vm.restoreFromBin(p) },
-                        onShowImage = onShowImage,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * 回收站里的一行：只说三件事 —— 它是什么、删之前什么价、以及「恢复」。
- *
- * ⛔ **不给**「改价 / 沽清(上架) / 编辑」：那三个动作的对象是**在用的商品**，
- *    出现在一条已经删掉的商品上只会让人以为"它还在卖"（而它此刻 `is_active=false`）。
- * ⛔ 角标也**不用** `ProductSoldOutBadge`：那句话说「已沽清」，而这里的事实是**已删除** ——
- *    「同一个状态两个词」正是这一轮在修的那类毛病（`_check_wording_consistency.py` 盯着）。
- */
-@Composable
-private fun RecycleBinCard(
-    p: ProductDto,
-    busy: Boolean,
-    onRestore: () -> Unit,
-    onShowImage: (String) -> Unit,
-) {
-    SectionCard {
-        ProductLine(
-            name = p.name,
-            nameColor = p.nameColor,
-            facts = productFacts(p.defaultUnitPrice, p.unit, p.stock, p.lowStockAlert),
-            thumb = {
-                ProductThumb(
-                    imageUrl = p.imageUrl,
-                    nameColor = p.nameColor,
-                    size = 72.dp,
-                    modifier = Modifier.productThumbClickable(p.imageUrl, onShowImage),
-                    shape = MaterialTheme.shapes.medium,
-                )
-            },
-            badge = { RecycleBinBadge() },
-        )
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "库存、订单行、账本都原样留着；恢复后回到商品列表。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(8.dp))
-            Button(onClick = onRestore, enabled = !busy, modifier = Modifier.height(46.dp)) {
-                Icon(Icons.Default.RestoreFromTrash, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(if (busy) "恢复中…" else "恢复")
-            }
-        }
-    }
-}
-

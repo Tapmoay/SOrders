@@ -63,9 +63,10 @@ REVERSE = ROOT / "_tools/qa/_reverse_verify_delete_undo.py"
 DOC = ROOT / "docs/changes/CHG-0015.md"
 REGISTRY = ROOT / "docs/changes/README.md"
 
-#: ⚠️ 2026-10-10（BUG-0035 商品回收站）：`delete` 后面必须跟**大写驼峰**才算一次删除动作 ——
-#: `repo.deletedProducts()` 是「查已删的那一批」（查询，不是删除），老写法 `delete[A-Za-z0-9_]*`
-#: 会把它算成删除调用点、再逼出一个并不存在的 `repo.restoredProducts(` 而报假红。
+#: ⚠️ 2026-10-10（BUG-0035 商品回收站，该功能界面已按 CHG-0106 撤掉、这条口径留着）：
+#: `delete` 后面必须跟**大写驼峰**才算一次删除动作 —— `repo.deletedOrders(...)`
+#: （`ai/AiWriteDataSource.kt:715`）是「查已删的那一批」（查询，不是删除），老写法
+#: `delete[A-Za-z0-9_]*` 会把它算成删除调用点、再逼出一个并不存在的 `repo.restoredOrders(` 而报假红。
 DELETE_CALL = re.compile(r"repo\.(delete[A-Z][A-Za-z0-9_]*)\(")
 #: 全库删除调用点的下限：扫描本身被改坏时（正则写错 / 目录搬走）必须先喊，
 #: 否则"一个违规都没有"和"一个都没扫到"是同一个输出。

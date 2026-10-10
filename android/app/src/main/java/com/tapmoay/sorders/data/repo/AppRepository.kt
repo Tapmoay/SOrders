@@ -650,18 +650,19 @@ class AppRepository(private val api: ApiBundle) {
         ),
     )
 
-    suspend fun products(includeInactive: Boolean = true) = api.productApi.listProducts(includeInactive)
-
     /**
-     * 回收站：只看被软删的商品（`deleted_only=true`，后端按删除时间倒序）。
+     * 商品列表（默认含下架商品）。
      *
-     * ⛔ **不许**顺手把它并进 `products()` 的签名里 —— `_check_sold_out_block.py:447-451`
-     * 逐字钉着 `suspend fun products(includeInactive: Boolean = true)` 那一行
-     * （商品列表默认含下架商品，改默认值会让沽清的商品从列表里消失）。
-     * 回收站是**另一条取数路径**，所以另起一个方法；后端在 `deleted_only` 模式下
-     * 忽略 `include_inactive`（回收站里的商品按定义都是下架的，那不是过滤条件）。
+     * ⛔ **不许**改这个默认值 —— `_check_sold_out_block.py:447-451` 逐字钉着
+     * `suspend fun products(includeInactive: Boolean = true)` 这一行（改了会让沽清的商品
+     * 从列表里消失）。
+     *
+     * 商品**界面上没有回收站**（2026-10-10 用户口径，见 `docs/changes/CHG-0106.md`）：
+     * 随界面撤掉的还有只为那个档位存在的 `deletedProducts()`。后端
+     * `GET /products?deleted_only=true` 这个参数仍在，它在 AI 读能力面
+     * （`ai/AiReadCatalog.kt` / `docs/ai/ai_read_catalog.json` 的 `products.list_products`）在册。
      */
-    suspend fun deletedProducts() = api.productApi.listProducts(deletedOnly = true)
+    suspend fun products(includeInactive: Boolean = true) = api.productApi.listProducts(includeInactive)
 
     // ---- 商品分类名册（顺序由派单员定，下单页左侧那一列按它排）----
     suspend fun productCategories() = api.productApi.listCategories()
