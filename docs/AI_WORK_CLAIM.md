@@ -47,6 +47,24 @@
 - 状态：⏳ **进行中**（2026-10-10 立项；变更单 `docs/changes/BUG-0034.md`；台账 **TA-16**；Blast Radius **L2**；提交 `4beb4be`）。
 - 核心改动：backend/app/core/schema_bootstrap.py —— 为什么必须动核心：`expenses` 的 `is_deleted/deleted_at` 两列只有这一个幂等自愈段能加（不跑版本化迁移的那一半历史库靠它补列），不加这两列「撤销」就只能做成物理删，违反用户 2026-09-20「所有删除一律软删」的硬规矩。
 - 核心改动：backend/app/models/enums.py —— 为什么必须动核心：`EXPENSE_DELETE`/`EXPENSE_RESTORE` 两个审计动作码是 `OperationAction` 这个领域词汇表里的新取值（全项目共用），不写在这里撤销与恢复就是两笔无名账。
+### [2026-10-10 立项 → ⏳ CST 进行中] 会话：**BUG-0035 商品删除弹窗承诺的「列表顶端回收站」在 App 里从未实现**（DSH `697703dd-9e74-4937-b04d-7e9ba5a29a38`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径`：测试台账 **TA-11 / TA-03**（方向 A 测试 2026-10-10 03:22 CST 在 5556 上复现，第 4 轮 10:58 CST 升级为**堵死**）—— 商品管理里删除商品（编辑页「删 除」或 批量操作→删除），确认弹窗都写着「列表顶端的『回收站』里可以把它恢复回来」，而商品管理页顶部（标题 / 单位换算 / 排序 / 搜索框）与底部（分类管理 / 商品新增 / 批量操作）**都没有那个回收站**；`ProductsScreen.kt` 里「回收站」零命中。用户 2026-09-20 的硬规矩是「所有删除一律软删 + 界面上要有一个手边的恢复入口」—— 商品这一格是欠账。
+
+`病灶`：① 后端 `backend/app/api/v1/products.py:98` 的 `list_products` **恒过滤 `is_deleted=false`**，一个 `deleted_only`/`include_deleted` 查询参数都没有（同仓订单 `orders_query.py:98-99`、单位换算 `unit_conversions.py:64` 等十几个列表早就有）⇒ 客户端即便想画回收站也取不到数据；② App 侧连入口都没画：`AppRepository.kt:708` 的 `restoreProduct` 在 `ui/` 下**零调用点**（唯一调用者是 `ai/AiWriteDataSource.kt:2383` 的 AI 撤回卡），`ProductFormViewModel.kt:374` 的 KDoc 还在引用一个根本不存在的 `ProductsScreen.undoDelete`。
+
+`改法`：① 后端 `GET /api/v1/products` 加两个可选查询参数 —— `deleted_only=true` 只回 `is_deleted=true` 的行并按 `deleted_at` 倒序（同刻 id 倒序）；`include_deleted=true` 连回收站一起看、已删的排在最后；门 = 既有 `Permission.PRODUCT_MANAGE`（恢复端点用的同一把尺子），其余角色 403「无权查看回收站」——**不静默降级**（静默降级会把「你没权限」说成「回收站是空的」）；⛔ 回收站分支**不许**再套 `is_active` 过滤（删除那条路强制 `is_active=False`，套上去回收站恒空）；缺省查询一个已删商品都不回，与今天逐字一致。② App 商品管理页**内容区最上面**（搜索框之上）加一排 `SegmentedPicker(在用 / 回收站)`，回收站里每行「恢复」调既有 `POST /products/{id}/restore`，成功后该行离开回收站、回到在用列表并提示「「X」已恢复到商品列表（上架 / 沽清）」；行内容复用 `ProductLine`/`productFacts`/`ProductThumb`（⛔ 不手拼价格、不手解颜色）。③ 三处承诺文案（`ProductFormScreen.kt:325`、`:411-412`、`ProductBatchScreen.kt:290`）改成写清「商品管理页最上面那一排的『回收站』」，并修掉 `ProductFormViewModel.kt:370-376` 那段引用不存在 `undoDelete` 的过期 KDoc —— 承诺与实现必须是同一件事。
+
+**文件清单**：`backend/app/api/v1/products.py`、`backend/tests/test_product_recycle_bin.py`（新）、`android/app/src/main/java/com/tapmoay/sorders/data/remote/api/Apis.kt`、`android/app/src/main/java/com/tapmoay/sorders/data/repo/AppRepository.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductsViewModel.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductsScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductFormScreen.kt`（仅文案）、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductFormViewModel.kt`（仅 KDoc）、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductBatchScreen.kt`（仅文案）、`_tools/qa/_check_product_recycle_bin.py`（新）、`_tools/qa/_reverse_verify_product_recycle_bin.py`（新）、`docs/changes/BUG-0035.md`（新）、`docs/changes/README.md`、`docs/AI_WORK_CLAIM.md`、`docs/TEST_BUG_LEDGER.md`、`docs/PROJECT_MAP/08A_ENDPOINT_INDEX.md`（机器重跑）。
+
+**明确不碰**：既有的 `POST /products/{id}/restore` 与 `DELETE /products/{id}`（含 `was_active` 回填与两条审计日志）；`include_inactive` 的语义与描述文字（被 API 快照与 `_check_wording_consistency.py:345` 钉着）；`AppRepository.products(includeInactive: Boolean = true)` 的签名与默认值（`_check_sold_out_block.py:447-451` 逐字钉着）与两处 `products(includeInactive = false)`；订单详情 / 派单池改行；商品批量删除与批量操作页的既有动作；表结构与迁移（⛔ 不碰 `backend/app/core/schema_bootstrap.py`）；AI 读目录与 AI 写能力的既有动作集（`ai/**` 一个字节不改）；`_tmp/wt_head` 与别的会话的块；模拟器 5554。
+
+`判据 / 反验`：`_tools/qa/_check_product_recycle_bin.py`（≥15 项：参数语义 / 只列已删 / 缺省不含已删 / 403 门 / App 真的调到 restore / 顶部那一排存在且文案与实现一致）＋ 反验 `_tools/qa/_reverse_verify_product_recycle_bin.py`（≥6 条注入，逐字节还原）＋ 单测 `backend/tests/test_product_recycle_bin.py`。__EVIDENCE__
+
+- 状态：⏳ **进行中**（2026-10-10 立项；变更单 `docs/changes/BUG-0035.md`；台账 **TA-11 / TA-03**；Blast Radius **L2 —— 契约（既有只读端点新增两个可选查询参数）＋ L0 展示层**；提交 `__`）。
+- 核心改动：**无** —— 为什么：`_tools/qa/_core_files.txt` 里没有本单任何文件；`products` 表早就有 `is_deleted/deleted_at`（本单不加列、不写迁移），因此**不碰** `backend/app/core/schema_bootstrap.py`。
+
+
 ### [2026-10-10 立项 → 2026-10-10 已完成] 会话：**BUG-0026 司机端「进行中」列表被实时推送打断后整页报 StandaloneCoroutine was cancelled**（DSH `session-4f7d4be2-273e-4b95-bb10-d9f28eaa106a`）
 
 `用户口径`：测试台账 **TA-04**（方向 A 测试 2026-10-10 03:25 CST 在 `emulator-5558` + 隔离后端 8010 上复现 ≥3 次，严重度 **可见**）—— 司机端停在「进行中」，点顶部「刷新」后 1 秒内用派单员 token `POST /orders/{id}/assign` 给 driver_id=128 ⇒ 整页被错误态顶掉，文案是协程取消的原始异常串 `StandaloneCoroutine was cancelled`，只剩一个「重试」。
@@ -8287,3 +8305,12 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 - 核心改动：**无** —— 为什么：`backend/app/api/v1/ledger.py` 不在 `_tools/qa/_core_files.txt` 里（但按 L2「钱」域走了判据＋反验＋单测＋红证）
 - 证据：单测 3 passed（拿掉闸门 1 failed）、BUG-0029 老用例两文件 10 passed、判据 18/18（改前 8 条不成立）、反验 7/7 全红且逐字节还原
 - 实现提交：`d3b4e37`
+
+## BUG-0036 · 滚动收款不冲减客户欠款（已关闭）
+
+- 谁 / 什么时候：父会话（`session-bd8fe093-…`）2026-10-10（修第 4 轮台账 TB-14；病灶由方向 B 普查 agent 345778dc 发现）
+- 改哪些文件：`backend/app/services/reports/balance_query.py`、`backend/tests/test_rolling_receipt_prepaid.py`、`_tools/finance/_check_rolling_receipt_prepaid.py`、`_tools/finance/_reverse_verify_rolling_receipt_prepaid.py`、`docs/changes/BUG-0036.md`、README 表行、本文件、TEST_BUG_LEDGER 的 TB-14 行与详情块
+- 明确不碰：order_money / accounting_service / cash_flows / 收款单的算法与落库、账龄桶含义、挂账汇总（仍按单）、接口字段与表结构
+- 核心改动：**无** —— 为什么：`backend/app/services/reports/balance_query.py` 不在 `_tools/qa/_core_files.txt` 里（但按 L2「钱」域配了判据＋反验＋单测＋红证）
+- 证据：单测 2 passed；判据 18/18（改前 6 条不成立）；反验 7/7 全红且逐字节还原
+- 实现提交：`7c0421b`

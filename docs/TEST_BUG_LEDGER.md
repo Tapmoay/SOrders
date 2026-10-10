@@ -54,7 +54,7 @@
 | TB-11 | B | AI 写留痕可以被任何登录客户端（乃至人手工）伪造：X-SOrders-Ori… | 可疑 | 已复现 | 后端判断「这次写是 AI 干的」只看请求头 X-SOrders-Origin: ai（backend/app/core/c… | backend/app/core/ai_operation.py:24<br>backen… | _tmp/test_round3/ai_out/ai_header_probe… |
 | TB-12 | B | 部分核销的收款单撤销后再恢复：订单一付款标志被误翻成已收款（剩余欠款再也收不进… | 堵死 | **已修复 d3b4e37** | 一张已送达、只欠 124.00 的挂账单，用「按商品核销」收了 75.00 后订单仍是未收款（对）；把这张收款单撤销、再恢… | backend/app/api/v1/ledger.py:1142-1145 | _tmp/test_round4/runlog/receipt644_rest… |
 | TB-13 | B | 销项票挂不上「送达自动记账」的应收行：ledgers.customer_id … | 可疑 | 已复现 | POST /api/v1/invoices（direction=OUTPUT, invoice_no=R4C-INV-10… | backend/app/services/ledger_sync.py:52-68<br>… | _tmp/test_round4/out_invoice2.txt；_tmp/… |
-| TB-14 | B | 滚动收款（不绑单）只进现金流水：欠款表/预收/挂账汇总/营业额一分钱都不冲，客… | 错数 | 已复现 | 订单 645 已送达、欠 124.00。POST /api/v1/ledger/receipts {customer_id… | backend/app/services/reports/balance_query.py… | _tmp/test_round4/out_rolling_balance.tx… |
+| TB-14 | B | 滚动收款（不绑单）只进现金流水：欠款表/预收/挂账汇总/营业额一分钱都不冲，客… | 错数 | **已修复 7c0421b** | 订单 645 已送达、欠 124.00。POST /api/v1/ledger/receipts {customer_id… | backend/app/services/reports/balance_query.py… | _tmp/test_round4/out_rolling_balance.tx… |
 | TB-15 | B | 结算单付款的 paid_at 被静默丢弃：传 2026-09-30 付款，现金… | 可疑 | 已复现 | PATCH /api/v1/driver-settlements/58 {action:pay, method:cash,… | backend/app/api/v1/driver_settlements.py:149<… | _tmp/test_round4/out_settle.txt；_tmp/te… |
 | TB-16 | B | 开销没有删除/冲正入口：DELETE 与 PATCH 都 404，记错一笔就永… | 可见 | 已复现 | POST /api/v1/expenses（其他 1.00）→ 200 建出开销 56，同时写 cash_flows 99… | backend/app/api/v1/expenses.py:20-100 | _tmp/test_round4/out_expense2.txt；_tmp/… |
 | TB-17 | B | 批量调价点名一个非会员货主时提示「未找到批发商或商品，请先选择」：用户明明选了… | 可见 | 已复现 | POST /api/v1/price-rules/batch {shipper_ids:[135], product_id… | backend/app/api/v1/price_rules.py:118-141 | _tmp/test_round4/out_pr2.txt；_tmp/test_… |
@@ -445,7 +445,7 @@
 
 ### TB-14 · 滚动收款（不绑单）只进现金流水：欠款表/预收/挂账汇总/营业额一分钱都不冲，客户已付 124 元催收名单照旧要 173
 
-- 严重度：错数　／　状态：已复现　／　记录：2026-10-10 11:12 CST
+- 严重度：错数　／　状态：已修复 7c0421b　／　修复：2026-10-10（BUG-0036）　／　记录：2026-10-10 11:12 CST
 - 现象：订单 645 已送达、欠 124.00。POST /api/v1/ledger/receipts {customer_id:41, amount:124.00, method:cash, settle_mode:rolling, received_at:2026-10-10}（不绑单）→ 200（收款单 39），写 cash_flows 98（in 124.00, RECEIPT_CASH, order_id=NULL）。三态实测（收款单在 / DELETE / restore）：/cash-flows/summary?date_from=2026-10-10&date_to=2026-10-10 的 income 323.00 → 199.00 → 323.00（钱只在这本账上动），而 /reports/customer-balances?date=2026-10-10&mode=day 的 totals.balance 恒 72707.40、该客户那一行 balance 恒 173.00、prepaid 恒 0.00，/reports/arrears-summary?date_from=2026-10-01&date_to=2026-10-31 合计恒 1490.4；营业额 /reports/turnover 的 collected 与 arrears_total 也一步不动（这一步 23 个变化键全是 cash.* 与 receipts.*）。设计文档 docs/ACCOUNTING_V2_DESIGN.md:263 写的是「rolling（可选）：冲抵该客户应收余额（欠款表=余额+账龄，不逐单）」；而 CashFlowBizType.RECEIPT_PREPAID（backend/app/models/enums.py:396）与 App 的「预收款」标签（android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportFinance.kt:148-150）都在，全仓却没有一处写这个 biz（grep 只有枚举定义本身）⇒ 只做了一半：钱记了、欠款没销。系统自己的拒绝文案还把滚动收款当正当出口（如果是补差额，请改用「滚动收款」）。
 - 复现：1) POST /api/v1/ledger/receipts {customer_id:41, amount:124.00, method:cash, settle_mode:rolling, received_at:2026-10-10} → 200；2) GET /api/v1/cash-flows/summary?date_from=2026-10-10&date_to=2026-10-10 → income 里含这 124；3) GET /api/v1/reports/customer-balances?date=2026-10-10&mode=day → 该客户 balance/prepaid 不变；4) DELETE /api/v1/ledger/receipts/39 → 204：income 掉 124，第 3 步的数一个都不动；5) POST /api/v1/ledger/receipts/39/restore → 200 全部回来。脚本 _tmp/test_round4/probe_rolling_balance.py
 - 期望：滚动收款应当冲抵该客户应收余额（欠款表 balance 减 124，或按设计落进 prepaid 行），至少催收口径要能看见这笔已经收到的钱
