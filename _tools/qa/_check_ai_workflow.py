@@ -180,8 +180,11 @@ def main() -> int:
     print("\n== 1. 登记表：两条工作流、步骤、交棒 ==")
     c.present("两步的形状（标题 ＋ 读目录里的 action，两个字段各自写明用途）", wf,
               r"internal data class AiWorkflowStep\(\s*\n\s*/\*\*[\s\S]*?\*/\s*\n\s*val title: String,\s*\n\s*/\*\*[\s\S]*?\*/\s*\n\s*val action: String,")
+              # FEAT-0020：nextAction / ask 改成**可空**（只读工作流两条都是 null）。
     c.present("一条工作流的形状（什么时候用 / 参数 / 步骤 / 交棒 / 要问的那一句）", wf_code,
-              r"internal data class AiWorkflow\(\s*\n\s*val id: String,\s*\n\s*val cn: String,[\s\S]{0,400}?val steps: List<AiWorkflowStep>,\s*\n\s*val nextAction: String,")
+              r"internal data class AiWorkflow\(\s*\n\s*val id: String,\s*\n\s*val cn: String,[\s\S]{0,400}?val steps: List<AiWorkflowStep>,\s*\n\s*val nextAction: String\?,")
+    c.present("只读 = 交棒动作为空（readOnly 由它推出来，不另存一个标记）", wf_code,
+              r"val readOnly: Boolean get\(\) = nextAction == null")
     c.present("两条 id 逐字（写进提示词、工具 enum、run(id)）", wf_code,
               r'const val LEDGER_RECONCILE = "ledger\.reconcile"\s*\n\s*const val PRICE_BATCH = "price\.batch"')
     c.present("对账的第 1 步：已送达的订单（送达日窗口）", wf_code,
@@ -197,10 +200,13 @@ def main() -> int:
     c.present("调价交棒给「批量调价」", wf_code, r"nextAction = AiWrites\.PRICE_RULES_BATCH,")
     c.present("enum 从登记表算（加一条不用手改 schema）", wf_code,
               r"val IDS: List<String> = ALL\.map \{ it\.id \}")
+              # FEAT-0020：forRole 换成 actor 感知的 forActor（第二维是"是不是批发商货主"）。
     c.present("认不出角色 = 一条都不给（与工具白名单同一条 fail-closed）", wf_code,
-              r"if \(role == null\) emptyList\(\) else ALL\.filter \{ role in it\.roles \}")
-    c.present("两条都只给派单员（它们要发的写动作本来就不在货主白名单里）", wf_code,
+              r"val role = actor\?\.role \?: return emptyList\(\)")
+    c.present("默认只给派单员（要发的写动作不在货主白名单里的那几条留在这个默认值上）", wf_code,
               r"val roles: Set<AiRole> = setOf\(AiRole\.DISPATCHER\),")
+    c.present("memberOnly 那条只给批发商货主（与 AiWriteAction.memberOnly 同一条）", wf_code,
+              r"\(!it\.memberOnly \|\| member\)")
     c.present("工具说明**从登记表拼**（手写的清单一定会漏）", wf_code,
               r"val TOOL_DESCRIPTION: String = buildString \{\s*\n[\s\S]{0,300}?ALL\.forEach \{ w ->")
     c.present("工具说明写明它自己不写数据", wf_code, r"它自己一步都不写")
@@ -284,10 +290,13 @@ def main() -> int:
     c.present("「全部 / 所有」= 不过滤", runner_code, r'val ALL_WORDS = setOf\("全部", "所有"')
 
     print("\n== 7. 执行器：写能力仍然只有一条路 ==")
+              # FEAT-0020：nextAction 可空之后，交棒那一段先把它取出来（只读的走到这里就当场抛）。
     c.present("交棒那一段：动作 + 人话名字 + 参数 + 要问的那一句", runner_code,
-              r'private fun nextJson\(wf: AiWorkflow, params: JsonObject\): JsonObject = buildJsonObject \{\s*\n\s*'
-              + r'put\("action", wf\.nextAction\)\s*\n\s*'
-              + r'put\("action_cn", AiWrites\.titleOf\(wf\.nextAction\)\)')
+              r'private fun nextJson\(wf: AiWorkflow, params: JsonObject\): JsonObject \{[\s\S]{0,260}?'
+              + r'put\("action", action\)\s*\n\s*'
+              + r'put\("action_cn", AiWrites\.titleOf\(action\)\)')
+    c.present("⛔ 只读工作流不许走交棒（登记表与执行分支接错时当场抛，别静默发一张空卡）", runner_code,
+              r'wf\.nextAction\s*\n\s*\?: error\("只读工作流没有交棒动作')
     c.present("交棒里写明「用户点头之后再调 preview_write」", runner_code, r"用户点头之后再调 preview_write")
     for bad in ("AiWriteService", r"com\.tapmoay\.sorders\.data"):
         c.absent("⛔ 执行器不许碰写服务 / 数据层（" + bad + "）：它只读",
@@ -304,12 +313,18 @@ def main() -> int:
               r'RUN_WORKFLOW to "一句话跑完对账、批量调价这类多步的事')
     c.present("工具说明用登记表生成的那一份", tools_code, r"RUN_WORKFLOW to AiWorkflows\.TOOL_DESCRIPTION,")
     c.present("execute 分派", tools_code, r"RUN_WORKFLOW -> runWorkflow\(args\)")
-    c.present("schema：workflow 必填 ＋ enum 从登记表算", tools_code,
-              r'RUN_WORKFLOW to buildJsonObject \{\s*\n\s*put\("type", "object"\)[\s\S]{0,600}?AiWorkflows\.IDS\.forEach')
+              # FEAT-0020：schema 改成**动态**的（说明与 enum 都按角色裁）——静态那份已删，
+              # 理由是 [readDataSpec] 那条：specs 到不了 specOf，留着就是第二份会走散的清单。
+    c.present("schema：workflow 必填 ＋ enum 按角色裁（动态 spec）", tools_code,
+              r"private fun runWorkflowSpec\(actor: AiActor\?\): ToolSpec \{")
+    c.present("enum/说明只列这个角色能跑的（三处同源：工具说明 ＋ enum ＋ 执行前的门）", tools_code,
+              r"AiWorkflows\.forActor\(actor\)")
+    c.absent("⛔ 静态 SCHEMAS 里不许再抄一份 RUN_WORKFLOW 的参数定义（会走散）", tools_code,
+             r"RUN_WORKFLOW to buildJsonObject \{")
     c.present("认不出工作流时列出能跑的（" + "AiWorkflows.IDS" + "）", tools_code,
               r'\?: return err\("认不出工作流「" \+ id \+ "」。现在能跑的是：" \+ AiWorkflows\.IDS\.joinToString')
-    c.present("角色门：不在可用范围内直接拒", tools_code,
-              r"if \(role == null \|\| role !in wf\.roles\) \{")
+    c.present("角色门：与 enum / 说明同一份判据（forActor 那一份）", tools_code,
+              r"if \(!AiWorkflows\.allows\(actor\(\), wf\.id\)\) \{")
     c.present("执行器接的是 read_data 走的那条读路径", tools_code,
               r"AiWorkflowRunner\(read = \{ action, a -> reader\.read\(action, a\) \}\)\.run\(id, args\)")
     guard = read(GUARD)
@@ -334,11 +349,12 @@ def main() -> int:
     print("\n== 11. 单测：登记表与执行器都钉住了 ==")
     t_reg = read(TEST_REG)
     t_run = read(TEST_RUN)
-    for name in ["两条工作流都在登记表里", "步骤用的 action 就是这几个", "交棒的动作必须是真实存在的写动作",
-                 "认不出角色就一条都不给", "第 13 条"]:
+    for name in ["八条工作流都在登记表里", "步骤用的 action 就是这几个", "交棒的动作必须是真实存在的写动作",
+                 "认不出角色就一条都不给", "第 13 条", "只读工作流不发卡"]:
         c.present("登记表单测有这一档：" + name, t_reg, re.escape(name))
     c.present("登记表单测查的是真的那两份文案", t_reg, r"AiWorkflows\.RULES")
-    c.present("登记表单测钉住交棒动作确实存在", t_reg, r"AiWrites\.byId\(w\.nextAction\) != null")
+    c.present("登记表单测钉住交棒动作确实存在", t_reg, r"AiWrites\.byId\(action\) != null")
+    c.present("登记表单测钉住「只读的两条不发卡」", t_reg, r"只读工作流不发卡")
     for name in ["漏记的单被列出来", "默认窗口是本月 1 号到今天", "手工记的账不算这张单已经进账本",
                  "没有归属的单不算漏记", "账上有订单里没有的", "行里没有订单号的不算进对账",
                  "没查全就不给数字结论", "窗口反了直接报错", "读接口出错就停下来",
