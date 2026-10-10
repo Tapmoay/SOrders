@@ -1,3 +1,4 @@
+import json
 from decimal import Decimal
 from datetime import date, timedelta
 
@@ -1082,6 +1083,40 @@ def cancel_receipt_endpoint(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+def _cancel_rolled_orders(db: Session, receipt_id: int) -> set[int]:
+    """这笔收款**撤销那一步翻过哪几张单**（审计 `RECEIPT_CANCEL` 的 `orders_rolled_back`）。
+
+    为什么恢复要照着这张名单翻、而不是把所有点名订单都标成已收款（2026-10-10，BUG-0033 / 台账 TB-12）：
+    逐单核销允许**部分核销**（按商品核销只收其中几行）——那种单收完仍然 `paid=False`、还欠着钱，
+    撤销时也就**没有**把它翻成未收（它本来就是未收）。恢复若无条件 `paid=True`，这张单会带着欠款
+    变成「已收款」：剩下的钱用 itemized 收不进（400「已经收过款了…请改用滚动收款」），
+    滚动收款又不绑单 ⇒ 那笔欠款**永远挂在单上**，而欠款汇总里这一行还会整行消失。
+
+    ⛔ 找不到名单（老数据/手工改过）时返回空集 —— 宁可"恢复后还得再收一次"（看得见、能补），
+       也不要"欠着钱却显示已收"（看不见、钱收不回来）。
+    """
+    from app.models import OperationLog
+
+    marker = '"receipt_id": %d,' % receipt_id
+    rows = db.scalars(
+        select(OperationLog)
+        .where(
+            OperationLog.action == OperationAction.RECEIPT_CANCEL.value,
+            OperationLog.change_content.like("%" + marker + "%"),
+        )
+        .order_by(OperationLog.id.desc())
+    ).all()
+    for row in rows:
+        try:
+            payload = json.loads(row.change_content or "{}")
+        except (TypeError, ValueError):
+            continue
+        if payload.get("receipt_id") != receipt_id:
+            continue
+        return {int(x) for x in (payload.get("orders_rolled_back") or [])}
+    return set()
+
+
 @router.post("/receipts/{receipt_id}/restore", response_model=ShipperReceiptOut)
 def restore_receipt_endpoint(
     receipt_id: int,
@@ -1139,7 +1174,13 @@ def restore_receipt_endpoint(
                         "恢复这笔会把同一笔钱算两遍；请先撤销那一次收款"
                     ),
                 )
+        # ⛔ 只把**撤销那一步确实翻过**的订单翻回「已收款」（2026-10-10，BUG-0033 / 台账 TB-12）：
+        #    按商品部分核销的单收完仍 `paid=False`、还欠着钱，撤销时也没被翻过 ——
+        #    无条件翻回会让它带着欠款变成「已收款」，剩下的钱再也收不进来。
+        rolled = _cancel_rolled_orders(db, r.id)
         for oid in order_ids:
+            if oid not in rolled:
+                continue
             o = orders[oid]
             o.paid = True
             o.payment_method = "cash" if r.method in ("cash", "transfer", "wechat") else "arrears"
