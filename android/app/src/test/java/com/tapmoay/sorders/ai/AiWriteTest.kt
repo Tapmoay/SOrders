@@ -2524,6 +2524,36 @@ class AiWriteTest {
         assertFalse(call.contains("name"))
     }
 
+    @Test
+    fun `固价只改 no_discount 且卡片说清「价格照旧可改」`() = runBlocking {
+        val r = Rig()
+        val card = ok(
+            r.svc.preview(AiWrites.PRODUCTS_SET_NO_DISCOUNT, p("product" to "红富士苹果", "no_discount" to "true")),
+        )
+        val all = card.summary + "|" + card.detailLines.joinToString("|")
+        assertTrue("摘要要写明固价/不参与打折：${card.summary}",
+            card.summary.contains("固价") || card.summary.contains("不参与打折"))
+        // ⛔ 不许承诺「价格锁死 / 不能改价」：这个 flag 的语义只有一条 —— 订单打折时跳过它，
+        //    价格照旧可以改（backend/app/services/order_discount.py 的注释专门澄清过）。
+        assertFalse("不许写成价格锁死：$all", all.contains("锁死"))
+        assertTrue("要写明价格照旧可改：$all", all.contains("价格"))
+        r.svc.execute(card.token)
+        val call = r.ds.masterCalls.single()
+        assertTrue("payload 只该有 no_discount：$call", call.contains("\"no_discount\":true"))
+        assertFalse("不该出现 is_active：$call", call.contains("is_active"))
+    }
+
+    @Test
+    fun `恢复打折写 no_discount=false`() = runBlocking {
+        val r = Rig()
+        val card = ok(
+            r.svc.preview(AiWrites.PRODUCTS_SET_NO_DISCOUNT, p("product" to "红富士苹果", "no_discount" to "false")),
+        )
+        assertTrue("摘要要写明是恢复：${card.summary}", card.summary.contains("参与打折"))
+        r.svc.execute(card.token)
+        assertTrue(r.ds.masterCalls.single().contains("\"no_discount\":false"))
+    }
+
     // ============================================ 14. 主数据：库存增减量
 
     @Test
@@ -3813,9 +3843,11 @@ class AiWriteTest {
         //    —— 171（这六件事手工页早就能做，这次是把它们也开给 AI）；
         //    2026-10-08 当天再给「钱相关四条」加 4 个（CHG-0087，台账 L-56）：定价 / 让价 /
         //    取消让价 / 设挂账额度 —— 175。
+        //    2026-10-10 给「商品固价（不参与打折）」加 1 个（FEAT-0016：用户点名要 AI 也能接管
+        //    批量操作页那件事）：它就是 products.no_discount 的开/关 —— 176。
         //    所以下面补了一条**真正的去重断言**——不然这条会退化成"一个过一阵就要手动抬的魔数"，
         //    而它本来想防的"同一个动作声明两遍"一次都拦不住。
-        assertTrue("动作数不该多于 175（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 175)
+        assertTrue("动作数不该多于 176（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 176)
         val ids = AiWrites.ALL.map { it.id }
         assertEquals(
             "动作 id 声明重复了：${ids.groupBy { it }.filter { it.value.size > 1 }.keys}",

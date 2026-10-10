@@ -152,6 +152,49 @@ internal object AiWriteMasterData {
             ds.updateProduct(p.reqLong("product_id"), buildJsonObject { put("is_active", p.bool("active") ?: true) })
         },
 
+        // 商品「不参与打折」（用户口语：**固价**）—— 2026-10-10 FEAT-0016。
+        //
+        // ⚠️ 措辞必须与实现一致（`backend/app/services/order_discount.py` 的语义**只有一条**：
+        //    算折扣时跳过它）。⛔ 不许写成「价格锁死 / 不能改价」—— 那会让用户以为改不了价，
+        //    而实际上改价、批发商专属价都不受影响（那句话是该模块注释里专门澄清过的）。
+        crud(
+            id = AiWrites.PRODUCTS_SET_NO_DISCOUNT,
+            title = "商品固价（不参与打折）",
+            risk = AiWriteRisk.MEDIUM,
+            group = AiWrites.G_PRODUCT,
+            blurb = "把商品设成「不参与打折」（也就是口语里的「固价」）或者设回正常参与打折。" +
+                "设成固价后：订单打折会跳过它（整单打折自动跳；只打勾选的几行时它不能被勾）。" +
+                "⛔ 它的价格照旧可以改 —— 这条不是「价格不能变」。",
+            targets = listOf(targetProduct()),
+            fields = listOf(
+                boolField("no_discount", "固价还是不固价", "true=不参与打折（固价）；false=参与打折（默认）"),
+            ),
+            headline = { c ->
+                val fixed = c.bool("no_discount") != false
+                "${if (fixed) "设成固价（不参与打折）" else "设回参与打折"}：${c.ref("product")?.label}"
+            },
+            details = { c ->
+                if (c.bool("no_discount") != false) {
+                    listOf(
+                        "以后给订单打折时：整单折扣会自动跳过这个商品（它的行金额保持原价）",
+                        "只打勾选的几行时：这个商品不能被勾（后端会拒并点名，不是静默跳过）",
+                        "⛔ 它的价格照旧可以改（改默认单价、给批发商设专属价都不受影响）",
+                        "已经打过的折不回溯：以前那几单的金额一分都不会变",
+                    )
+                } else {
+                    listOf(
+                        "以后给订单打折时：这个商品和别的商品一样照常参与",
+                        "已经打过的折同样不回溯（既有订单金额不变）",
+                    )
+                }
+            },
+        ) { ds, p ->
+            ds.updateProduct(
+                p.reqLong("product_id"),
+                buildJsonObject { put("no_discount", p.bool("no_discount") ?: true) },
+            )
+        },
+
         crud(
             id = AiWrites.PRODUCTS_DELETE,
             title = "删除商品",

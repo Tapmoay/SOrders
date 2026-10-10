@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
  * |---|---|
  * | 批量改分组 | `PATCH /products/{id}` `{category}`（后端会自动把这个分类补进名册） |
  * | 批量沽清 / 上架 | `PATCH /products/{id}` `{is_active}` |
+ * | 批量固价（不参与打折）/ 恢复打折 | `PATCH /products/{id}` `{no_discount}`（CHG-0109：就是用户口语里的「固价」；语义只有一条 —— 订单打折时跳过它，⛔ 价格照旧可改） |
  * | 批量删除 | `DELETE /products/{id}`（**软删**，界面上撤不回来 —— 误删重建即可，见 CHG-0106） |
  *
  * ⛔ **不做"批量改库存"**：库存只能走出入库流水（`inventory_service` 里那条
@@ -158,6 +159,17 @@ class ProductBatchViewModel(private val container: AppContainer) : ViewModel() {
         container.api.productApi.updateProduct(p.id, ProductUpdateRequest(isActive = active))
     }
 
+    /**
+     * 批量「固价（不参与打折）」/「恢复打折」（CHG-0109，用户 2026-10-10 报的缺口）。
+     *
+     * ⚠️ 走**既有**的 `PATCH /products/{id}`（`no_discount`）—— 不新增端点、⛔ 一个价格字段都不碰。
+     * ⛔ 文案不许写成「价格锁死/不能改价」：这个 flag 的语义**只有一条** —— 订单打折时跳过它；
+     *    改默认单价、给批发商设专属价都不受影响（见 `backend/app/services/order_discount.py`）。
+     */
+    fun setNoDiscount(fixed: Boolean) = run(if (fixed) "设成固价（不参与打折）" else "设回参与打折") { p ->
+        container.api.productApi.updateProduct(p.id, ProductUpdateRequest(noDiscount = fixed))
+    }
+
     fun delete() = run("删除（软删，界面撤不回来）") { p ->
         container.api.productApi.deleteProduct(p.id)
     }
@@ -200,6 +212,11 @@ fun ProductBatchScreen(
      * 值就是**这次要变成的状态**（`true` 上架 / `false` 沽清）。
      */
     var confirmingActive by remember { mutableStateOf<Boolean?>(null) }
+    /**
+     * 固价（不参与打折）的二次确认（CHG-0109）：non-null = 弹层开着，值就是这次要设成的状态
+     * （`true` 固价 / `false` 恢复打折）。批量改折扣口径同样值得先问一句。
+     */
+    var confirmingFixed by remember { mutableStateOf<Boolean?>(null) }
 
     // ⚠️ 「搜索词 / 选中哪一分类 / 筛出来哪一批」这三样**不再在这里**：它们随着勾选那一块
     //    一起搬进了 `ProductCheckList`（搜索词仍由这里拿着 —— 见下面 keyword = vm.query）。
@@ -251,6 +268,10 @@ fun ProductBatchScreen(
                     //    `canAct()`：一个都没勾就别弹（弹层里写"选中的 0 个"是句废话）。
                     ActionChip("沽清（下架）", vm.acting) { if (vm.canAct()) confirmingActive = false }
                     ActionChip("上架", vm.acting) { if (vm.canAct()) confirmingActive = true }
+                    // 固价（不参与打折）与恢复打折（CHG-0109）：与上下架同形 —— 只**打开确认弹层**，
+                    // 不直接调 vm；`canAct()` 先把"一个都没勾"拦住（弹层里写"选中的 0 个"是废话）。
+                    ActionChip("固价（不打折）", vm.acting) { if (vm.canAct()) confirmingFixed = true }
+                    ActionChip("恢复打折", vm.acting) { if (vm.canAct()) confirmingFixed = false }
                     ActionChip("删除", vm.acting, danger = true) { confirmingDelete = true }
                 }
                 Spacer(Modifier.height(6.dp))
@@ -291,6 +312,27 @@ fun ProductBatchScreen(
             confirmText = "删除",
             onConfirm = { confirmingDelete = false; vm.delete() },
             onDismiss = { confirmingDelete = false },
+        )
+    }
+
+    // 固价（不参与打折）/ 恢复打折的确认（CHG-0109）：说清**它到底改了什么、没改什么** ——
+    // 用户口语叫「固价」，系统里的规范词是「不参与打折」，同一个 `products.no_discount`。
+    confirmingFixed?.let { fixed ->
+        val n = vm.selected.size
+        AlertDialog(
+            onDismissRequest = { confirmingFixed = null },
+            title = { Text(if (fixed) "把选中的 $n 个商品设成固价（不参与打折）？" else "把选中的 $n 个商品设回参与打折？") },
+            text = {
+                Text(
+                    if (fixed) "设成固价后：订单打折会自动跳过这些商品（它们的行金额保持原价）；" +
+                        "只打勾选的几行时，它们不能被勾。\n" +
+                        "它们的价格照旧可以改（改单价、给批发商设专属价都不受影响）；" +
+                        "已经打过的折不回溯。"
+                    else "设回之后：这些商品和别的商品一样照常参与订单打折；已经打过的折同样不回溯。"
+                )
+            },
+            confirmButton = { TextButton(onClick = { confirmingFixed = null; vm.setNoDiscount(fixed) }) { Text(if (fixed) "设成固价" else "恢复打折") } },
+            dismissButton = { TextButton(onClick = { confirmingFixed = null }) { Text("取消") } },
         )
     }
 

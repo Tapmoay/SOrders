@@ -308,6 +308,8 @@ internal object AiResources {
             ),
             // 上下架：payload 里的键叫 `active`（后端字段是 is_active），快照按 payload 键给。
             update(AiWrites.PRODUCTS_SET_ACTIVE),
+            // 固价（不参与打折，FEAT-0016）：payload 键就是后端字段名 `no_discount`，快照照给即可。
+            update(AiWrites.PRODUCTS_SET_NO_DISCOUNT),
             delete(AiWrites.PRODUCTS_DELETE),
             // 库存调整的撤回**不是**把库存改回去，而是再记一条反向流水。
             // 为什么：库存是流水累加出来的，"改回去"会让流水和库存对不上。

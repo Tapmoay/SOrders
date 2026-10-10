@@ -1384,6 +1384,14 @@ object AiWrites {
     const val PRODUCTS_CREATE = "products.create"
     const val PRODUCTS_UPDATE = "products.update"
     const val PRODUCTS_SET_ACTIVE = "products.set_active"
+
+    /**
+     * 商品「不参与打折」（用户口语：**固价**）—— 2026-10-10 FEAT-0016。
+     *
+     * ⚠️ 语义只有一条（backend/app/services/order_discount.py）：**算折扣时跳过它**。
+     * ⛔ 不是「价格锁死」：价格照旧可以改，改价与批发商专属价都不受影响。
+     */
+    const val PRODUCTS_SET_NO_DISCOUNT = "products.set_no_discount"
     const val PRODUCTS_DELETE = "products.delete"
     /** 用户给一张表、要按它一次建多个商品（v3.32）。见 [ApplyProductTableHandler]。 */
     const val PRODUCTS_APPLY_TABLE = "products.apply_table"
