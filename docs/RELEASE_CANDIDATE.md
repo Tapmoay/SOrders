@@ -35,6 +35,31 @@
 
 ---
 
+### 0.2.8 这一次（2026-10-10）—— 后端八步 + Android 同发
+
+后端（_tools/deploy/_release.py --all --go --sha <40 位全长>）：
+
+| 步 | 结果 |
+|---|---|
+| backup | ✅ 发布前备份 /opt/sorders-backup/pre_release/20261010T074344Z（105M；db.sql.gz 534,539B ＋ uploads.tar.gz 108,536,084B，sha256 校验通过） |
+| stage | ✅ 生产 git fetch origin ＋ checkout 853e1e04…（迁移包在位，服务未重启） |
+| migrate | ✅ python -m app.migrations upgrade（shipper_receipts / expenses 的新列与索引） |
+| verify | ✅ 当前版本 == 仓库迁移头；待跑 0 / 漂移 0 / 陌生版本 0 |
+| start | ✅ 2 个实例 active ＋ /health 200 ＋ 滚动全程 nginx 有活上游 ＋ canary 指纹与 .env 一致 |
+| health | ✅ 退出码 0 |
+| smoke（只读） | ✅ ERROR 0 条、未批准告警 0 条（3 条已批准告警都带理由） |
+| business（有限写） | ✅ 见下（这一步脚本故意不自动化，按 §三 人工做并留痕） |
+
+有限写烟测（docs/PRODUCTION_ACCEPTANCE.md §三：建 1 张 → 派 1 次 → 撤 1 次）：
+
+- ⛔ 登录**必须走 https**：backend/app/core/transport.py 会把「经 nginx 的明文登录」判成 426
+  （2026-09-19 的硬化：明文通道上不许出现凭据）；自签证书靠 App 的 network_security_config 信任。
+- 留痕：order_id=**20905**、order_no=**SO202610100551555025**、金额 **1.00 元**、状态 **PENDING_DISPATCH → DISPATCHED → CANCELLED**；
+  测试单**留成 CANCELLED 不删除**（删除是软删，也要留痕）。
+
+Android：publish_apk.py 打出并上传 sorders-0.2.8-2026101001.apk（45,440,673 字节，签名与线上一致 ⇒ 存量用户可直接升级），
+version.json 回读 version=0.2.8 versionCode=2026101001，短链 http://8.145.40.22/apk → sorders-latest.apk。
+
 ## 二、CI 证据（这份候选被机器验过）
 
 ### R4 这一次（2026-09-27）
