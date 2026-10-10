@@ -8253,3 +8253,12 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 - 核心改动：**无** —— 为什么：`OrderTemplateFormScreen.kt` 不在 `_tools/qa/_core_files.txt` 里，本单只改错误提示的摆放与一次自动滚动
 - 证据：判据 12/12（`_tmp/wt_final` 的改前源码上 6 条不成立）＋ 反验 8/8 全红且逐字节还原 ＋ `gradle :app:compileEmuDebugKotlin` BUILD SUCCESSFUL ＋ 真机 5556 复现
 - 实现提交：`3988501`
+
+## BUG-0032 · 常用地址恢复丢「默认」标记（已关闭）
+
+- 谁 / 什么时候：父会话（`session-bd8fe093-…`）2026-10-10（修第 4 轮台账 TA-14，未派 agent）
+- 改哪些文件：`backend/app/api/v1/shipper.py`、`backend/tests/test_address_default_restore.py`、`_tools/qa/_check_address_default_restore.py`、`_tools/qa/_reverse_verify_address_default_restore.py`、`docs/changes/BUG-0032.md`、README 表行、本文件、TEST_BUG_LEDGER 的 TA-14 行与详情块
+- 明确不碰：delete_address 里那句 a.is_default = False（R11-F4 不变量）、restore 的其它语义与文案、表结构（不新增列、不写迁移）、出参 AddressOut、地址列表排序
+- 核心改动：**无** —— 为什么：`backend/app/api/v1/shipper.py` 不在 `_tools/qa/_core_files.txt` 里，本单只改恢复端点写回的一个字段
+- 证据：单测 3 passed（临时去掉修复 → 1 failed）、判据 16/16（改前源码上 6 条不成立）、反验 6/6 全红且逐字节还原
+- 实现提交：`947cef9`

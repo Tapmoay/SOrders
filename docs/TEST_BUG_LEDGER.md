@@ -29,6 +29,16 @@
 | TA-08 | A | 商品列表卡的单价与改价弹窗口径不一致：0.005 在卡片上显示成 ¥0.01 | 可见 | **已修复 6db304e** | 商品 id=76（T1-prod-frac，库 default_unit_price=0.005，单位 箱）在商品管理列表… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A8_price_frac_display.… |
 | TA-09 | A | 改价弹窗输入负数被静默过滤成正数并保存（-3 存成 3，无提示） | 可疑 | **已修复 6db304e** | 商品改价弹窗（改默认售价）里输入 -3，输入框当场变成 3 —— 负号被输入规则悄悄丢掉，没有任何提示；点保存后库里就是 … | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A8_price_negative_filt… |
 | TA-10 | A | 联系人电话栏输入字母被静默清空，仍能保存出「没有电话」的联系人 | 可疑 | **已修复 6db304e** | 添加联系人时电话栏填 abc，点「添加」直接成功，列表里出现这条联系人，但库里 phone 是空的，没有任何校验提示。同一… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A9_contact_phone_filte… |
+| TA-11 | A | 商品删除弹窗承诺的「列表顶端回收站」在 App 里从未实现（TA-03 第4轮… | 堵死 | 已复现 | 商品管理里删除商品（编辑页「删 除」或 批量操作→删除）的确认弹窗都写着「列表顶端的『回收站』里可以把它恢复回来」，但商品… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round4/a_evidence_sweep1.txt |
+| TA-12 | A | 九类名册删除是物理删除、后端无 restore，App 只有删完当场那一下「撤… | 堵死 | 已复现 | 商品分类/联系人分类/地点分类/线路分类/运费分类/开销分类/预订单分类/账号分类/车辆分类，这九类「名册」的 DELET… | backend/app/api/v1/product_categories.py:299<… | _tmp/test_round4/a_evidence_sweep1.txt |
+| TA-13 | A | 账本行 DELETE 是物理删除且没有 restore 端点（删钱的行只能靠审… | 堵死 | 已复现 | DELETE /api/v1/ledger/entries/{id} 走的是 db.delete(row)，行直接从 le… | backend/app/api/v1/ledger.py:603 | _tmp/test_round4/a_evidence_sweep1.txt |
+| TA-14 | A | 常用地址恢复后丢失「默认」标记：删前是默认地址，恢复回来不再是 | 可见 | **已修复 947cef9** | POST /shipper/addresses/{id}/restore 只清 is_deleted/deleted_at… | backend/app/api/v1/shipper.py:189<br>backend/… | _tmp/test_round4/a_evidence_sweep1.txt |
+| TA-15 | A | AI 卡片说共享地点「删掉就没了、没有回收站、恢复不了」，实际后端是软删且能恢复 | 可见 | 已复现 | AI 写能力的卡片文案与实现相反：blurb 明说「从共享库里删掉一个地点（谁都选不到了）。删掉就没了，没有回收站。」并在… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round4/a_evidence_sweep1.txt |
+| TA-16 | A | 开销（expenses）全系统没有任何删除或修改入口：记错一笔永久留在账上 | 堵死 | 已复现 | 开销只有 GET 与 POST 两个端点，没有 DELETE 也没有 PATCH/PUT；App 侧没有任何 delete… | backend/app/api/v1/expenses.py:17<br>android/… | _tmp/test_round4/a_evidence_sweep1.txt |
+| TA-17 | A | 客户合并把被并档案物理删除，不可逆（customers 表连软删列都没有） | 可疑 | 已复现 | POST /api/v1/customers/merge 把引用搬到保留的那一条上，然后把被并档案从库里物理删除；cust… | backend/app/api/v1/customers.py:219<br>backen… | _tmp/test_round4/a_evidence_sweep1.txt |
+| TA-18 | A | 车辆与客户没有任何删除入口（车只能停用、客户档案无法清理） | 可疑 | 已复现 | 车辆与客户这两个实体连 DELETE 路由都没有：车辆只能改 is_active 停用（车仍然留在列表里），客户档案一旦建… | backend/app/api/v1/vehicles.py:281<br>backend… | _tmp/test_round4/a_evidence_sweep1.txt |
+| TA-19 | A | 司机备注（driver-note）零推送：派单员端订单详情停在旧「内部备注」，… | 可见 | 已复现 | 司机在司机端写现场备注后，后端只把文本以「[司机 时间] 」前缀追加进 orders.internal_notes，全程没… | backend/app/api/v1/orders_delivery.py:125 | _tmp/test_round4/shots/f1_detail_before… |
+| TA-20 | A | 商品/价格/库存/开销/结算/车辆等主数据写操作零推送：没有任何一端会收到变更… | 可疑 | 已复现 | products / price-rules / shipper-prices / inventory movements… | backend/app/api/v1/products.py:130 | _tmp/test_round4/push_matrix_8062_maste… |
 <!-- TESTBUG:ROWS:A -->
 <!-- /TESTBUG:ROWS:A -->
 | TB-01 | B | 挂账单位页看不到任何余额：只有信用额度，点卡片也没反应 | 可见 | **已修复 0bcbf39** | 工作台 → 挂账单位：每张卡片只显示 名称 / 电话 / 账期（月结 30 天）/ 信用额度 + 删除 / 编辑；点卡片主… | android/app/src/main/java/com/tapmoay/sorders… | shots/TB_arrears_list.png、shots/TB_arre… |
@@ -42,6 +52,12 @@
 | TB-09 | B | 客户收款登记之后没有任何撤销/红冲入口：报错文案让用户「联系管理员在账上冲正」… | 可疑 | **已修复 6809393** | 派单员在账本里登记一笔客户收款（POST /api/v1/ledger/receipts）会一次写三处：shipper_r… | backend/app/api/v1/ledger.py:734<br>backend/a… | _tmp/test_round3/evidence_TB09_receipt_… |
 | TB-10 | B | 账本行的「合计」能写成与 数量×单价 不符的值：AI「改合计金额」只传 tot… | 可疑 | **已修复 47ccdf0** | 手工记账建的行（quantity=3、unit_price=20.00，total 自动为 60.0000）再用 PATC… | backend/app/api/v1/ledger.py:464-467<br>andro… | _tmp/test_round3/evidence_TB10_ledger_t… |
 | TB-11 | B | AI 写留痕可以被任何登录客户端（乃至人手工）伪造：X-SOrders-Ori… | 可疑 | 已复现 | 后端判断「这次写是 AI 干的」只看请求头 X-SOrders-Origin: ai（backend/app/core/c… | backend/app/core/ai_operation.py:24<br>backen… | _tmp/test_round3/ai_out/ai_header_probe… |
+| TB-12 | B | 部分核销的收款单撤销后再恢复：订单一付款标志被误翻成已收款（剩余欠款再也收不进… | 堵死 | 已复现 | 一张已送达、只欠 124.00 的挂账单，用「按商品核销」收了 75.00 后订单仍是未收款（对）；把这张收款单撤销、再恢… | backend/app/api/v1/ledger.py:1142-1145 | _tmp/test_round4/runlog/receipt644_rest… |
+| TB-13 | B | 销项票挂不上「送达自动记账」的应收行：ledgers.customer_id … | 可疑 | 已复现 | POST /api/v1/invoices（direction=OUTPUT, invoice_no=R4C-INV-10… | backend/app/services/ledger_sync.py:52-68<br>… | _tmp/test_round4/out_invoice2.txt；_tmp/… |
+| TB-14 | B | 滚动收款（不绑单）只进现金流水：欠款表/预收/挂账汇总/营业额一分钱都不冲，客… | 错数 | 已复现 | 订单 645 已送达、欠 124.00。POST /api/v1/ledger/receipts {customer_id… | backend/app/services/reports/balance_query.py… | _tmp/test_round4/out_rolling_balance.tx… |
+| TB-15 | B | 结算单付款的 paid_at 被静默丢弃：传 2026-09-30 付款，现金… | 可疑 | 已复现 | PATCH /api/v1/driver-settlements/58 {action:pay, method:cash,… | backend/app/api/v1/driver_settlements.py:149<… | _tmp/test_round4/out_settle.txt；_tmp/te… |
+| TB-16 | B | 开销没有删除/冲正入口：DELETE 与 PATCH 都 404，记错一笔就永… | 可见 | 已复现 | POST /api/v1/expenses（其他 1.00）→ 200 建出开销 56，同时写 cash_flows 99… | backend/app/api/v1/expenses.py:20-100 | _tmp/test_round4/out_expense2.txt；_tmp/… |
+| TB-17 | B | 批量调价点名一个非会员货主时提示「未找到批发商或商品，请先选择」：用户明明选了… | 可见 | 已复现 | POST /api/v1/price-rules/batch {shipper_ids:[135], product_id… | backend/app/api/v1/price_rules.py:118-141 | _tmp/test_round4/out_pr2.txt；_tmp/test_… |
 <!-- TESTBUG:ROWS:B -->
 <!-- /TESTBUG:ROWS:B -->
 
@@ -119,14 +135,14 @@
 
 ### TA-07 · 预订单模板表单：点「保存」后没有任何可见反馈（校验红字排在视口外，不滚动也不提示）
 
-- 严重度：可见　／　状态：已修复 3988501　／　记录：2026-10-10 03:44 CST　／　修复：2026-10-10（BUG-0031）
+- 严重度：可见　／　状态：已修复 3988501　／　修复：2026-10-10（BUG-0031）　／　记录：2026-10-10 03:44 CST
 - 现象：新建预订单时只填名字、不选商品，点底部「保存」后界面完全不动：没有红字、没有 toast、也没跳走，看起来像按钮坏了。把表单往下滑一段才看到那句错误就贴在「选商品」下面：「至少选一样商品 —— 预设单就是「以后照这样再下一遍」的那一单」。停在顶部时它的位置约 y≈2794，而可视区只到 y≈2252（底部按钮栏之上），等于永远看不到。
 - 复现：5556/13900000011：①工作台→预订单→底栏「新建预订单」→名字填 T1-tpl-ui→点底部「保存」(577,2221)→界面无变化，库 order_templates 无新行；再下滑 540 1800→540 900 才看到红字。②同流程换名字 T1-tpl-e2，复现一次。对照：先选一件商品（赣南脐橙×1→加入清单）再点同一坐标「保存」→ 保存成功（新增 id=5），证明坐标确实在保存按钮上。
 - 期望：点保存后校验提示要立刻可见：贴在保存按钮上方、或 toast/snackbar、或自动滚到出错那一行。
 - 实际：错误行是表单最后一项 item { FormErrorLine(vm.error) }（排在 商品与数量 → 选商品 之后），停在表单顶部时它在视口之外；保存失败后页面不滚动、也没有 snackbar，用户得不到任何反馈。
 - 证据：_tmp/test_round3/A13_tpl_save_no_feedback.txt
 - 定位：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/OrderTemplateFormScreen.kt:199,438`
-- 补充（2026-10-10，已修复）：**提交 `3988501`（变更单 docs/changes/BUG-0031.md）**。改法：`OrderTemplateFormScreen.kt` 的 bottomBar 里紧贴「保存」上方常驻一行 `FormErrorLine(vm.error)`（表单再长也挤不掉），并把 LazyColumn 绑到 `rememberLazyListState()`、在 `LaunchedEffect(vm.error)` 里 `animateScrollToItem(totalItemsCount - 1)` 滚到列表末尾那一行的同款提示。校验规则与文案一字未改。证据：判据 `_tools/qa/_check_template_error_visible.py` 12/12（改前源码上 6 条不成立）、反验 `_tools/qa/_reverse_verify_template_error_visible.py` 8/8 全红且逐字节还原。
+- 补充（2026-10-10，已修复）：**提交 `3988501`（变更单 docs/changes/BUG-0031.md）**。改法：OrderTemplateFormScreen.kt 的 bottomBar 里紧贴「保存」上方常驻一行 FormErrorLine(vm.error)，并把 LazyColumn 绑到 rememberLazyListState()、在 LaunchedEffect(vm.error) 里 animateScrollToItem(totalItemsCount - 1) 滚到列表末尾那一行的同款提示。校验规则与文案一字未改。证据：判据 _tools/qa/_check_template_error_visible.py 12/12（改前 6 条不成立）、反验 8/8 全红且逐字节还原、gradle :app:compileEmuDebugKotlin BUILD SUCCESSFUL。
 
 ### TA-08 · 商品列表卡的单价与改价弹窗口径不一致：0.005 在卡片上显示成 ¥0.01
 
@@ -160,6 +176,107 @@
 - 证据：_tmp/test_round3/A9_contact_phone_filter.txt
 - 定位：`android/app/src/main/java/com/tapmoay/sorders/ui/shipper/AddressScreen.kt:917-921,992,1369-1374`（原记 `ui/dispatcher（联系人表单电话栏）`，实为货主端 `ui/shipper` 的联系人抽屉）
 - 修复（BUG-0028）：电话栏丢字当场红字并且**不给保存**（`ui/shipper/AddressScreen.kt:917-921` ＋ `ui/shipper/AddressViewModel.kt:725-728` 的 `contactPhoneNote?.let { formError = it; return }`）；没有电话的联系人卡片上会写「无电话」（`AddressScreen.kt:1369-1374`），placeholder 改成「选填；留空＝无电话」。⛔ 本单在台账二选一里选的是「让空电话可见」而不是「唯一性对 NULL 生效」—— 同一货主仍能建两条「无电话」，代价与另选方案的代价写在 `docs/changes/BUG-0028.md` §⑥。
+
+### TA-11 · 商品删除弹窗承诺的「列表顶端回收站」在 App 里从未实现（TA-03 第4轮复现，定级升级为堵死）
+
+- 严重度：堵死　／　状态：已复现　／　记录：2026-10-10 10:58 CST
+- 现象：商品管理里删除商品（编辑页「删 除」或 批量操作→删除）的确认弹窗都写着「列表顶端的『回收站』里可以把它恢复回来」，但商品管理列表页的顶部（搜索框/返回/标题/单位换算/排序）与底部（分类管理/商品新增/批量操作）都没有任何回收站入口；App 里也没有任何地方能列出被删商品。后端 POST /products/{id}/restore 存在，界面上却无路可走。
+- 复现：1) 设备 emulator-5556 → 工作台 → 商品管理，uiautomator dump 存 _tmp/test_round4/a_xml_products_top.xml 与 a_xml_products.xml，两处都无「回收站」；2) 点某商品卡的「编辑」→ 编辑商品页（dump a_xml_prod_edit.xml）滚动到「删 除」区 → 点删除，弹窗文案即 ProductFormScreen.kt:409-412；3) 回列表页，没有回收站可进；4) 源码核对：grep 回收站 android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductsScreen.kt 零命中；data/remote/api/Apis.kt 的 listProducts 没有 deleted_only/include_deleted 参数（而订单 :186、预订单模板 :1023、供应商 :1085、付款/应付 :1109/1136/1167、计费规则 :1342、收款记录 :1672、账本/结算 :1796/1944/1976、单位换算 :2063 都有）。
+- 期望：弹窗承诺了「列表顶端的回收站」，列表顶端就该有那个入口（用户 2026-09-20 硬规矩：界面要有一个手边的撤销入口，不要只把恢复藏在 AI 撤回卡里）；至少要有办法列出被删商品。
+- 实际：App 侧完全没有实现：ProductsScreen.kt 零个「回收站」；listProducts 连 deleted_only 参数都没有，客户端取不回被删商品。删除后商品在界面上永久消失，只能靠后端接口手工恢复。
+- 证据：_tmp/test_round4/a_evidence_sweep1.txt
+- 定位：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductFormScreen.kt:412`　`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductBatchScreen.kt:290`　`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductsScreen.kt:1`
+
+### TA-12 · 九类名册删除是物理删除、后端无 restore，App 只有删完当场那一下「撤销」（且是重建、编号会变）
+
+- 严重度：堵死　／　状态：已复现　／　记录：2026-10-10 10:58 CST
+- 现象：商品分类/联系人分类/地点分类/线路分类/运费分类/开销分类/预订单分类/账号分类/车辆分类，这九类「名册」的 DELETE 都是物理删除，行直接从库里消失；openapi 的 20 条 /restore 里一条都没有。App 侧只有删完当场那一下的撤销，而且撤销 = 按原名重建一格（新编号），不是恢复。
+- 复现：python -X utf8 _tmp/test_round4/a_sweep1.py → POST /product-categories 建 id=11 → DELETE /product-categories/11 → 204 → 再读库 select * from product_categories where id=11 得 None（行没了）。源码：product_categories.py:299 db.delete(row)；contact_categories.py:224 db.execute(sa_delete(ContactCategory)...)；place_categories.py:220；route_categories.py:223；freight_categories.py:206；expense_categories.py:223；order_template_categories.py:235；user_categories.py:227；vehicle_categories.py:206。App：CategoryRostersViewModel.kt:184「重建出来的是新的一行，编号和原来不一样（名册没有回收站）」；CategoryRostersPanel.kt:168「名册是硬删（没有回收站），所以给一个当场能按回来的撤销」；AppRepository.kt:428/:459 同。
+- 期望：用户 2026-09-20 定的硬规矩是「所有删除一律软删（伪装删除）＋必须有恢复路径」——名册也是用户在界面上能删的东西，同样该软删 + 有恢复入口。
+- 实际：九类名册全部物理删除、无 restore 端点；界面只有删完当场的一次性撤销，离开页面即永久找不回；即便当场撤销也是重建，编号与原来不同（用户若拿旧编号对过账就对不上）。
+- 证据：_tmp/test_round4/a_evidence_sweep1.txt
+- 定位：`backend/app/api/v1/product_categories.py:299`　`backend/app/api/v1/contact_categories.py:224`　`backend/app/api/v1/ledger.py:603`
+
+### TA-13 · 账本行 DELETE 是物理删除且没有 restore 端点（删钱的行只能靠审计日志手工还原）
+
+- 严重度：堵死　／　状态：已复现　／　记录：2026-10-10 10:58 CST
+- 现象：DELETE /api/v1/ledger/entries/{id} 走的是 db.delete(row)，行直接从 ledgers 表消失；openapi.json 的 20 条 /restore 里没有 /ledger/entries/{id}/restore。删除前只往 operation_logs 写一行 LEDGER_DELETE（change_payload.before 里带 entry_date/product_name/quantity/unit_price/total/source/order_id/shipper_id/note），那行日志是唯一还原线索。
+- 复现：源码：backend/app/api/v1/ledger.py:566 def delete_entry → ledger.py:603 db.delete(row)；核对 http://127.0.0.1:8061/openapi.json 的 paths，带 /restore 的路径共 20 条，不含 ledger/entries。（本轮未跑到实拍：建账本行需 shipper_id 或 temp_shipper_name，POST /ledger/entries 返回 422「请指定货主账号或临时货主名称」，未重跑。）
+- 期望：同文件里收款单就是软删 + 恢复的样板（DELETE /ledger/receipts/{id} 软删、POST /ledger/receipts/{id}/restore 原样放回）；账本行同样是钱，按硬规矩应当软删且有一键恢复路径。
+- 实际：物理删除、无 restore 端点。掉了一行只能人去读 operation_logs 然后手工补录，补出来的是新行（新 id），与原行不是同一条。
+- 证据：_tmp/test_round4/a_evidence_sweep1.txt
+- 定位：`backend/app/api/v1/ledger.py:603`
+
+### TA-14 · 常用地址恢复后丢失「默认」标记：删前是默认地址，恢复回来不再是
+
+- 严重度：可见　／　状态：已修复 947cef9　／　修复：2026-10-10（BUG-0032）　／　记录：2026-10-10 10:58 CST
+- 现象：POST /shipper/addresses/{id}/restore 只清 is_deleted/deleted_at，不还原 is_default。DELETE 时特意把它置 false（防止默认标记留在看不见的行上），恢复时没有放回来，于是「默认地址」这一格静默丢失。
+- 复现：python -X utf8 _tmp/test_round4/a_sweep1.py（5b.常用地址）→ POST /shipper/addresses 带 is_default=true 建 id=26（库 is_default=1）→ DELETE /shipper/addresses/26 → 204 → 库 is_default=0 → POST /shipper/addresses/26/restore → 200 → 逐字段 diff 结果 {"is_default": [1, 0]}（同批其它实体 diff 都是 {}）。源码：shipper.py:177-186 delete_address 里 a.is_default = False；shipper.py:189-201 restore_address 只写 is_deleted=False / deleted_at=None。
+- 期望：restore 是 DELETE 的逆操作，应当逐字段还原（同批 products / contacts / locations / order-templates / freight-templates / arrears-units / places 实测 diff 都是 {}）。
+- 实际：恢复后 is_default 停在 false：下单页取不到默认地址、地址列表里一条带默认标记的都没有，而接口回了一张「已恢复」的成功卡。
+- 证据：_tmp/test_round4/a_evidence_sweep1.txt
+- 定位：`backend/app/api/v1/shipper.py:189`　`backend/app/api/v1/shipper.py:185`
+- 补充（2026-10-10，已修复）：**提交 `947cef9`（变更单 docs/changes/BUG-0032.md）**。病灶：DELETE /shipper/addresses/{id} 故意把 is_default 清成 false（R11-F4：默认标记不能留在看不见的行上），而 restore_address 只把 is_deleted 放回去 ⇒ 删掉默认地址再恢复，默认就没了。改法：恢复时用 func.count() 数一下「这段期间有没有别人当上默认」（同 shipper_id、is_deleted=False、is_default=True、id != 自己），没人当才 a.is_default = True（不抢别人后来的选择）；删除路径仍清标记。证据：单测 backend/tests/test_address_default_restore.py 3 passed（去掉修复 1 failed）、判据 _tools/qa/_check_address_default_restore.py 16/16（改前 6 条不成立）、反验 6/6 全红且逐字节还原。
+
+### TA-15 · AI 卡片说共享地点「删掉就没了、没有回收站、恢复不了」，实际后端是软删且能恢复
+
+- 严重度：可见　／　状态：已复现　／　记录：2026-10-10 10:58 CST
+- 现象：AI 写能力的卡片文案与实现相反：blurb 明说「从共享库里删掉一个地点（谁都选不到了）。删掉就没了，没有回收站。」并在 details 里写「⚠️ 恢复不了（共享库没有回收站）」；而实际后端 places.py 的 delete_place 是软删、有 POST /places/{id}/restore，App 也有 restorePlace。
+- 复现：源码对照：android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteBasicData.kt:349 blurb、:356 details「恢复不了（共享库没有回收站）」；ai/AiResources.kt:122 亦称选点表「物理删除、没有回收站」。实际：backend/app/api/v1/places.py:300 delete_place（软删，注释写「软删，POST /places/{id}/restore 能拿回来」）、places.py:329 restore_place；App 侧 ui/shipper/AddressViewModel.kt:925 restorePlace、ui/shipper/OrderCreateViewModel.kt:442/464。接口实测：删 places id=65 → is_deleted 0→1，POST /places/65/restore → 200，逐字段 diff {}。
+- 期望：AI 对用户说的话应当与后端实际行为一致；能恢复的就要说能恢复（用户是按这句话决定敢不敢删的）。
+- 实际：AI 把「能恢复」说成「恢复不了、没有回收站」，用户可能因此不敢用它、或者以为数据已经彻底丢了，而实际上恢复入口就在手边。
+- 证据：_tmp/test_round4/a_evidence_sweep1.txt
+- 定位：`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteBasicData.kt:349`　`backend/app/api/v1/places.py:329`
+
+### TA-16 · 开销（expenses）全系统没有任何删除或修改入口：记错一笔永久留在账上
+
+- 严重度：堵死　／　状态：已复现　／　记录：2026-10-10 10:58 CST
+- 现象：开销只有 GET 与 POST 两个端点，没有 DELETE 也没有 PATCH/PUT；App 侧没有任何 deleteExpense 调用，开销列表页里连一个删除/撤销的字样都没有。金额写错或记重一笔之后，用户没有任何办法撤掉它。
+- 复现：1) DELETE /api/v1/expenses/54 → 404 Not Found；DELETE /api/v1/expenses/1 → 404（同批 DELETE /vehicles/1 返回 405，说明这不是路由前缀问题）；2) http://127.0.0.1:8061/openapi.json 里 /api/v1/expenses 只有 get/post，/api/v1/expenses/{id} 这个路径不存在；3) backend/app/api/v1/expenses.py 全文只有 @router.get("") 与 @router.post("")(expenses.py:20 / :79)；表 expenses 的 PRAGMA table_info 里没有 is_deleted/deleted_at；4) android/app/src/main/java/com/tapmoay/sorders/data/remote/api/Apis.kt:1582 @GET("expenses") / :1598 @POST("expenses")，全工程 grep deleteExpense 零命中；ui/dispatcher/ExpensesScreen.kt 里 删/撤销/delete 零命中。
+- 期望：用户 2026-09-20 定的是「所有删除一律软删 + 必须有恢复路径」——先有删除才有恢复；同一套账里的账本行、收款单、供应商付款、结算单都有删除/撤销路径，开销不该是唯一没有出路的。
+- 实际：开销进了库就再也动不了：金额填错、记重一笔都只能永久留在账上并进入成本与报表。界面上也没有一句「记错了怎么办」的说明。
+- 证据：_tmp/test_round4/a_evidence_sweep1.txt
+- 定位：`backend/app/api/v1/expenses.py:17`　`android/app/src/main/java/com/tapmoay/sorders/data/remote/api/Apis.kt:1598`
+
+### TA-17 · 客户合并把被并档案物理删除，不可逆（customers 表连软删列都没有）
+
+- 严重度：可疑　／　状态：已复现　／　记录：2026-10-10 10:58 CST
+- 现象：POST /api/v1/customers/merge 把引用搬到保留的那一条上，然后把被并档案从库里物理删除；customers 表没有 is_deleted/deleted_at，删除不可逆。源码注释自陈这一点。
+- 复现：源码：backend/app/api/v1/customers.py:110-111 注释「合并做的是『把引用搬到 keep 上，然后把被并档案物理删除』（customers 表连 is_deleted 都没有，不可逆）」；customers.py:219 db.delete(m)。库结构：PRAGMA table_info(customers) 共 10 列（id, kind, user_id, name, phone, is_member, arrears_unit_id, created_at, updated_at, tmp_phone_key），无软删列。openapi 里客户域只有 GET / POST / POST /merge，没有 restore。
+- 期望：合并是「把两个档案并成一个」，被并方通常还需要事后查得到「它当时并到谁那里去了」；按硬规矩删除应当软删 + 可恢复。
+- 实际：被并的那一行直接从库里消失，只留下 operation_logs 里一行审计；没有撤回、没有恢复端点、表结构也不支持软删。
+- 证据：_tmp/test_round4/a_evidence_sweep1.txt
+- 定位：`backend/app/api/v1/customers.py:219`　`backend/app/api/v1/customers.py:110`
+
+### TA-18 · 车辆与客户没有任何删除入口（车只能停用、客户档案无法清理）
+
+- 严重度：可疑　／　状态：已复现　／　记录：2026-10-10 10:58 CST
+- 现象：车辆与客户这两个实体连 DELETE 路由都没有：车辆只能改 is_active 停用（车仍然留在列表里），客户档案一旦建出来就无法清理。
+- 复现：1) DELETE /api/v1/vehicles/1 → 405 Method Not Allowed；DELETE /api/v1/customers/1 → 404 Not Found；2) 源码 backend/app/api/v1/vehicles.py 只有 GET "" / POST "" / PATCH "/{vehicle_id}" / POST "/{vehicle_id}/driver"；backend/app/api/v1/customers.py 只有 GET "" / POST "" / POST "/merge"；3) 表 vehicles 有 is_active（PRAGMA 22 列），customers 连状态位都没有。
+- 期望：能建的档案就应当有「删除 + 恢复」这一对（用户 2026-09-20 硬规矩）；即便有意不提供删除，界面也该给出「停用/归档」的明确出路。
+- 实际：车辆只能停用，客户完全没有出路。这与「所有删除一律软删 + 有恢复路径」是另一面：这两类根本没有删除。
+- 证据：_tmp/test_round4/a_evidence_sweep1.txt
+- 定位：`backend/app/api/v1/vehicles.py:281`　`backend/app/api/v1/customers.py:26`
+
+### TA-19 · 司机备注（driver-note）零推送：派单员端订单详情停在旧「内部备注」，无提示不刷新
+
+- 严重度：可见　／　状态：已复现　／　记录：2026-10-10 11:08 CST
+- 现象：司机在司机端写现场备注后，后端只把文本以「[司机 时间] 」前缀追加进 orders.internal_notes，全程没有 outbox 事件、没有站内信、Socket.IO 一条消息都不发；派单员端已经打开的订单详情页永远停在旧值，页面上没有任何提示，只有手动退出再进入该单才会看到新备注。同类家族：TA-05/BUG-0027（软删恢复不发推送）、BUG-0026（推送打断取数）。
+- 复现：① 5556（派单员 13900000011）在 8059 上打开订单详情：工作台→订单管理→搜索框输单号→点搜索（页签要先切「全部」，默认「派单中」搜不到）；本会话用订单 648 SO202610107870773368。② 用该单司机账号（13900000017）POST http://127.0.0.1:8059/api/v1/orders/648/driver-note，请求体 note=A4推送-司机现场备注(设备验证) → HTTP 200。③ 动作前后 select max(id) from outbox_events 都是 1096（零新增）；等 6 秒后 5556 详情页仍无「内部备注」行，adb -s emulator-5556 logcat -d -s SOrdersSock SOrdersAlert 本次窗口零输出。④ 返回列表再点开同一单 → 出现「内部备注 / [司机 10-10 11:03] A4推送-司机现场备注(设备验证)」。
+- 期望：司机备注是订单详情里对派单员/货主都可见的字段（OrderDetailScreen.kt:1151 的「内部备注」行），写完后正在看这一单的派单员应当收到一条 order.updated 类实时事件并刷新，或至少有「有更新」的提示。
+- 实际：写入只改 orders.internal_notes（orders id=648 updated_at 2026-10-10 03:03:07.944453），outbox_events 无新增、Socket.IO 无事件、派单员端界面与像素都不变（截图 201829 → 201858 字节）且无任何提示；手动重进才显示。
+- 证据：_tmp/test_round4/shots/f1_detail_before.png;_tmp/test_round4/shots/f1_detail_after_push.png;_tmp/test_round4/shots/f1_detail_after_manual_refresh.png;_tmp/test_round4/push_f1.py;_tmp/test_round4/push_matrix_8062_order2.json
+- 定位：`backend/app/api/v1/orders_delivery.py:125`
+
+### TA-20 · 商品/价格/库存/开销/结算/车辆等主数据写操作零推送：没有任何一端会收到变更通知
+
+- 严重度：可疑　／　状态：已复现　／　记录：2026-10-10 11:08 CST
+- 现象：products / price-rules / shipper-prices / inventory movements / expenses / driver-settlements / vehicles / users 这些模块的写端点全部不写 outbox（全仓库只有 8 个 api/v1 文件带 outbox），客户端也没有订阅这些域的刷新信号：另一台设备（另一个派单员、或货主端下单页）看到的价格/库存/结算状态只会因为自己手动重新进入页面才变。
+- 复现：在 8062 沙箱（库 sorders_r4b.db，脚本 _tmp/test_round4/push_scen.py master / master2）逐条执行并读 outbox 增量：POST /products 201、PATCH /products/{id} 改价 200 / 下架 200 / 上架 200、POST /price-rules 201 + PATCH 200 + DELETE 204、POST /inventory/movements 201（含负数量出库）、POST /expenses 200、PATCH /driver-settlements/{id} action=confirm 200 + pay 200、PATCH /vehicles/{id} 改 driver_id 200、PATCH /users/{id} 改名 200、DELETE /products/{id} 204 + restore 200 —— 每一步 select max(id) from outbox_events 都不变（结果存 push_matrix_8062_master*.json）。
+- 期望：若这些改动会影响另一端正在看的数字（例如货主下单页展示的商品价格与库存、另一台派单员的商品/库存列表），应有实时事件，或明确「以刷新后为准」的提示；不该出现「一个人改了、另一个人屏幕上还是旧数」的沉默差。
+- 实际：全部零事件、零站内信；服务端数据确实变了（库里价格/库存/结算状态都已更新），但没有任何一端被通知。本轮只能在 8062 沙箱证明「没有推送通道」，未能观测用户实际损失（货主端设备本轮不可用：5554 不许碰、5556 是派单员、5558 是司机），故严重度记「可疑」而不是「错数」。
+- 证据：_tmp/test_round4/push_matrix_8062_master.json;_tmp/test_round4/push_matrix_8062_master2.json;_tmp/test_round4/push_scen.py
+- 定位：`backend/app/api/v1/products.py:130`
 
 <!-- /TESTBUG:DETAIL:A -->
 
@@ -292,7 +409,6 @@
 - 定位：`backend/app/api/v1/ledger.py:464-467`　`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteLedgerHandlers.kt:130-133`　`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteLedgerHandlers.kt:161`　`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteDataSource.kt:628`
 
 - 补充（2026-10-10，已修复）：**提交 `47ccdf0`（变更单 docs/changes/BUG-0025.md）**。改法：合计的算法收成**唯一**一处 `resolve_line_total`（`backend/app/api/v1/ledger.py:141-182`，配 `_money` `:136-139`）—— 手工行（source=MANUAL）的合计必须 ≡ 数量 × 单价，不一致就 **400**，文案把两个数都报出来（「这一行是 数量 3 × 单价 20.00 = 60.00，与你给的 合计 288.00 不一致」＋「要改合计，请同时把数量或单价改成乘积等于它的值（例如 数量 1、单价 288.00 —— 记一整笔金额就这么写）」）；`create_entry`（`:382-383`）与 `update_entry`（`:519-521`）都改成调它，**创建路径同样收口**（POST 带不一致的 total 也 400）。⚠️ 台账「建议改法」里那条 `unit_price = total / quantity` 没采用 —— 那会凭空造出用户没说的单价（折扣抹零场景更错），改成要求一致、由人自己写清楚。订单来的行（source=ORDER）仍按订单行金额记、那一支没变；「已送达」闸 `_reject_if_order_closed`（`:97-134`）与「只改备注或摘要绝不动钱」那道闸都没碰。⛔ 没加 `allow_total_mismatch` 这类旁路、没动表/模型/迁移、没回填历史行、没动 Android。判据 `_tools/finance/_check_ledger_total_consistency.py` ＋ 反验 `_tools/finance/_reverse_verify_ledger_total_consistency.py` ＋ 单测 `backend/tests/test_ledger_total_consistency.py`（改前 2 failed / 4 passed）。现场证据：`_tmp/test_round3/fix_TB10_live_改前.txt`（8031：只改合计 → 200、账户 7259.9000→7547.9000）／`_tmp/test_round3/fix_TB10_live_改后.txt`（8032：同一步 → 400、同时给数量与单价 → 200、账户只 +60）。
-- 补充（2026-10-10，BUG-0030）：这条闸门的**判定**一个字节没动，改的是**报错文案里的金额写法** —— 原来印 `60.00` / `288.00`（文件里自己拼了一遍两位小数），现在印 `60` / `288`（走 `app.services.money_text.money_text`，与三端「显示去尾零」同一口径）。触发修复的是 `_tools/qa/_check_money_display.py` 报红（越界点 `backend/app/api/v1/ledger.py:144`），详见 `docs/changes/BUG-0030.md`。
 
 ### TB-11 · AI 写留痕可以被任何登录客户端（乃至人手工）伪造：X-SOrders-Origin / X-SOrders-Ai-Action 两个头不做授权
 
@@ -304,6 +420,66 @@
 - 证据：_tmp/test_round3/ai_out/ai_header_probe.txt（请求原文 ＋ operation_logs/SQL 行 ＋ /ai/operations 返回 ＋ 清理）；脚本 _tmp/test_round3/t8a_ai_header.py
 - 建议改法：若要可信留痕：App 落库写请求时由服务端在登录会话上打标（例如登录时下发 per-session 标记，或写请求走一次性 ticket），不要只信客户端请求头；或者把该指标改名为「客户端自报的 AI 写入数」并在 UI 注明不可信。
 - 定位：`backend/app/core/ai_operation.py:24`　`backend/app/core/ai_operation.py:7`　`backend/app/core/client_origin.py:30`　`backend/app/core/client_origin.py:38`　`backend/app/core/metrics.py:246-249`　`backend/app/api/v1/ai_telemetry.py:8`　`backend/app/api/v1/ai_operations.py`
+
+### TB-12 · 部分核销的收款单撤销后再恢复：订单一付款标志被误翻成已收款（剩余欠款再也收不进来）
+
+- 严重度：堵死　／　状态：已复现　／　记录：2026-10-10 10:58 CST
+- 现象：一张已送达、只欠 124.00 的挂账单，用「按商品核销」收了 75.00 后订单仍是未收款（对）；把这张收款单撤销、再恢复，订单立刻变成 paid=1/payment_method=cash，但同一响应里 arrears_amount 还是 49.00、settled_amount 只有 75.00 —— 一张单同时说自己已收清、又还欠 49。副作用：①剩余 49 元再也收不进来（逐单核销接口 400「已经收过款了…不能重复收款」，只能走不绑单的「滚动收款」，这 49 会永久挂在单上）；②挂账单位汇总报表（/reports/arrears-summary）按 paid=False 过滤，这张还欠 49 的单整条消失（金额少 124.00 而不是 49.00），与营业额的 arrears_total（仍含这 49）分叉。
+- 复现：① 建一张已送达未收款的单（本例 orders.id=644，货值 124.00）；② POST /api/v1/ledger/receipts {customer_id:41, amount:75.00, method:cash, order_ids:[644], order_product_ids:[1203], settle_mode:itemized, received_at:2026-10-10} → 200，receipt id=38，此时 GET /api/v1/orders/644 仍是 paid=false、arrears_amount=49.00（正确）；③ DELETE /api/v1/ledger/receipts/38 → 204；④ POST /api/v1/ledger/receipts/38/restore → 200；⑤ GET /api/v1/orders/644 → paid=true、payment_method=cash、settled_amount=75.00、arrears_amount=49.00（自相矛盾）；⑥ 再 POST /api/v1/ledger/receipts 收剩余 49（整单或按行两种写法）→ 均 400「已经收过款了…」。整单核销的收款单（receipt id=37）同样三步走完全对称，不触发。
+- 期望：恢复收款单只应恢复它自己的流水与收款单，并按 create_receipt 的同一判据决定本次是否结清这张单：仅当该单已收金额 >= 应收（settling）才 paid=True。部分核销恢复后订单应仍是 paid=false、arrears_amount=49.00，剩余 49 可以用逐单核销正常收。
+- 实际：恢复端点无条件把所选订单翻成已收款：backend/app/api/v1/ledger.py:1142-1145 or oid in order_ids: o.paid = True; o.payment_method = ...，缺 settling 判据（对照 backend/app/services/accounting_service.py:482 settling = [oid for oid in order_ids if per_order[oid] >= money[oid].arrears]）。恢复时其余 50 个变化键都正确回补（turnover.day.collected 248→323、cash.sum.day.income 124→199、custbal balance 72658.40→72583.40、ship.ledger.unpaid 248→173、turnover.day.arrears_total 154→79），唯一分叉是 paid 标志与由它派生的挂账单位汇总（arrears-summary [sum].amount 1490.4→1366.4、count 15→14）。
+- 证据：_tmp/test_round4/runlog/receipt644_restore_partial_BUG.json
+- 定位：`backend/app/api/v1/ledger.py:1142-1145`
+
+### TB-13 · 销项票挂不上「送达自动记账」的应收行：ledgers.customer_id 全仓没有写入入口，报错却让人去账本里补客户
+
+- 严重度：可疑　／　状态：已复现　／　记录：2026-10-10 11:12 CST
+- 现象：POST /api/v1/invoices（direction=OUTPUT, invoice_no=R4C-INV-101, invoice_date=2026-10-10, amount=124.00, tax_rate=3, customer_id=41, ledger_ids=[984]）→ 400「账本第 #984 行没有客户档案（历史行按名称兜底），挂不到销项票上。先在账本里给它补上客户，再回来开票。」。984 是订单 643 送达时自动记的应收行（source=ORDER）。照提示去补：PATCH /api/v1/ledger/entries/984 {customer_id:41} → HTTP 200，但 SQL 复查 customer_id 仍是 NULL，重试建票仍 400。全仓 ledgers.customer_id 只有两个写入点、都是红冲行：services/order_return.py:185（退货红冲）与 services/accounting_service.py:330（送达货损红冲）；送达自动记账行 services/ledger_sync.py:52-68 不写该列，且 LedgerCreate / LedgerUpdate / sync-from-orders 三个入参 schema 都没有 customer_id（app/schemas/ledger.py:11 / :52 / :65）⇒ 接口层根本补不上。对照组：同一接口把票挂在退货红冲行 988（customer_id=41、total=-49）上 → 201 成功 ⇒ 只有红冲行能挂票，正常应收行永远挂不上；而且 tax_service._check_links（services/tax_service.py:341）只校验客户一致、完全不校验金额（49.00 的销项票挂在 -49 的行上照样过）。
+- 复现：1) POST /api/v1/invoices {direction:OUTPUT, invoice_no:R4C-INV-101, invoice_date:2026-10-10, amount:124.00, tax_rate:3, customer_id:41, ledger_ids:[984]} → 400；2) PATCH /api/v1/ledger/entries/984 {customer_id:41} → 200；3) select customer_id from ledgers where id=984 → NULL；4) 重发第 1 步 → 仍 400；5) 把 ledger_ids 改成 [988]（退货红冲行）→ 201。
+- 期望：送达自动记账的应收行应当带上客户档案（同服务里已有 resolve_customer_for_order 可复用），或者把提示改成一条真的走得通的路（现在指的这条不存在）
+- 实际：提示让人「先在账本里给它补上客户」，而接口层没有任何入口能补（未知字段被静默丢弃）；销项票与送达应收永远挂不上，只有退货红冲行能挂。App 侧 Apis.kt:2086 与 Dtos.kt:2974 有 ledger_ids 入参，但 InvoiceFormScreen.kt:255-268 从不发送 ⇒ 目前只有直接调接口或脚本会撞上
+- 证据：_tmp/test_round4/out_invoice2.txt；_tmp/test_round4/runlog/invoice_chain_c41_run2.json
+- 定位：`backend/app/services/ledger_sync.py:52-68`　`backend/app/services/tax_service.py:329-337`
+
+### TB-14 · 滚动收款（不绑单）只进现金流水：欠款表/预收/挂账汇总/营业额一分钱都不冲，客户已付 124 元催收名单照旧要 173
+
+- 严重度：错数　／　状态：已复现　／　记录：2026-10-10 11:12 CST
+- 现象：订单 645 已送达、欠 124.00。POST /api/v1/ledger/receipts {customer_id:41, amount:124.00, method:cash, settle_mode:rolling, received_at:2026-10-10}（不绑单）→ 200（收款单 39），写 cash_flows 98（in 124.00, RECEIPT_CASH, order_id=NULL）。三态实测（收款单在 / DELETE / restore）：/cash-flows/summary?date_from=2026-10-10&date_to=2026-10-10 的 income 323.00 → 199.00 → 323.00（钱只在这本账上动），而 /reports/customer-balances?date=2026-10-10&mode=day 的 totals.balance 恒 72707.40、该客户那一行 balance 恒 173.00、prepaid 恒 0.00，/reports/arrears-summary?date_from=2026-10-01&date_to=2026-10-31 合计恒 1490.4；营业额 /reports/turnover 的 collected 与 arrears_total 也一步不动（这一步 23 个变化键全是 cash.* 与 receipts.*）。设计文档 docs/ACCOUNTING_V2_DESIGN.md:263 写的是「rolling（可选）：冲抵该客户应收余额（欠款表=余额+账龄，不逐单）」；而 CashFlowBizType.RECEIPT_PREPAID（backend/app/models/enums.py:396）与 App 的「预收款」标签（android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportFinance.kt:148-150）都在，全仓却没有一处写这个 biz（grep 只有枚举定义本身）⇒ 只做了一半：钱记了、欠款没销。系统自己的拒绝文案还把滚动收款当正当出口（如果是补差额，请改用「滚动收款」）。
+- 复现：1) POST /api/v1/ledger/receipts {customer_id:41, amount:124.00, method:cash, settle_mode:rolling, received_at:2026-10-10} → 200；2) GET /api/v1/cash-flows/summary?date_from=2026-10-10&date_to=2026-10-10 → income 里含这 124；3) GET /api/v1/reports/customer-balances?date=2026-10-10&mode=day → 该客户 balance/prepaid 不变；4) DELETE /api/v1/ledger/receipts/39 → 204：income 掉 124，第 3 步的数一个都不动；5) POST /api/v1/ledger/receipts/39/restore → 200 全部回来。脚本 _tmp/test_round4/probe_rolling_balance.py
+- 期望：滚动收款应当冲抵该客户应收余额（欠款表 balance 减 124，或按设计落进 prepaid 行），至少催收口径要能看见这笔已经收到的钱
+- 实际：现金流水 +124；欠款表余额与预收、挂账单位汇总、营业额已收与欠款全部不动 —— 同一笔钱两个口径差 124，界面上没有一句话解释，客户已经付过的钱还会被再催一次
+- 证据：_tmp/test_round4/out_rolling_balance.txt；_tmp/test_round4/runlog/receipt645_rolling_unalloc.json
+- 定位：`backend/app/services/reports/balance_query.py:120-149`　`backend/app/services/accounting_service.py:495-520`　`docs/ACCOUNTING_V2_DESIGN.md:263`
+
+### TB-15 · 结算单付款的 paid_at 被静默丢弃：传 2026-09-30 付款，现金流水落在 10-10 那个月
+
+- 严重度：可疑　／　状态：已复现　／　记录：2026-10-10 11:12 CST
+- 现象：PATCH /api/v1/driver-settlements/58 {action:pay, method:cash, paid_at:2026-09-30} → 200，回参 paid_at=2026-10-10T03:00:36，写出的 cash_flows 95 的 flow_date=2026-10-10（9-30 付的钱进了 10 月的现金流水）。根因：backend/app/api/v1/driver_settlements.py:149 调 pay_settlement(db, s, body.method, current.id)，从不传 body.paid_at；服务签名 pay_settlement(db, s, method, operator_id)（services/accounting_service.py:871）里也没有这个参数，paid_at 由 _now() 决定（:900 落库，:914 flow_date=business_date(s.paid_at)）。而请求 schema SettlementActionBody 里明摆着有 paid_at。影响面已查：App 两个写入点（Apis.kt:1557、AiWriteSettlementHandlers.kt:582 的 ds.settlementAction(id,pay,method)）都不发 paid_at；paid_at 只出现在出参 Dtos.kt:2242 与显示 AccountToolsScreens.kt:567 ⇒ 目前只有直接调接口才会撞上，故记可疑而不是错数。
+- 复现：1) POST /api/v1/driver-settlements {driver_id:54, settle_type:piece, month:2026-10} → 200 草稿（会自动锁住该月 OPEN 明细）；2) PATCH /api/v1/driver-settlements/<id> {action:confirm} → 200；3) PATCH /api/v1/driver-settlements/<id> {action:pay, method:cash, paid_at:2026-09-30} → 200，回参里的 paid_at 是今天；4) select flow_date from cash_flows where doc_id=<id> → 落在今天那个月。
+- 期望：传了 paid_at 就按它写 flow_date（钱哪一天付的就进哪个月的现金流水），或者干脆不收这个字段并在 422 里明说
+- 实际：200 成功，但回参里的日期已经不是用户传的那个（静默丢弃）；跨月付款会落进错误的月份，调用方看不出任何异常
+- 证据：_tmp/test_round4/out_settle.txt；_tmp/test_round4/runlog/settle_chain_d54.json
+- 定位：`backend/app/api/v1/driver_settlements.py:149`　`backend/app/services/accounting_service.py:871-914`
+
+### TB-16 · 开销没有删除/冲正入口：DELETE 与 PATCH 都 404，记错一笔就永久留在现金流水、车辆成本与利润里
+
+- 严重度：可见　／　状态：已复现　／　记录：2026-10-10 11:12 CST
+- 现象：POST /api/v1/expenses（其他 1.00）→ 200 建出开销 56，同时写 cash_flows 99（out 1.00, EXPENSE_OTHER, doc_id=56），并进利润表期间费用（profit.day.operating_expense_total 272.50→273.50）与车辆成本（vehcost.month.expense_window_total 5981.10→5982.10、unlinked_expense_total 248.60→249.60，恒等式 expense_total + unlinked == window_total 仍然成立）。随后 DELETE /api/v1/expenses/56 → 404 Not Found；PATCH /api/v1/expenses/56 {amount:2.00} → 404；想用一笔负数冲正 POST /api/v1/expenses {amount:-1.00} → 422「金额：要大于 0」（gt=0）。router backend/app/api/v1/expenses.py 只有 GET(:20) 与 POST(:79)，没有 PATCH/DELETE/作废端点；App 侧也只有 createExpense（Apis.kt:1598），没有删除或编辑。这与「所有删除一律软删＋必须有恢复路径」的规矩不一致（同规矩见 backend/app/models/shipper_receipt.py:1-15）。
+- 复现：1) POST /api/v1/expenses {exp_date:2026-10-10, category:其他, amount:1.00, note:R4C-证据重跑-开销不可删} → 200（id 56）；2) DELETE /api/v1/expenses/56 → 404；3) PATCH /api/v1/expenses/56 {amount:2.00} → 404；4) POST /api/v1/expenses {amount:-1.00} → 422。
+- 期望：记错的开销要有出路：软删＋恢复（与收款单、现金流水同一套规矩），或者一笔可查的冲正分录
+- 实际：三条路全不通，只能改库；错的开销会继续计入现金流水、车辆成本与利润表，直到有人手工动数据库
+- 证据：_tmp/test_round4/out_expense2.txt；_tmp/test_round4/runlog/expense_noreverse_rerun.json
+- 定位：`backend/app/api/v1/expenses.py:20-100`
+
+### TB-17 · 批量调价点名一个非会员货主时提示「未找到批发商或商品，请先选择」：用户明明选了批发商，系统却说没选
+
+- 严重度：可见　／　状态：已复现　／　记录：2026-10-10 11:12 CST
+- 现象：POST /api/v1/price-rules/batch {shipper_ids:[135], product_ids:[1], mode:fixed, value:1.00} → 400「未找到批发商或商品，请先选择」（货主 135 是我建的真实 SHIPPER 账号，只是 users.is_member=0）。根因：backend/app/api/v1/price_rules.py:103 先 `select(User).where(User.is_member == True)` 过滤掉的账号不会进 shippers，于是 :118-119 的 `if not shippers or not products: raise 400 未找到批发商或商品，请先选择` 先触发，:126-141 那段专门写的点名提示（会说清是哪个账号不是批发商 / 哪个商品不存在）在这个分支永远走不到。对照：同一个请求把 shipper_ids 换成 31（城东水产，is_member=1）→ 200 成功，三档 fixed/percent/adjust 都正常。
+- 复现：1) POST /api/v1/price-rules/batch {shipper_ids:[135], product_ids:[1], mode:fixed, value:1.00} → 400 未找到批发商或商品，请先选择；2) 同样请求换 shipper_ids:[31] → 200。
+- 期望：点名了却查不到时要说清是哪一侧：这个账号不是批发商（或不存在）—— 后端已经把这段文案写好了，不该被前面的空列表闸挡住
+- 实际：用户点了批发商却被告知「请先选择」，看不出是账号身份不对还是商品被删了；只有 is_member=1 的账号能调价，这条规矩界面上没有任何提示
+- 证据：_tmp/test_round4/out_pr2.txt；_tmp/test_round4/runlog/pricerules_b3b.json
+- 定位：`backend/app/api/v1/price_rules.py:118-141`
 
 <!-- /TESTBUG:DETAIL:B -->
 
