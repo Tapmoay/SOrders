@@ -103,6 +103,38 @@ class ExpensesViewModel(private val container: AppContainer) : ViewModel() {
     var detailTarget by mutableStateOf<ExpenseDto?>(null)
         private set
 
+    // ---- 撤销 / 恢复（2026-10-10 BUG-0034 / 台账 TA-16）----
+
+    /** 撤销的二次确认目标（非空 = 那个确认框弹着）。 */
+    var pendingCancel by mutableStateOf<ExpenseDto?>(null)
+
+    /**
+     * 确认框**自己**里面的失败原因。
+     *
+     * ⛔ 不许写页面级 [error]：页面级错误在这块弹层**下面**，用户看到的是"弹层一直在、
+     *    点了没反应"（客户收款页真机实测过两次，见 `DangerConfirmDialog` 的注释）。
+     */
+    var actionError by mutableStateOf<String?>(null)
+
+    /** 动作回执（走 snackbar）。 */
+    var actionResult by mutableStateOf<String?>(null)
+
+    /** 刚撤销的那一笔 —— snackbar 上那颗「撤回」用（**手边那一下**）。 */
+    var lastCancelled by mutableStateOf<ExpenseDto?>(null)
+
+    /** 正在提交：一次网络往返期间再点一次等于发两遍（撤销这类动作第二遍必然被后端拒）。 */
+    var acting by mutableStateOf(false)
+
+    /**
+     * 「显示已撤销」档（回收站）。默认关。
+     *
+     * ⚠️ 两档是**二选一**、不是"含已撤销"：顶上那颗合计是拿这几行加出来的，
+     *    把已撤销的混进来，那一格就说不清算的是"花了多少"还是"撤销了多少"。
+     * ⛔ 这一档也是「恢复」唯一的界面入口（不许只把恢复藏在 AI 撤回卡里）。
+     */
+    var showDeleted by mutableStateOf(false)
+        private set
+
     /**
      * 用户**手动**挑过时间了没有 —— 挑过就不再自动退档（与账本页同一条规矩：
      * "默认"只在用户还没表态时替他选）。
@@ -218,6 +250,8 @@ class ExpensesViewModel(private val container: AppContainer) : ViewModel() {
                     category = selectedCategory.takeIf { it != ALL_CATEGORY },
                     dateFrom = rangeFrom,
                     dateTo = rangeTo,
+                    // 二选一档：默认只看"还活着"的，切到回收站档就只看已撤销的
+                    deletedOnly = showDeleted,
                 )
             } catch (e: Exception) {
                 loadError = toApiException(e).message
@@ -245,6 +279,63 @@ class ExpensesViewModel(private val container: AppContainer) : ViewModel() {
         loadCategories()
         load()
     }
+
+    /** 切「显示已撤销」档（回收站）：换档就换一次数（两档是二选一，不是叠加）。 */
+    fun toggleDeleted() {
+        showDeleted = !showDeleted
+        load()
+    }
+
+    /**
+     * 撤销一笔开销（**软删**，不是真删）。
+     *
+     * 撤销之后这一笔从所有合计里退回来（利润表期间费用 / 车辆成本表窗口开销 / 收支页流出），
+     * 名册里这个分类的在用笔数也少一笔；记录本身还在，随时能 [restore] 放回来。
+     */
+    fun cancel(e: ExpenseDto) {
+        if (acting) return
+        acting = true
+        actionError = null
+        viewModelScope.launch {
+            try {
+                container.repo.deleteExpense(e.id)
+                lastCancelled = e
+                pendingCancel = null
+                load()
+                // 在用笔数变了，左栏名册的计数要跟着变
+                loadCategories()
+            } catch (ex: Exception) {
+                actionError = toApiException(ex).message
+            } finally {
+                acting = false
+            }
+        }
+    }
+
+    /** 把一笔已撤销的开销原样放回来（金额/分类/关联的司机/车辆/订单都不变）。 */
+    fun restore(e: ExpenseDto) {
+        if (acting) return
+        acting = true
+        viewModelScope.launch {
+            try {
+                container.repo.restoreExpense(e.id)
+                actionResult = "已恢复这笔开销（¥" + formatMoney(e.amount) + "）"
+                load()
+                loadCategories()
+            } catch (ex: Exception) {
+                actionResult = toApiException(ex).message
+            } finally {
+                acting = false
+            }
+        }
+    }
+
+    /** snackbar 上那颗「撤回」：把刚撤销的那一笔放回来。 */
+    fun restoreLastCancelled() {
+        val e = lastCancelled ?: return
+        lastCancelled = null
+        restore(e)
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -259,6 +350,18 @@ fun ExpensesScreen(
     val vm: ExpensesViewModel = appViewModel { ExpensesViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
     OneShotSnackbar(snackbar, vm.error, onConsumed = { vm.error = null })
+    OneShotSnackbar(snackbar, vm.actionResult, onConsumed = { vm.actionResult = null })
+    // 撤销之后那条 snackbar 自带一个「撤回」—— 与客户收款页同形的"手边那一下"。
+    // ⚠️ 它只是**顺手**：真正的回收站档是列表顶上那颗「显示已撤销」（撤销完再回来也找得到）。
+    LaunchedEffect(vm.lastCancelled) {
+        val e = vm.lastCancelled ?: return@LaunchedEffect
+        val res = snackbar.showSnackbar(
+            message = "已撤销这笔开销（¥" + formatMoney(e.amount) + "）",
+            actionLabel = "撤回",
+            withDismissAction = false,
+        )
+        if (res == SnackbarResult.ActionPerformed) vm.restoreLastCancelled()
+    }
     // 打开 / 从「新增开销」回来都拉一次（见 VM 里 start() 的注释）
     LaunchedEffect(Unit) { vm.start() }
 
@@ -334,20 +437,31 @@ fun ExpensesScreen(
                     ) {
                         item {
                             SectionCard {
-                                Text(
-                                    vm.selectedCategory + " · " + vm.periodWord(),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        vm.selectedCategory + " · " + vm.periodWord(),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    // 「显示已撤销」档（回收站）：已撤销的开销**不算数**，默认看不见；
+                                    // 这一档既是它们的落点，也是「恢复」唯一的界面入口。
+                                    TextButton(onClick = { vm.toggleDeleted() }) {
+                                        Text(if (vm.showDeleted) "只看未撤销" else "显示已撤销")
+                                    }
+                                }
                                 Spacer(Modifier.height(2.dp))
                                 Text(
                                     "¥" + formatMoney(vm.total().toString()),
                                     style = MaterialTheme.typography.headlineSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(MoneyOrange),
+                                    // 回收站档里这一格是**已经不算数**的钱：换灰，别用"花了多少"的橙
+                                    color = if (vm.showDeleted) MaterialTheme.colorScheme.onSurfaceVariant
+                                    else Color(MoneyOrange),
                                 )
                                 Text(
-                                    "共 " + vm.expenses.size + " 笔",
+                                    if (vm.showDeleted) "已撤销 " + vm.expenses.size + " 笔 · 这些钱现在不算数"
+                                    else "共 " + vm.expenses.size + " 笔",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -356,13 +470,21 @@ fun ExpensesScreen(
                         if (vm.expenses.isEmpty()) {
                             item {
                                 EmptyView(
-                                    "这一段没有" + (if (vm.selectedCategory == ALL_CATEGORY) "" else vm.selectedCategory) + "开销",
+                                    "这一段没有" + (if (vm.selectedCategory == ALL_CATEGORY) "" else vm.selectedCategory) +
+                                        (if (vm.showDeleted) "被撤销的" else "") + "开销",
                                     Modifier.fillMaxWidth(),
                                 )
                             }
                         } else {
                             items(vm.expenses, key = { it.id }) { e ->
-                                ExpenseCard(e, onDetail = { vm.openDetail(e) })
+                                ExpenseCard(
+                                    e = e,
+                                    acting = vm.acting,
+                                    onDetail = { vm.openDetail(e) },
+                                    // 点「撤销」先弹二次确认（失败原因画在那个弹层自己里面）
+                                    onCancel = { vm.pendingCancel = e; vm.actionError = null },
+                                    onRestore = { vm.restore(e) },
+                                )
                             }
                         }
                         item { Spacer(Modifier.height(12.dp)) }
@@ -390,6 +512,22 @@ fun ExpensesScreen(
             onDismiss = { vm.closeDetail() },
         )
     }
+    // 撤销的二次确认（既有的危险确认控件）。文案必须把"这不是删掉、还能恢复"说清楚 ——
+    // 用户 2026-09-20 定的硬规矩：所有删除一律软删 + 必须有恢复路径。
+    vm.pendingCancel?.let { e ->
+        DangerConfirmDialog(
+            title = "撤销这笔开销？",
+            message = "撤销之后这一笔会从所有合计里退回来：利润表的期间费用、车辆成本表的窗口开销、" +
+                "收支页的流出都不再算它，名册里这个分类的在用笔数也少一笔。\n" +
+                "⛔ 不是删掉 —— 开销记录还在（列表顶上那颗「显示已撤销」里），" +
+                "随时能点「恢复」原样放回来（金额、分类、关联的司机/车辆/订单都不变）。",
+            confirmText = "撤销",
+            onConfirm = { vm.cancel(e) },
+            onDismiss = { vm.pendingCancel = null; vm.actionError = null },
+            error = vm.actionError,
+            enabled = !vm.acting,
+        )
+    }
 }
 
 /**
@@ -406,7 +544,13 @@ fun ExpensesScreen(
  * ⚠️ 金额**只有一个**、日期**只有一处**：卡片上重复出现的信息必然会出现"两处对不上"。
  */
 @Composable
-private fun ExpenseCard(e: ExpenseDto, onDetail: () -> Unit) {
+private fun ExpenseCard(
+    e: ExpenseDto,
+    acting: Boolean,
+    onDetail: () -> Unit,
+    onCancel: () -> Unit,
+    onRestore: () -> Unit,
+) {
     val primary = ExpenseLink.primary(e)
     SectionCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -480,7 +624,24 @@ private fun ExpenseCard(e: ExpenseDto, onDetail: () -> Unit) {
                 maxLines = 2,
             )
         }
+        if (e.isDeleted) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "已撤销" + (e.deletedAt?.take(10)?.let { "（" + it + "）" } ?: "") +
+                    " —— 这笔钱现在不算数，点「恢复」原样放回来",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            // 撤销/恢复就在**这一行上**（手边的入口）；恢复只出现在回收站档里。
+            if (e.isDeleted) {
+                TextButton(onClick = onRestore, enabled = !acting) { Text("恢复") }
+            } else {
+                TextButton(onClick = onCancel, enabled = !acting) {
+                    Text("撤销", color = MaterialTheme.colorScheme.error)
+                }
+            }
             TextButton(onClick = onDetail) {
                 Text("详情")
                 Icon(Icons.Default.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp))

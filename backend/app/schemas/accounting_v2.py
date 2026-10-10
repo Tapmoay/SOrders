@@ -265,6 +265,14 @@ class ExpenseOut(BaseModel):
     link_kind: str = "none"
     order_no: str | None = None
     created_at: datetime | None = None
+    # **这笔开销已经被撤销**（2026-10-10 BUG-0034 / 台账 TA-16）。
+    # 撤销是**软删**：这一行还在库里（is_deleted=1），默认从「开销管理」里消失，
+    # 只有 `GET /expenses?deleted_only=true`（界面顶上那颗「显示已撤销」档）才看得见它 ——
+    # 那一档就是「恢复」的落点。
+    # ⚠️ 默认 False：老后端/老快照回来的出参没有这两个键时，界面照旧只画「撤销」，
+    #    不会把一笔正常的开销误画成已撤销。
+    is_deleted: bool = False
+    deleted_at: datetime | None = None
 
 
 # ---------------- 资金流水 ----------------

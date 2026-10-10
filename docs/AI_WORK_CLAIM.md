@@ -30,7 +30,23 @@
 ---
 
 ## 进行中
+### [2026-10-10 立项 → ⏳ CST 进行中] 会话：**BUG-0034 开销（expenses）没有任何删除或修改入口：记错一笔永久留在账上**（DSH `16918022-23fb-4c4a-8cbe-0bdd4ee08d30`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
+`用户口径`：测试台账 **TA-16**（第 4 轮方向 A 普查实测，严重度**堵死**）—— `DELETE /api/v1/expenses/54` → 404；开销只有 `GET` 与 `POST` 两个端点；`expenses` 表连软删列都没有（`is_deleted`/`deleted_at` 都不存在）；App 侧 `删/撤销/delete` 零命中。用户 2026-09-20 的硬规矩：**所有删除一律软删 ＋ 必须有恢复路径 ＋ 界面要有手边的撤销入口** —— 同一套账里的账本行、收款单、供应商付款都有出口，开销不该是唯一没有出路的。
+
+`病灶`：① 表上没有任何软删标记，也没有 DELETE/restore 路由 ⇒ 一笔开销进了库就再也动不了，金额写错或记重都永久留在账上，并进入车辆成本表、利润表期间费用与报表导出；② 五处从 expenses 取数的地方（分类名册在用笔数、利润表期间费用、车辆成本表开销桶、报表导出、回填脚本）都没有「已撤销不算」的概念 —— 所以这不是「加一个端点」，而是「加一个状态 ＋ 让所有口径都认它」。
+
+`改法`：① `expenses` 挂 `SoftDeleteMixin` ＋ `schema_bootstrap.py` 幂等自愈段补列（`NOT NULL DEFAULT 0` ＋ 索引 ＋ 回填 0，重复执行被 duplicate/already exists 吞掉）；② `DELETE /api/v1/expenses/{id}`（204，软删：开销单 ＋ 它写下的那条 `cash_flows`（`party_type="expense"` ＋ `party_id`，⛔ 不按金额+日期猜）一起打标记，写 `EXPENSE_DELETE` 审计）与 `POST /api/v1/expenses/{id}/restore`（200，原样放回：两处标记都摘掉，写 `EXPENSE_RESTORE` 审计）——两处都先 `with_for_update()` 锁行，四道门（404 / 重复撤销 400 / 没撤过就恢复 400）在改数之前判完；③ `GET /expenses` 加 `deleted_only` **二选一档**（不是「含已撤销」）、出参加 `is_deleted`/`deleted_at`；④ 五处取数处全部加 `Expense.is_deleted.is_(False)`；⑤ App 开销页：行上「撤销」（既有 `DangerConfirmDialog` 二次确认）＋ 标题行「显示已撤销」档里的「恢复」＋ 撤销后 snackbar 自带「撤回」。
+
+**文件清单**：`backend/app/api/v1/expenses.py`、`backend/app/api/v1/expense_categories.py`、`backend/app/api/v1/reports.py`、`backend/app/models/expense.py`、`backend/app/models/enums.py`、`backend/app/schemas/accounting_v2.py`、`backend/app/core/schema_bootstrap.py`、`backend/app/services/reports/profit_query.py`、`backend/app/services/reports/vehicle_cost_query.py`、`backend/scripts/backfill_expense_cash_flows.py`、`backend/tests/test_expense_soft_delete.py`（新）、`android/app/src/main/java/com/tapmoay/sorders/data/remote/dto/Dtos.kt`、`.../data/remote/api/Apis.kt`、`.../data/repo/AppRepository.kt`、`.../ui/dispatcher/ExpensesScreen.kt`、`.../ui/dispatcher/ReportCenter.kt`、`_tools/finance/_check_expense_soft_delete.py`（新）、`_tools/finance/_reverse_verify_expense_soft_delete.py`（新）、`_tools/ai/_write_coverage.py`、`docs/changes/BUG-0034.md`（新）、`docs/changes/README.md`、`docs/TEST_BUG_LEDGER.md`、`docs/AI_WORK_CLAIM.md`。
+
+**明确不碰**：`backend/app/services/accounting_service.py`（金额算法本体 ＋ `biz_map` 中文名/老英文键映射，一个字节没动）；订单 / 账本 / 收款那几条链路；`cash_flows` 的口径算法（`_scoped_stmt` 本来就过滤已撤销流水，本单只跟着打标记）；既有 `GET /expenses` 的缺省语义与出参旧字段；别的会话的块（BUG-0035 商品回收站）、`_tmp/**`、模拟器 5554/5556。
+
+`判据 / 反验`：`_tools/finance/_check_expense_soft_delete.py`（**78 项**：端点存在 / 软删不是物理删 / 恢复逐字段原样 / 取数处都过滤（清单由脚本自己扫出 N 个取数函数）/ 审计 / 权限 / App 手边入口 / 文书接线）＋ 反验 `_tools/finance/_reverse_verify_expense_soft_delete.py`（**19 条注入**，逐字节还原）＋ 单测 `backend/tests/test_expense_soft_delete.py`（**10 条**：建→撤销→恢复三态 ＋「删前 − 这一笔 = 删后」的等式）。
+
+- 状态：⏳ **进行中**（2026-10-10 立项；变更单 `docs/changes/BUG-0034.md`；台账 **TA-16**；Blast Radius **L2**；提交 `__`）。
+- 核心改动：backend/app/core/schema_bootstrap.py —— 为什么必须动核心：`expenses` 的 `is_deleted/deleted_at` 两列只有这一个幂等自愈段能加（不跑版本化迁移的那一半历史库靠它补列），不加这两列「撤销」就只能做成物理删，违反用户 2026-09-20「所有删除一律软删」的硬规矩。
+- 核心改动：backend/app/models/enums.py —— 为什么必须动核心：`EXPENSE_DELETE`/`EXPENSE_RESTORE` 两个审计动作码是 `OperationAction` 这个领域词汇表里的新取值（全项目共用），不写在这里撤销与恢复就是两笔无名账。
 ### [2026-10-10 立项 → 2026-10-10 已完成] 会话：**BUG-0026 司机端「进行中」列表被实时推送打断后整页报 StandaloneCoroutine was cancelled**（DSH `session-4f7d4be2-273e-4b95-bb10-d9f28eaa106a`）
 
 `用户口径`：测试台账 **TA-04**（方向 A 测试 2026-10-10 03:25 CST 在 `emulator-5558` + 隔离后端 8010 上复现 ≥3 次，严重度 **可见**）—— 司机端停在「进行中」，点顶部「刷新」后 1 秒内用派单员 token `POST /orders/{id}/assign` 给 driver_id=128 ⇒ 整页被错误态顶掉，文案是协程取消的原始异常串 `StandaloneCoroutine was cancelled`，只剩一个「重试」。

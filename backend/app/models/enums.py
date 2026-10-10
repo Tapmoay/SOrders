@@ -163,6 +163,12 @@ class OperationAction(str, enum.Enum):
     SETTLEMENT_CREATE = "SETTLEMENT_CREATE"
     SETTLEMENT_STATUS = "SETTLEMENT_STATUS"
     EXPENSE_CREATE = "EXPENSE_CREATE"
+    # 撤销一笔开销 / 把它放回来（2026-10-10 BUG-0034 / 台账 TA-16）。
+    # 与上面收款那一对不同：开销**不牵动订单状态**，撤销只打标记（开销单 + 它写下的流水），
+    # 所以这里不需要 BUG-0033 那种"撤销那一步翻过哪几张单"的名单。
+    # 仍然是两个码：撤销与恢复是两个时刻、可能是两个人做的相反决定。
+    EXPENSE_DELETE = "EXPENSE_DELETE"
+    EXPENSE_RESTORE = "EXPENSE_RESTORE"
     DRIVER_BILL_GENERATE = "DRIVER_BILL_GENERATE"
     CUSTOMER_MERGE = "CUSTOMER_MERGE"
     PRODUCT_CREATE = "PRODUCT_CREATE"

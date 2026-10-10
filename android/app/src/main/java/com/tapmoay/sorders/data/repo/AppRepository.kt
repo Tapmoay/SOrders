@@ -652,6 +652,17 @@ class AppRepository(private val api: ApiBundle) {
 
     suspend fun products(includeInactive: Boolean = true) = api.productApi.listProducts(includeInactive)
 
+    /**
+     * 回收站：只看被软删的商品（`deleted_only=true`，后端按删除时间倒序）。
+     *
+     * ⛔ **不许**顺手把它并进 `products()` 的签名里 —— `_check_sold_out_block.py:447-451`
+     * 逐字钉着 `suspend fun products(includeInactive: Boolean = true)` 那一行
+     * （商品列表默认含下架商品，改默认值会让沽清的商品从列表里消失）。
+     * 回收站是**另一条取数路径**，所以另起一个方法；后端在 `deleted_only` 模式下
+     * 忽略 `include_inactive`（回收站里的商品按定义都是下架的，那不是过滤条件）。
+     */
+    suspend fun deletedProducts() = api.productApi.listProducts(deletedOnly = true)
+
     // ---- 商品分类名册（顺序由派单员定，下单页左侧那一列按它排）----
     suspend fun productCategories() = api.productApi.listCategories()
     suspend fun createProductCategory(name: String, sortOrder: Int? = null) =
@@ -1338,8 +1349,13 @@ class AppRepository(private val api: ApiBundle) {
         com.tapmoay.sorders.data.remote.dto.ExpenseCategoryReorderRequest(ids)
     )
 
-    suspend fun expenses(category: String? = null, driverId: Long? = null, dateFrom: String? = null, dateTo: String? = null) =
-        api.accountingApi.listExpenses(category, driverId, dateFrom, dateTo)
+    /** @param deletedOnly 见 [com.tapmoay.sorders.data.remote.api.AccountingApi.listExpenses]：true = 回收站档。 */
+    suspend fun expenses(category: String? = null, driverId: Long? = null, dateFrom: String? = null, dateTo: String? = null, deletedOnly: Boolean = false) =
+        api.accountingApi.listExpenses(category, driverId, dateFrom, dateTo, deletedOnly)
+    /** 撤销一笔开销（**软删**，见 [com.tapmoay.sorders.data.remote.api.AccountingApi.deleteExpense]）。 */
+    suspend fun deleteExpense(id: Long) = api.accountingApi.deleteExpense(id)
+    /** 把一笔已撤销的开销原样放回来。 */
+    suspend fun restoreExpense(id: Long) = api.accountingApi.restoreExpense(id)
     /** @param idempotencyKey 见 [com.tapmoay.sorders.data.remote.api.AccountingApi.createExpense]；手动记账不传。 */
     suspend fun createExpense(
         body: com.tapmoay.sorders.data.remote.dto.ExpenseCreateRequest,

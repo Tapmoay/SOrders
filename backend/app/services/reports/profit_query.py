@@ -78,10 +78,17 @@ def build_profit(db: Session, mode: str, anchor: date, *, span: tuple[date, date
     # 期间费用：按**业务发生日**落窗口、按分类聚合。
     # ⛔ 不用 `cash_flows.flow_date` —— 钱什么时候付、这笔费用算哪一期，是两件事
     #    （口径单一：经营报表按业务发生时间，资金与结算单按资金实际发生时间）。
-    # ⛔ 不加 `is_deleted` 过滤：`expenses` 表**没有软删列**（开销删掉就是真删）。
+    # ⛔ 已撤销的开销**不算期间费用**（2026-10-10 BUG-0034 / 台账 TA-16）：撤销一笔之后这一格
+    #    必须**正好少这一笔**（判据里给的是"删前 − 这一笔 = 删后"的等式，不是重算结果对比）。
+    #    ⚠️ 这一行原来写的是"不加 is_deleted 过滤"，理由是"开销删掉就是真删"
+    #    —— 那个前提已经不成立：软删列是 2026-10-10 加的，撤销＝打标记、恢复＝把标记抹掉。
     rows = db.execute(
         select(Expense.category, func.sum(Expense.amount))
-        .where(Expense.exp_date >= start, Expense.exp_date <= end)
+        .where(
+            Expense.exp_date >= start,
+            Expense.exp_date <= end,
+            Expense.is_deleted.is_(False),
+        )
         .group_by(Expense.category)
     ).all()
     expenses = [

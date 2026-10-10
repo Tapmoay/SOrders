@@ -765,7 +765,12 @@ data class LedgerSyncBody(
 
 interface ProductApi {
     @GET("products")
-    suspend fun listProducts(@Query("include_inactive") includeInactive: Boolean = true): List<ProductDto>
+    suspend fun listProducts(
+        @Query("include_inactive") includeInactive: Boolean = true,
+        // 回收站（BUG-0035 / 测试台账 TA-11）：`deleted_only=true` 只回被软删的商品
+        // （后端按删除时间倒序）。缺省 false ⇒ 不带参数时的行为与加这个参数之前**逐字一致**。
+        @Query("deleted_only") deletedOnly: Boolean = false,
+    ): List<ProductDto>
 
     /**
      * 商品分类名册（按显示顺序）。
@@ -1579,12 +1584,20 @@ interface AccountingApi {
         @Body body: ExpenseCategoryReorderRequest,
     ): List<ExpenseCategoryDto>
 
+    /**
+     * 开销列表。
+     *
+     * @param deletedOnly true = **只看已撤销的**（回收站档）。⚠️ 这是"二选一"、不是"含已撤销"：
+     *   页面上那颗合计是拿回来的这几行加出来的，两档混在一起那笔数就说不清了
+     *   （同一形状见 `GET /ledger/receipts?include_deleted`，那一处是收款的口径）。
+     */
     @GET("expenses")
     suspend fun listExpenses(
         @Query("category") category: String? = null,
         @Query("driver_id") driverId: Long? = null,
         @Query("date_from") dateFrom: String? = null,
         @Query("date_to") dateTo: String? = null,
+        @Query("deleted_only") deletedOnly: Boolean = false,
     ): List<ExpenseDto>
 
     /**
@@ -1600,6 +1613,21 @@ interface AccountingApi {
         @Body body: ExpenseCreateRequest,
         @Header("Idempotency-Key") idempotencyKey: String? = null,
     ): ExpenseDto
+
+    /**
+     * 撤销一笔开销（2026-10-10 BUG-0034 / 台账 TA-16）。
+     *
+     * ⛔ 这是**软删**：库里那一行还在（`is_deleted=1` + `deleted_at`），金额、分类、
+     *   关联的司机/车辆/订单一个字节都没动；它写下的那条资金流水一起打标记。
+     *   于是"撤销之后每一处合计正好少这一笔"（利润表期间费用 / 车辆成本表窗口开销 / 收支页流出）。
+     * 返回 204（**无响应体**）。
+     */
+    @DELETE("expenses/{expenseId}")
+    suspend fun deleteExpense(@Path("expenseId") expenseId: Long)
+
+    /** 把一笔已撤销的开销原样放回来（逐字段与撤销前一致）。返回恢复之后的那一行。 */
+    @POST("expenses/{expenseId}/restore")
+    suspend fun restoreExpense(@Path("expenseId") expenseId: Long): ExpenseDto
 
     /**
      * 资金流水明细（**一页**）。

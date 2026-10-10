@@ -610,7 +610,17 @@ def export_report(
             append_text_row(ws, [])
             append_text_row(ws, ["开销分类"])
             append_text_row(ws, ["分类", "金额"])
-            exp_rows = list(db.scalars(select(Expense).where(Expense.exp_date >= s, Expense.exp_date <= e)))
+            # ⛔ 已撤销的开销不进导出（2026-10-10 BUG-0034）：导出的那张表是拿去对账的，
+            #    多一笔已经撤销的钱比少一笔更难发现。
+            exp_rows = list(
+                db.scalars(
+                    select(Expense).where(
+                        Expense.exp_date >= s,
+                        Expense.exp_date <= e,
+                        Expense.is_deleted.is_(False),
+                    )
+                )
+            )
             cat_map: dict[str, Decimal] = {}
             for x in exp_rows:
                 cat_map[x.category] = cat_map.get(x.category, Decimal("0")) + x.amount

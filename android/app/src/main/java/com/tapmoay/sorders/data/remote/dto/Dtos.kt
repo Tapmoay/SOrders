@@ -2275,6 +2275,17 @@ data class ExpenseDto(
      *    客户端**不许**自己按分类名 `when(...)` 判（用户新加一个分类就失效了）。
      */
     @SerialName("link_kind") val linkKind: String = "none",
+    /**
+     * **这一笔已经被撤销**（2026-10-10 BUG-0034 / 台账 TA-16）。
+     *
+     * ⚠️ 撤销是**软删**：这一行还在库里，只是默认不出现在「开销管理」的列表里 ——
+     *    列表顶上那颗「显示已撤销」档（`deleted_only=true`）就是它唯一的落点，
+     *    也是「恢复」的入口（⛔ 不许把恢复只藏在 AI 撤回卡里）。
+     * ⚠️ 默认 false：老后端回来的出参没有这个键时，界面照旧只画「撤销」，
+     *    不会把一笔正常的开销误画成已撤销。
+     */
+    @SerialName("is_deleted") val isDeleted: Boolean = false,
+    @SerialName("deleted_at") val deletedAt: String? = null,
 )
 
 /**

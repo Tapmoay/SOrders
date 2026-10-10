@@ -1,5 +1,11 @@
 """开销单：加油/维修/过路/停车/罚款/保险/货损/其他（**分类可维护**，见 `expense_category.py`），
-保存后自动生成资金流水。"""
+保存后自动生成资金流水。
+
+⚠️ **软删（2026-10-10，BUG-0034 / 台账 TA-16）**：记错一笔不许物理删 —— 用户 2026-09-20
+定的硬规矩是「所有删除一律软删 ＋ 必须有恢复路径」。加了 [SoftDeleteMixin] 之后，
+凡是从 expenses 取数的地方**都要带 `is_deleted = 0`**（漏一处的后果是"这笔钱明明撤销了、
+报表里还在"）。清单见 `docs/changes/BUG-0034.md`，判据 `_tools/finance/_check_expense_soft_delete.py`。
+"""
 
 from datetime import date
 from decimal import Decimal
@@ -7,10 +13,12 @@ from decimal import Decimal
 from sqlalchemy import Date, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, SoftDeleteMixin, TimestampMixin
 
 
-class Expense(Base, TimestampMixin):
+class Expense(Base, TimestampMixin, SoftDeleteMixin):
+    # ⚠️ 基类顺序不能反：`TimestampMixin` 与 `SoftDeleteMixin` 都是纯 mixin（没有 `__init__`
+    #    也没有自己的 metadata），放在 `Base` 右边、按 MRO 取列即可。
     __tablename__ = "expenses"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

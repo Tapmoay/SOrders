@@ -87,7 +87,14 @@ def _expense_buckets(
             func.count(Expense.id),
             func.sum(Expense.amount),
         )
-        .where(Expense.exp_date >= start, Expense.exp_date <= end)
+        .where(
+            Expense.exp_date >= start,
+            Expense.exp_date <= end,
+            # ⛔ 已撤销的开销不算成本（2026-10-10 BUG-0034）：这一格与利润表读的是**同一张表**，
+            #    只加一边就会出现"车辆成本表认、利润表不认"（BUG-0023 那种两张表对不上、
+            #    两边都不报错）。
+            Expense.is_deleted.is_(False),
+        )
         .group_by(Expense.vehicle_id, Expense.category)
     ).all()
     linked: dict[int, list[dict[str, Any]]] = {}

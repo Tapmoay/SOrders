@@ -41,9 +41,15 @@ MAX_CATEGORIES = 200
 
 
 def _counts(db: Session) -> dict[str, int]:
-    """分类名 → 在用开销笔数（**一次查完**，不要每个分类查一遍）。"""
+    """分类名 → 在用开销笔数（**一次查完**，不要每个分类查一遍）。
+
+    ⛔ **已撤销的开销不算"在用"**（2026-10-10 BUG-0034）：这一格与删分类的守卫、名册外兜底
+    三处必须**同一个口径**，否则"名册说这个分类下有 1 笔、点进去列表是空的"。
+    """
     rows = db.execute(
-        select(Expense.category, func.count(Expense.id)).group_by(Expense.category)
+        select(Expense.category, func.count(Expense.id))
+        .where(Expense.is_deleted.is_(False))
+        .group_by(Expense.category)
     ).all()
     return {(str(getattr(name, "value", name) or "")).strip(): n for name, n in rows if str(name or "").strip()}
 
@@ -60,7 +66,11 @@ def _legacy_names(db: Session, known: set[str]) -> list[str]:
 
     ⚠️ 必须排在名册**后面**且**不能丢**：不在名册里不等于这笔开销不存在。
     """
-    rows = db.execute(select(Expense.category, func.count(Expense.id)).group_by(Expense.category)).all()
+    rows = db.execute(
+        select(Expense.category, func.count(Expense.id))
+        .where(Expense.is_deleted.is_(False))
+        .group_by(Expense.category)
+    ).all()
     names = [
         ((str(getattr(n, "value", n) or "")).strip(), c)
         for n, c in rows
@@ -207,7 +217,13 @@ def delete_category(
     row = db.get(ExpenseCategory, category_id)
     if row is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
-    used = db.scalar(select(func.count(Expense.id)).where(Expense.category == row.name)) or 0
+    # ⛔ 只数"还活着"的开销：已撤销的那几笔不在任何列表/报表里，它们挡住删分类的话
+    #    用户会看到"这个分类下有 1 笔"却一页都找不到（2026-10-10 BUG-0034）。
+    used = db.scalar(
+        select(func.count(Expense.id)).where(
+            Expense.category == row.name, Expense.is_deleted.is_(False)
+        )
+    ) or 0
     if used:
         raise HTTPException(
             status_code=400,

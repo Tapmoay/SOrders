@@ -1925,6 +1925,54 @@ def _bootstrap_impl(engine: Engine) -> None:
                 conn.execute(text("UPDATE shipper_receipts SET is_deleted = 0 WHERE is_deleted IS NULL"))
             except DBAPIError:
                 logger.debug("shipper_receipts.is_deleted 回填跳过")
+
+    # ---------- 开销单的软删（2026-10-10，BUG-0034 / 台账 TA-16）----------
+    #
+    # 台账 TA-16 的原文是「开销（expenses）全系统没有任何删除或修改入口：**记错一笔永久留在
+    # 账上**」——第 4 轮方向 A 普查实测 `DELETE /api/v1/expenses/54` → 404、列表页「删/撤销」
+    # 零命中、`PRAGMA table_info(expenses)` 连软删列都没有。用户 2026-09-20 定的硬规矩是
+    # 「**所有删除一律软删 ＋ 必须有恢复路径 ＋ 界面要有手边的撤销入口**」，所以这里补列。
+    #
+    # 撤销 = 把这条开销与**它写下的那条资金流水**（`cash_flows.party_type='expense'` 且
+    # `party_id=expenses.id`，见 `services/accounting_service.py::write_expense_cash_flow`）
+    # 一起打标记（is_deleted=1），恢复 = 原样放回来（金额/分类/司机/车辆/订单一个字节都不动）。
+    #
+    # 与收款单那一段同一个理由：**对历史账一个数都不改**。is_deleted 默认 0（历史开销全是
+    # "活着"的）、deleted_at 默认 NULL，所以加列前后任何一份报表的合计都完全相同。
+    #
+    # ⚠️ 加了这两列之后，凡是从 expenses 取数的地方都要带 `is_deleted = 0`。当前清单
+    #    （判据 `_tools/finance/_check_expense_soft_delete.py` 会**自己扫**一遍，不认手写清单）：
+    #      · `api/v1/expenses.py` 列表本体
+    #      · `api/v1/expense_categories.py` 分类名册的「在用笔数」「名册外分类兜底」「删分类守卫」
+    #      · `services/reports/profit_query.py` 期间费用（利润表）
+    #      · `services/reports/vehicle_cost_query.py` 车辆成本表的三块开销桶
+    #      · `api/v1/reports.py` 报表导出的「开销分类」块
+    #    漏一处的后果是"这笔钱明明撤销了、合计里还在"。
+    if "expenses" in tables:
+        expense_cols = {c["name"] for c in insp.get_columns("expenses")}
+        with engine.begin() as conn:
+            for col, ddl_type in (("is_deleted", "BOOLEAN NOT NULL DEFAULT 0"), ("deleted_at", "DATETIME")):
+                if col in expense_cols:
+                    continue
+                try:
+                    conn.execute(text(f"ALTER TABLE expenses ADD COLUMN {col} {ddl_type}"))
+                    logger.warning("补列：expenses.%s", col)
+                except DBAPIError as e:
+                    msg = str(e).lower()
+                    if "duplicate" in msg or "already exists" in msg:
+                        continue
+                    raise
+            # 索引只为"默认过滤掉已撤销的"与"回收站档里翻一下"服务；重复执行会报 duplicate，忽略即可。
+            try:
+                conn.execute(text("CREATE INDEX ix_expenses_is_deleted ON expenses (is_deleted)"))
+            except DBAPIError:
+                logger.debug("expenses.is_deleted 索引已存在")
+            # ⛔ 回填必须写 0 而不是留 NULL：is_deleted IS NULL 在 WHERE is_deleted = 0
+            #    下**不成立**，历史开销会整体从账上消失（钱看起来从来没花过）。
+            try:
+                conn.execute(text("UPDATE expenses SET is_deleted = 0 WHERE is_deleted IS NULL"))
+            except DBAPIError:
+                logger.debug("expenses.is_deleted 回填跳过")
     # ---------- 迁移版本表（2026-09-24 · 整改报告 §4「整个架构改造的第一核心任务」）----------
     #
     # 上面这一大段的每一句 DDL 都是**幂等自愈**：每次启动重跑一遍，跑过的再跑也不出错。

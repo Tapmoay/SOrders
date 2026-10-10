@@ -1151,6 +1151,11 @@ private fun actionLabel(action: String): String = when (action) {
     "SETTLEMENT_CREATE" -> "建司机结算单"
     "SETTLEMENT_STATUS" -> "结算单确认/付款/作废"
     "EXPENSE_CREATE" -> "记一笔开销"
+    // 撤销/恢复是**软删**（2026-10-10 BUG-0034 / 台账 TA-16）：两行都必须有中文名，
+    // 否则这一页会把枚举原名（EXPENSE_DELETE）直接显示给用户 ——
+    // 判据 `_tools/ai/_check_action_labels.py`。
+    "EXPENSE_DELETE" -> "撤销一笔开销"
+    "EXPENSE_RESTORE" -> "恢复一笔开销"
     "DRIVER_BILL_GENERATE" -> "生成司机应付明细"
     "CUSTOMER_MERGE" -> "合并客户"
     "PRODUCT_CREATE" -> "新建商品"

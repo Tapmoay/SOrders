@@ -50,8 +50,11 @@ def expenses_without_cash_flow(db) -> list[Expense]:
             )
         ).all()
     )
+    # ⛔ 已撤销的开销**不补流水**（2026-10-10 BUG-0034）：撤销时那条流水只是被打了标记
+    #    （所以它仍在 `covered` 里、不会被重复补写）；而一笔"从没写过流水、后来又撤销了"的
+    #    开销补上一条**活着**的流水，会让「收支」页凭空多出一笔已经撤销的支出。
     return [e for e in db.scalars(select(Expense).order_by(Expense.id)).all()
-            if e.id not in covered]
+            if e.id not in covered and not e.is_deleted]
 
 
 def backfill_expense_cash_flows(db, *, dry_run: bool = True) -> tuple[int, int]:
