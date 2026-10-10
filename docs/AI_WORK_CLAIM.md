@@ -31,6 +31,33 @@
 
 ## 进行中
 
+### [2026-10-11 04:4x → ⏳ 进行中] 会话：**FEAT-0022 后端：车辆年检日期的字段与提醒 ＋ 库存「偏低」按百分比启用**（DSH `7caa2bf5-63b4-436c-8ff8-16ee83e735ea`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径`（2026-10-11 逐字）：「关于这个车辆年检提醒啊，到我给那个车子建档案的时候会填一下就是这车的**上牌日期**。或者说是**上一个年检日期**啊方便我们去做一个提醒」；「**库存偏低**的话，我们**按百分比来算** —— 也就是说，他肯定会设置这个库存的报警嘛……然后我们在**报警的那个水平宽松一点**，就显示『库存偏低』，是这样子的」。纪律：「⛔ **不要构建 APK、不要部署生产、不要发布** —— 等另一个会话收工后一键一起部署」。
+
+`改哪些文件`：`backend/app/migrations/033_vehicle_inspection.py`（新：`vehicles` 加 `registration_date` / `last_inspection_date` 两列，可空、不回填、无 DEFAULT、无索引、逐列判存在性可重跑）、`backend/app/services/inspection_due.py`（新：**「下次年检日期」的唯一一处实现**——`next_due_date` / `inspection_kind` / `one_period_later`，按周年、2/29 夹到 2/28、两格都空 ⇒ None，⛔ 不落库）、`backend/app/services/message_producers.py`（启用 `stock.near_low`：`NEAR_LOW_RATIO_PERCENT = 20` ＋ 纯函数 `stock_band()` ＋ `_STOCK_BANDS`；新增 `notify_inspection` / `scan_inspection_due`；`scan_stock_low` 改返回 `(低于阈值, 偏低)`；`run_daily_scan` 四键→七键；`PRODUCED` 十类、`NOT_PRODUCED` 清空）、`backend/app/services/message_center.py`（`vehicle.inspection_overdue` = danger ＋ 它的固定新闻词「已逾期」；顺手把 `stock.low` / `stock.near_low` 两行注释改成新口径）、`backend/app/schemas/accounting_v2.py`（`VehicleCreate` / `VehicleUpdate` / `VehicleOut` 各加两格 ＋ `_blank_is_none` 字段列表）、`backend/app/api/v1/vehicles.py`（`_out` 回两格；`PATCH` 逐格看 `model_fields_set`；新增 `_date_line` / `_inspection_lines` 两行审计）、`backend/app/core/schema_bootstrap.py`（**核心改动**：两列的运行时自愈副本，与迁移 033 同形）、`backend/tests/test_inspection_due.py`（新）、`backend/tests/test_message_producers.py`、`_tools/qa/_check_inspection_and_near_low.py`（新）、`_tools/qa/_reverse_verify_inspection_and_near_low.py`（新）、`_tools/qa/_check_message_producers.py`（同步七处）、`docs/MESSAGE_CARD_DESIGN.md`（§三/§五/§六 订正）、`docs/changes/FEAT-0022.md`（新）、`docs/changes/README.md`、本页。
+
+**明确不碰**：⛔ `android/**` 一个文件都不改（App 端：档案两格录入 / 消息卡片认新类型 / 库存「偏低」标记，由另一个会话 `c0cd4b04-b19f-4d2e-b780-fd993146c8be` 在做）；⛔ 别的会话未提交的 `ui/ai/*` 与 `docs/changes/CHG-*.md`；⛔ `vehicle_type` 的取值（计费口径）、`low_stock_alert` 的语义、`stock.low` 的既有档位与幂等键形状；⛔ 不构建 APK、不部署生产、不发布；⛔ 本单**不 push**。
+
+`核心改动`：`backend/app/core/schema_bootstrap.py` —— 为什么必须动核心：它是**生产库结构变更的唯一入口**，而迁移 `033` 加的两列必须在「迁移没跑过就直接起服务」的库上也能自愈补列（与折旧四列 `018` 同一条既有做法：**同一句 DDL 的自愈副本**）；本次只在既有车辆自愈段之后**追加**一段同形的 `ALTER TABLE vehicles ADD COLUMN … DATE NULL`，⛔ 没改自愈与迁移的顺序、没改锁、没改逃生开关。
+
+`判据 / 反验`：`python _tools/qa/_check_inspection_and_near_low.py`（九组 **139 项全绿**）＋ `python _tools/qa/_reverse_verify_inspection_and_near_low.py`（**8 条注入全被抓 ＋ 末尾 sha256 逐字节还原**）；既有 `python _tools/qa/_check_message_producers.py` 同步改七处后 **204/204** ＋ `python _tools/qa/_reverse_verify_message_producers.py` **8/8 全被抓获**；单测 `python -m pytest tests/test_inspection_due.py tests/test_message_producers.py` → **30 passed**；另有 `_check_dev_spec.py` / `_check_tool_scripts.py` / `_check_migrations.py` / `_check_notification_severity.py` 复跑全绿。
+
+- 状态：⏳ **进行中**（2026-10-11 04:4x CST；代码 ＋ 判据 ＋ 反验 ＋ 单测 ＋ 文书已落地，提交与回执正在收尾）。⛔ **未 push、未构建 APK、未部署生产、未发布** —— 等 App 端会话收工后由用户一键一起部署。
+
+### [2026-10-11 04:12 → ✅ 已完成（App 代码/判据/文书；⛔ 未部署未发布）] 会话：**FEAT-0022 App 端：车辆年检两个日期字段（录入 / 显示 / 认新消息类型 / 库存「偏低」标记）**（DSH `c0cd4b04-b19f-4d2e-b780-fd993146c8be`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径`（2026-10-11 逐字）：「关于这个车辆年检提醒啊，到我给那个车子建档案的时候会填一下就是这车子的**上牌日期**。或者说是**上一个年检日期**啊方便我们去做一个提醒」；「**库存偏低**…按百分比来算 —— 在**报警的那个水平宽松一点**，就显示『库存偏低』」。
+
+`改哪些文件`：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleInspection.kt`（新：客户端**唯一一处**年检算法）、`ui/dispatcher/VehicleManageScreen.kt`（两个可空日期格 + PATCH 差量 + 卡片「下次年检」那一行）、`data/remote/dto/Dtos.kt`（三个 DTO 各加两个可空日期，`VehicleDto` 另留 `next_inspection_date` 钩子）、`ui/messages/MessageGrading.kt`（车辆族集合加 `vehicle.inspection_overdue`）、`ui/common/ProductCardKit.kt`（库存第三档**偏低**）、两个单测与一个车辆单测、`_tools/qa/_check_vehicle_inspection_ui.py`（新）、`_tools/qa/_reverse_verify_vehicle_inspection_ui.py`（新）、`docs/AI_WORK_CLAIM.md`。
+
+**明确不碰**：⛔ `backend/**` 一个文件都不改（字段与提醒是另一个会话的活）；⛔ 别的会话未提交的 `ui/ai/*`；⛔ `docs/changes/FEAT-0022.md` 与 `README.md`（后端会话在写，父会话合并）；⛔ 不构建 release APK、不部署、不发布、不 push。
+
+`核心改动`：**无** —— 为什么：改动全在 Android 界面/数据层与 `_tools/qa/`，不含 `_tools/qa/_core_files.txt` 里的任何文件（钱/账本/订单生命周期/权限/审计/迁移都没碰）。
+
+`判据 / 反验`：`python _tools/qa/_check_vehicle_inspection_ui.py`（九层 **145 项全绿**）＋ `python _tools/qa/_reverse_verify_vehicle_inspection_ui.py`（**13 条注入全被抓 ＋ 末尾逐字节还原**：① 编辑把没填的日期也发出去（清空老数据）② 新建没填也发一格空日期 ③ 过期那档画成 warn（分档）④ 30 天以内那档不存在 ⑤ 新类型漏出车辆族 ⑥ 卡片里长出第二套算法 ⑦ 后端给的下次年检日期被丢掉 ⑧ 上牌日期那一格从 DTO 里消失 ⑨ 日期选择器被换掉 ⑩ 偏低盖掉低库存 ⑪ 库存页自己判偏低 ⑫ 偏低不再用 warn 橙 ⑬ 本脚本自己摘掉注入锁）＋单测 `VehicleInspectionTest`（**15 passed**）、`MessageGradingTest`（26）、`ProductCardKitTest`（11）＋ `:app:compilePhoneDebugKotlin` **BUILD SUCCESSFUL**。
+
+- 状态：✅ **已完成**（2026-10-11 04:12 CST；App 代码提交 `3f2dea04`，判据 ＋ 反验 ＋ 本文书随其后一笔提交）。编译与单测：`& "D:\APPS\gradle-8.9\gradle-8.9\bin\gradle.bat" -p android :app:compilePhoneDebugKotlin --console=plain --max-workers=2` = BUILD SUCCESSFUL；`:app:testEmuDebugUnitTest --tests "*Vehicle*" --tests "*MessageGrading*" --tests "*ProductCardKit*"` 全绿（`VehicleInspectionTest` 15 / `VehicleManageScreenTest` 8 / `MessageGradingTest` 26 / `ProductCardKitTest` 11，failures=0）。报告：`_tmp/inspection_near_low_app/report.md`。⛔ **未 push、未构建 APK、未部署、未发布**（等后端会话收工后由用户一键一起部署）。
 ### [2026-10-11 03:2x → ✅ 已完成（代码/判据/文书；⛔ 未部署未发布）] 会话：**FEAT-0021 给九类新消息补「生产者」（它们现在只会显示、不会自己出现）**（DSH `bc25d535-ddd7-43d1-87e3-82dd7428f701`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径`（2026-10-11 逐字）：「给九类新消息补『生产者』——它们现在只会显示、不会自己出现」；关于库存两档：「**我倾向后者**（先做真实存在的那个阈值），理由写进变更单」；纪律：「⛔ **不要构建 APK、不要部署生产、不要发布** —— 用户说另一个会话在做别的改动，**等它通知后一起一键部署**。只交代码 + 判据 + 文书（**提交但不要 push**）」。
@@ -59,19 +86,19 @@
 
 - 状态：⏳ **进行中**（实现 / 判据 / 反验 / 单测 / 编译已绿；真机走查与提交待做）
 
-### [2026-10-11 02:2x → ⏳ 进行中] 会话：**CHG-0114 AI 推荐问题跟着角色走（三档助手身份 ＋ 首次/常规两档预设 ＋ 按习惯排前面并能固定）**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
+### [2026-10-11 02:2x → ✅ 已完成] 会话：**CHG-0114 AI 推荐问题跟着角色走（三档助手身份 ＋ 首次/常规两档预设 ＋ 按习惯排前面并能固定）＋ 全部操作按角色预设（分类左抽屉）**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
 
 `用户口径`（2026-10-11 逐字，ref **m01175**）：「我们 ai 那个**我是货主助手**要随着角色而发生改变啊。而目前只有 3 个派单元呃货主还有批发商这 3 个就够了，然后我们对应的下面不是有预设的一些问题吗？这些问题要跟着角色来进行变的比如说假如这个角色是第一次来那他应该会涉及到哪些问题啊，那像有些人他一开始连订单什么都没有肯定不会有这些问题啦比如说呃帮我下单啊创建联系人啊创建地址肯定是这些问题或者是这些要求包括我们其实也可以在设置当中他自己手动的去编辑一些呃首次的问题预设而且也支持在之后的聊天过程当中……他可以在典型那里然后再选择……然后就可以直接发送省得它每次都要呃都要去那样子搞嘛……我们随着他的使用习惯，他经常问什么问题会提前的呃把它显示出来。当然，他也可以去固定啊，我这个问题，就固定在这里，这也是可以的」；配图 ref **m01174**（改前的空状态：`我是货主助手` ＋ 4 条写死的问题）。
 
-`改哪些文件`：`android/app/src/main/java/com/tapmoay/sorders/ai/AiSuggest.kt`（新，纯数据 ＋ 纯函数：`AiSuggestWho` 三档 / `AiSuggestPack` 三套 / `home()` / `rank()` / `usedQuestions()`）、`android/app/src/main/java/com/tapmoay/sorders/ai/AiSuggestStore.kt`（新，本机偏好 `first` / `pinned` / `taps`）、`android/app/src/main/java/com/tapmoay/sorders/ai/AiContainer.kt`（暴露 `suggests`）、`android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiChatScreen.kt`（标题读 `who.title`；两张写死问题表搬走；`bottomBar` 里加 `SuggestEntryRow`；新增 `SuggestLibrarySheet`；`EmptyGuide` 换签名并加图钉）、`android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiSettingsScreen.kt`（首次预设编辑区 ＋ 恢复默认）、`android/app/src/test/java/com/tapmoay/sorders/ai/AiSuggestTest.kt`（新，28 条）、`_tools/qa/_check_ai_suggest.py`（新，47 项）、`_tools/qa/_reverse_verify_ai_suggest.py`（新，12 条注入）、`docs/changes/CHG-0114.md`（新，九节）、`docs/changes/README.md`（表尾一行）、本文件。
+`改哪些文件`：`android/app/src/main/java/com/tapmoay/sorders/ai/AiSuggest.kt`（新，纯数据 ＋ 纯函数：`AiSuggestWho` 三档 / `AiSuggestPack` 三套 / `home()` / `rank()` / `usedQuestions()`）、`android/app/src/main/java/com/tapmoay/sorders/ai/AiSuggestStore.kt`（新，本机偏好 `first` / `pinned` / `taps`）、`android/app/src/main/java/com/tapmoay/sorders/ai/AiContainer.kt`（暴露 `suggests`）、`android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiChatScreen.kt`（标题读 `who.title`；两张写死问题表搬走；`floatingActionButton = { … SuggestFab(onOpen = { showLibrary = true }) }` ＋ `floatingActionButtonPosition = FabPosition.End`（半透明 `Modifier.alpha(0.55f)`，只圆左边两角；第一版那行 `SuggestEntryRow` 胶囊已拆干净）；新增左抽屉 `SuggestLibraryDrawer` ＋ 末尾 `AlertDialog`（「就发这一句？」）二次确认（点一条只挂 `pending`，不直接发）；置顶从裸图钉改成带字按钮「置顶」/「已置顶」；`EmptyGuide` 换签名并加图钉）、`android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiSettingsScreen.kt`（首次预设编辑区 ＋ 恢复默认）、`android/app/src/test/java/com/tapmoay/sorders/ai/AiSuggestTest.kt`（新，37 条）、`_tools/qa/_check_ai_suggest.py`（新，65 项）、`_tools/qa/_reverse_verify_ai_suggest.py`（新，20 条注入）、`docs/changes/CHG-0114.md`（新，九节）、`docs/changes/README.md`（表尾一行）、本文件。
 
 **明确不碰**：后端 `AiRole`（永远只有 `DISPATCHER` / `SHIPPER` 两个值 —— 批发商是 `users.is_member = 1` 的运行时属性，为了一句文案去加第三个角色会连带影响权限与写操作闸门）；AI 请求体；`AiHabit` 既有字段；聊天页的消息流 / 附件 / 导出卡 / 语音；登出与切账号的会话清理口径。
 
 `核心改动`：**无** —— 为什么：本轮没有碰 `_tools/qa/_core_files.txt` 里的任何文件；改动全在展示层与两个新文件里。
 
-`判据 / 反验`：`_check_ai_suggest.py` **47 项全绿**（三档标题互不重样、`AiRole` 仍只有两个枚举值、界面里那两张写死问题表与两元标题一个不剩、入口必须落在 `bottomBar` 里且 `InputBar` 之前、取 `suggests` 前 `ensureScoped()`、两个新文件不碰网络、单测覆盖三档）＋ 反验 **12/12 被抓、6 个被注入文件逐字节还原**（其中两条一开始没红，是注入本身写错了 —— 一条注的是注释、判据先过 `code_only()` 剥掉；一条没把入口挪出 `bottomBar`，已改）＋ 单测 `AiSuggestTest.kt` **28 条已写**，但 `:app:testEmuDebugUnitTest` **这轮一次都没跑通**：三次失败都不是本单的文件（`ui/messages/MessageGrading.kt` 缺 `contentOrNull` import、`ai/AiWorkflowRunner.kt` 一片 `Unresolved reference` 都是并行会话的在制品），另外撞过 Kotlin 编译器 `OutOfMemoryError`（本机 15.8 GB 只剩 0.9 GB，杀掉两台闲置模拟器才腾到 2.1 GB）与两个会话同时写 `android/app/build/` 导致的 `Could not copy … app_emuDebug.kotlin_module`。真机截图与全量静检依赖同一个编译，同样待补。**不拿 CHG-0108 那轮的 1507 条冒充本轮数字。**；提交 `faca4df3`。
+`判据 / 反验`：`_check_ai_suggest.py` **59 项全绿**（三档标题互不重样、`AiRole` 仍只有两个枚举值、界面里那两张写死问题表与两元标题一个不剩、入口必须落在 `bottomBar` 里且 `InputBar` 之前、取 `suggests` 前 `ensureScoped()`、两个新文件不碰网络、单测覆盖三档）＋ 反验 **16/16 被抓、6 个被注入文件逐字节还原**（其中两条一开始没红，是注入本身写错了 —— 一条注的是注释、判据先过 `code_only()` 剥掉；一条没把入口挪出 `bottomBar`，已改）＋ 单测 `AiSuggestTest.kt` **37 条**，`:app:testEmuDebugUnitTest` ⇒ **115 个测试类 / 1618 条 / 0 失败 / 0 错误 / 2 跳过**（上一版那三条失败随并行会话修好而消失）：三次失败都不是本单的文件（`ui/messages/MessageGrading.kt` 缺 `contentOrNull` import、`ai/AiWorkflowRunner.kt` 一片 `Unresolved reference` 都是并行会话的在制品），另外撞过 Kotlin 编译器 `OutOfMemoryError`（本机 15.8 GB 只剩 0.9 GB，杀掉两台闲置模拟器才腾到 2.1 GB）与两个会话同时写 `android/app/build/` 导致的 `Could not copy … app_emuDebug.kotlin_module`。真机 `shots/chg0114/ai_home.png`（输入框上方那颗「典型问题」入口）＋ `shots/chg0114/ai_drawer.png`（左抽屉：左栏 16 格分类、右栏「订单」3 问 ＋ 9 个带风险签的操作），⛔ 首页 4 颗没拍到 —— 该机没配模型 API Key，空状态被配置引导卡占着，如实记在变更单 ⑦。**不拿 CHG-0108 那轮的 1507 条冒充本轮数字。**；提交 `faca4df3`（第一版）＋ 本轮实现 `__`。
 
-- 状态：⏳ **进行中**（判据 47/47 ＋ 反验 12/12；单测 / 真机 / 全量静检被并行会话挡住待补；已提交 `faca4df3`）
+- 状态：✅ **已完成**（判据 59/59 ＋ 反验 16/16 ＋ 单测 1618 条 0 失败 ＋ 真机 2 张 ＋ 全量静检见变更单 ⑧；已提交 `faca4df3`（第一版）＋ 本轮实现 `__`）
 
 ### [2026-10-11 02:2x → ⏳ 进行中] 会话：**FEAT-0019 消息分级与严重度（后端）——`notifications.severity` 判定只有一处（`severity_for` ＋ 列默认值委托）＋ `payload.emphasis`（只点真的出现在标题/正文里的词）＋ 迁移 032**（DSH `b59467f2-d797-43c3-b531-767cfef791c0`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
