@@ -120,7 +120,7 @@ MUTATIONS = [
         "支出那一组改用硬编码颜色（主题里那份语义色成了摆设）",
         SCREEN,
         "                            accent = Color(CashOut),",
-        "                            accent = Color(0xFF5C7590L),",
+        "                            accent = Color(0xFF697290L),",
         "第二份硬编码",
     ),
     (
