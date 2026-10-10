@@ -410,7 +410,7 @@ fun ReceiptsScreen(container: AppContainer, onBack: () -> Unit) {
                     Text("核销订单：" + r.orderIds.joinToString(", "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (r.isDeleted) {
                         Spacer(Modifier.height(2.dp))
-                        Text(
+                        Hint(
                             "已撤销" + (r.deletedAt?.take(10)?.let { "（" + it + "）" } ?: "") +
                                 " —— 这笔钱现在不算数，点「恢复」原样放回来",
                             style = MaterialTheme.typography.bodySmall,

@@ -626,7 +626,7 @@ private fun ExpenseCard(
         }
         if (e.isDeleted) {
             Spacer(Modifier.height(4.dp))
-            Text(
+            Hint(
                 "已撤销" + (e.deletedAt?.take(10)?.let { "（" + it + "）" } ?: "") +
                     " —— 这笔钱现在不算数，点「恢复」原样放回来",
                 style = MaterialTheme.typography.bodySmall,
