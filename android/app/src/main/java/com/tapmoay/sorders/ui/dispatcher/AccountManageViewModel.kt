@@ -7,12 +7,15 @@ import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.api.UserCreateRequest
 import com.tapmoay.sorders.data.remote.api.UserUpdateRequest
+import com.tapmoay.sorders.data.remote.dto.DeviceBindingDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.rosterPhoneOf
+import com.tapmoay.sorders.util.formatDateTimeFull
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.time.ZoneId
 
 /**
  * 账户管理的**状态档**（2026-10-03 · E2E 报告 P2）。
@@ -36,6 +39,76 @@ fun matchesStatus(u: UserDto, tab: Int): Boolean = when (tab) {
     2 -> !u.isActive && !u.isDeleted
     3 -> u.isDeleted
     else -> true
+}
+
+/**
+ * 一个账号最多能绑几台**在用**设备（用户口径 2026-10-11：一个账号最多 3 台）。
+ *
+ * ⛔ 与后端的 `MAX_DEVICES_PER_USER` 是同一件事的两次表达 —— 客户端这一份只用来**画文案**，
+ * 不拿它拦请求（拦了会把"后端放宽到 5 台"变成"老版本 App 绑不上第 4 台"这种没人查得出的故障）。
+ */
+const val MAX_DEVICES = 3
+
+/**
+ * [deviceCountText] 的"还没拉到"哨兵值（⛔ 不拿 0 当"不知道"）。
+ *
+ * 0 与"不知道"在派单员眼里的处置**正好相反**：画成「已绑 0/3 台」看着像名额空着、可以再绑一台；
+ * 而真相是"我们还没问过后端"。所以两者必须是两句不同的话（这一行也确实会在界面上先出现一会儿）。
+ */
+const val UNKNOWN_DEVICE_COUNT = -1
+
+/**
+ * 账号卡上那一句「已绑 N/3 台」（FEAT-0018）。
+ *
+ * [activeCount] < 0 = 还没拉到（见 [UNKNOWN_DEVICE_COUNT]）→ 「已绑 --/3 台」。
+ * 满了（= [MAX_DEVICES]）时把**后果**一起说出来：第 4 台要等最旧那台失效（6 个月冷却）。
+ * 只画一个「3/3」的话，派单员的第一反应是"再绑一台试试"，而那一下会被后端拒掉 ——
+ * 届时要解释的东西比现在多写这半句要贵得多。
+ */
+fun deviceCountText(activeCount: Int): String = when {
+    activeCount < 0 -> "已绑 --/$MAX_DEVICES 台"
+    activeCount >= MAX_DEVICES -> "已绑 $activeCount/$MAX_DEVICES 台（已满，第 4 台要等最旧那台失效）"
+    else -> "已绑 $activeCount/$MAX_DEVICES 台"
+}
+
+/**
+ * 在用台数（[DeviceBindingDto.active] 为 true 的那些）；没拉过 = [UNKNOWN_DEVICE_COUNT]。
+ *
+ * ⚠️ 名额只算**在用**的：历史行（已解冻 / 已到期）要显示，但不占名额 ——
+ *    把它们算进去的话，解冻完还会显示「已绑 3/3 台」，用户会以为解冻没生效（会再点一次）。
+ */
+fun activeDeviceCount(rows: List<DeviceBindingDto>?): Int =
+    rows?.count { it.active } ?: UNKNOWN_DEVICE_COUNT
+
+/**
+ * 提示语里怎么指一台设备。
+ *
+ * 设备号是一整串 UUID（App 实例 ID），印全了在 snackbar 里会折行、也没人看得懂；
+ * 取**尾 6 位**足够在同一张卡里对上号（同一个账号下不会有两台尾号相同的设备）。
+ */
+fun deviceShortId(binding: DeviceBindingDto): String =
+    binding.deviceId.takeLast(6).ifBlank { "#" + binding.id }
+
+/**
+ * 设备行的第一行：短号 + 它在哪个环节被记上的（来源原样显示，⛔ 客户端不翻译后端枚举）。
+ */
+fun deviceTitle(binding: DeviceBindingDto): String {
+    val src = binding.source?.takeIf { it.isNotBlank() }
+    return "设备 …" + deviceShortId(binding) + if (src != null) "（" + src + "）" else ""
+}
+
+/**
+ * 设备行的第二行：**绑定时间**与**最后活跃**。
+ *
+ * ⚠️ 两个时间都走 [formatDateTimeFull]：后端发的是 naive UTC 时刻，直接印会早 8 小时
+ *    （见 `util/TimeFmt.kt` 的文件头）。缺的那一半写成「从未」而不是留空 ——
+ *    排查时"没显示"与"从来没有过"是两件事。
+ * ⚠️ [zone] 只给单测显式传（[formatDateTimeFull] 的 KDoc 要求）。
+ */
+fun deviceMeta(binding: DeviceBindingDto, zone: ZoneId = ZoneId.systemDefault()): String {
+    val bound = formatDateTimeFull(binding.boundAt, zone).ifBlank { "—" }
+    val seen = formatDateTimeFull(binding.lastSeenAt, zone).ifBlank { "从未" }
+    return "绑定 $bound · 最近 $seen"
 }
 
 /** 账户管理可选的账号角色（派单员建号用） */
@@ -260,6 +333,36 @@ class AccountManageViewModel(
     var deleting by mutableStateOf<UserDto?>(null)
     var deletingBusy by mutableStateOf(false)
 
+    // ---- 账号↔设备绑定（FEAT-0018）----
+    //
+    // 用户口径（2026-10-11）：一个账号最多 3 台在用设备，第 4 台要等最旧那台失效（6 个月冷却）；
+    // 超限时登录 403 / 注册 429，由派单员在「账户管理 → 编辑 → 绑定设备」里手动解冻
+    // （司机换手机 / 手机摔坏了 —— 这是**最常用**的一条路）。
+    //
+    // ⚠️ **按需拉**：`GET /users/{id}/devices` 是**按账号**的，一进页面对 5 个账号各打一次是白打
+    //    （大多数人只是扫一眼这一页）。所以只在**卡片展开**或**进编辑弹层**时拉那一个账号；
+    //    [devices] 里没有这个键 = 还没拉过（⛔ 不许读成"0 台"，见 [UNKNOWN_DEVICE_COUNT]）。
+
+    /** 账号 id → 它名下绑过的设备（含已失效的历史行）；没拉过的账号**不在**表里。 */
+    var devices by mutableStateOf<Map<Long, List<DeviceBindingDto>>>(emptyMap())
+
+    /** 正在拉设备的账号 id（那一行画转圈用；一次只拉一个）。 */
+    var devicesLoading by mutableStateOf<Long?>(null)
+
+    /** 卡片上展开了哪一张账号的设备块（null = 都收着）。 */
+    var devicesOpenFor by mutableStateOf<Long?>(null)
+
+    /**
+     * 设备块里的失败原话（服务端说什么就画什么）。
+     *
+     * ⚠️ 刻意**不**写进页面级 [error]：那个状态会把整页换成"一句话 + 重试"（`ErrorView`），
+     *    于是"解冻被拦下"在用户眼里成了"**整页账号全没了**"（同 [saveError] 的理由）。
+     */
+    var deviceError by mutableStateOf<String?>(null)
+
+    /** 解冻请求进行中（防连点：名额操作连发两发没有意义，只会多两条审计）。 */
+    var unfreezing by mutableStateOf(false)
+
     init {
         load()
         loadCategories()
@@ -305,6 +408,10 @@ class AccountManageViewModel(
         draftCategory = u.category
         clearSheetErrors()
         showSheet = true
+        // 设备块（FEAT-0018）就挂在这个弹层里 —— 顺手拉**这一个**账号的设备；
+        // 已经拉过就直接用缓存（按需拉取，见 devices 那段注释）。
+        deviceError = null
+        loadDevices(u.id)
     }
 
     /** 打开抽屉时把上一轮的红字清干净（错误跟着表单走，不留到下一次）。 */
@@ -468,5 +575,90 @@ class AccountManageViewModel(
 
     fun dismissDelete() {
         deleting = null
+    }
+
+    // ---- 设备绑定（FEAT-0018）----
+
+    /** 这个账号拉到的设备（null = 还没拉过）。 */
+    fun devicesOf(userId: Long): List<DeviceBindingDto>? = devices[userId]
+
+    /** 在用台数；没拉过 = [UNKNOWN_DEVICE_COUNT]。 */
+    fun activeDevicesOf(userId: Long): Int = activeDeviceCount(devices[userId])
+
+    /**
+     * 拉某个账号的设备（按需：卡片展开 / 进编辑弹层）；[force] = 强制刷新（解冻成功后、刷新按钮）。
+     *
+     * ⚠️ 失败**不清空**已有数据、也不动整页：只让那一块红一行（[deviceError]）——
+     *    按需拉取的失败是"这一小块没读到"，不是"这一页坏了"。
+     */
+    fun loadDevices(userId: Long, force: Boolean = false) {
+        if (devicesLoading == userId) return
+        if (!force && devices.containsKey(userId)) return
+        devicesLoading = userId
+        deviceError = null
+        viewModelScope.launch {
+            try {
+                devices = devices + (userId to container.repo.devicesOf(userId))
+            } catch (e: Exception) {
+                deviceError = toApiException(e).message
+            } finally {
+                if (devicesLoading == userId) devicesLoading = null
+            }
+        }
+    }
+
+    /** 卡片上「已绑 N/3 台」那一行的展开/收起；展开 = 第一次去拉那个账号。 */
+    fun toggleDevices(userId: Long) {
+        devicesOpenFor = if (devicesOpenFor == userId) null else userId
+        if (devicesOpenFor == userId) {
+            deviceError = null
+            loadDevices(userId)
+        }
+    }
+
+    /**
+     * 解冻（= 解绑）**一台**设备，把它从 3 台名额里放出来。
+     *
+     * 成功：一句 snackbar（本页既有汇报口径 [actionResult]）+ 刷新那一块（台数跟着变）；
+     * 失败：服务端原话画在**那一块里**（[deviceError]）。
+     */
+    fun unfreezeDevice(u: UserDto, binding: DeviceBindingDto) {
+        if (unfreezing) return
+        unfreezing = true
+        deviceError = null
+        viewModelScope.launch {
+            try {
+                container.repo.unbindDevice(u.id, binding.id)
+                actionResult = "已解冻：设备 …" + deviceShortId(binding)
+                loadDevices(u.id, force = true)
+            } catch (e: Exception) {
+                deviceError = toApiException(e).message
+            } finally {
+                unfreezing = false
+            }
+        }
+    }
+
+    /**
+     * **全部解冻** —— 司机换手机最常用的一下（新手机登不上时，旧的那几台全占着名额）。
+     *
+     * ⚠️ 它是"把名额全放开"，不是"删掉记录"：解冻过的设备下次带着自己的 install_id 再登录时会
+     *    **重新占名额**（所以派单员要跟司机说一句"新手机先登、旧手机别再登"）。
+     */
+    fun unfreezeAllDevices(u: UserDto) {
+        if (unfreezing) return
+        unfreezing = true
+        deviceError = null
+        viewModelScope.launch {
+            try {
+                container.repo.unbindAllDevices(u.id)
+                actionResult = "已全部解冻：" + (rosterPhoneOf(u) ?: u.fullName.ifBlank { u.username })
+                loadDevices(u.id, force = true)
+            } catch (e: Exception) {
+                deviceError = toApiException(e).message
+            } finally {
+                unfreezing = false
+            }
+        }
     }
 }

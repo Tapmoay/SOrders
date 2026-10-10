@@ -33,7 +33,21 @@ object ApiClient {
         encodeDefaults = true
     }
 
-    fun create(tokenStore: TokenStore, onSessionExpired: (String?) -> Unit = {}): ApiBundle {
+    fun create(
+        tokenStore: TokenStore,
+        /**
+         * 设备身份（FEAT-0018）。设备头**只在这一处统一加**（下面那个 apply 块）——
+         * ⛔ 不许在每个接口 / 每个页面各写一遍：写法、时机、漏掉一个接口，都没有任何人看得出来。
+         */
+        deviceId: DeviceId,
+        /**
+         * 发现「这台设备还没注册上」时的补注册口子（容器传进来：后台、静默、60 秒内只试一次）。
+         *
+         * 为什么是回调而不是在这里直接调接口：注册本身要走 Retrofit，而 Retrofit 正在被构造。
+         */
+        onDeviceIdMissing: () -> Unit = {},
+        onSessionExpired: (String?) -> Unit = {},
+    ): ApiBundle {
         val interceptor = HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG_LOG) HttpLoggingInterceptor.Level.BODY
             else HttpLoggingInterceptor.Level.NONE
@@ -54,12 +68,19 @@ object ApiClient {
             .writeTimeout(60, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val token = tokenStore.cachedToken()
+                // 设备身份（FEAT-0018）：`install_id:token` **两个都齐了才发**（见
+                // DeviceIdentity.headerValue —— 带半截值比不带头更难查：出问题时分不清
+                // 是"这台还没注册"还是"注册成功但头拼错了"）。
+                // ⛔ 这里是**全库唯一**一处加这个头的地方。
+                val device = deviceId.headerValue()
+                if (device == null) onDeviceIdMissing()
                 val req = chain.request().newBuilder()
                     .apply {
                         if (!token.isNullOrBlank()) {
                             header("Authorization", "Bearer " + token)
                         }
                         header("Accept", "application/json")
+                        if (device != null) header(DeviceIdentity.HEADER, device)
                     }
                     .build()
                 val resp = chain.proceed(req)
@@ -89,6 +110,7 @@ object ApiClient {
 
         return ApiBundle(
             authApi = retrofit.create(AuthApi::class.java),
+            deviceApi = retrofit.create(DeviceApi::class.java),
             userApi = retrofit.create(UserApi::class.java),
             orderApi = retrofit.create(OrderApi::class.java),
             shipperApi = retrofit.create(ShipperApi::class.java),
@@ -238,6 +260,12 @@ object ApiClient {
 
 data class ApiBundle(
     val authApi: AuthApi,
+    /**
+     * 设备注册（FEAT-0018）：把 App 自己生成的 `install_id` 换成设备 token。
+     *
+     * 它是**公开端点**（不带登录也行）——第一发登录请求就得带设备头，所以它必须能在登录前调。
+     */
+    val deviceApi: DeviceApi,
     val userApi: UserApi,
     val orderApi: OrderApi,
     val shipperApi: ShipperApi,

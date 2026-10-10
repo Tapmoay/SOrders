@@ -3187,3 +3187,51 @@ data class CustomerBalancesDto(
     val totals: CustomerBalanceTotalsDto = CustomerBalanceTotalsDto(),
     val notes: List<String> = emptyList(),
 )
+
+// ===== 设备绑定与风控（FEAT-0018）=====
+// App 端只用三件事：注册换 token（公开端点）、看某个账号绑了几台设备、把某台/全部解冻。
+// ⛔ 设备标识是 App 自己生成的实例 ID —— 为什么不用 IMEI / MAC / 序列号见 core/DeviceId.kt 文件头。
+
+/**
+ * `POST /devices/register` 的请求体。**公开端点**（还没登录就要能调，否则第一发登录请求
+ * 就没法带设备头），所以这里只有 App 自己生成的那个值。
+ */
+@Serializable
+data class DeviceRegisterRequest(
+    /** App 首次启动生成并持久化的 UUID（8~64 位，见 [com.tapmoay.sorders.core.DeviceIdentity]）。 */
+    @SerialName("install_id") val installId: String,
+)
+
+/**
+ * `POST /devices/register` 的返回。
+ *
+ * ⚠️ [token] 是**设备凭证**（后端按 install_id 算的 hmac），不是登录 token：
+ *    它只证明"这个 install_id 是我注册的"，不含任何人的身份，所以丢了/重装了就重新注册一次。
+ */
+@Serializable
+data class DeviceRegisterResponse(
+    /** 后端记下的设备号 —— 正常就等于请求里的 install_id。 */
+    @SerialName("device_id") val deviceId: String = "",
+    val token: String = "",
+    /** 后端算出的最早可替换日期（这台设备超出名额时给它自己看的，正常为空）。 */
+    @SerialName("expires_at") val expiresAt: String? = null,
+)
+
+/**
+ * 一台设备在某个账号名下的绑定记录（`GET /users/{userId}/devices` 的一行）。
+ *
+ * ⚠️ [active] 为 false 的行**要显示**（那是历史 —— 派单员得看得见"这号以前在哪些手机上用过"），
+ *    但它**不占 3 台名额**，也没有可解冻的东西。
+ */
+@Serializable
+data class DeviceBindingDto(
+    val id: Long,
+    @SerialName("device_id") val deviceId: String = "",
+    @SerialName("bound_at") val boundAt: String? = null,
+    @SerialName("last_seen_at") val lastSeenAt: String? = null,
+    /** 这台设备是在哪个环节被记上的（后端给的短标签，原样显示，⛔ 不在客户端翻译）。 */
+    val source: String? = null,
+    val active: Boolean = true,
+    /** 6 个月冷却到期的时刻（= 名额从这台设备上释放出来的时间）。 */
+    @SerialName("expires_at") val expiresAt: String? = null,
+)

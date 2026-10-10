@@ -31,6 +31,12 @@
 
 ## 进行中
 
+### [2026-10-11 02:3x → ⏳ 进行中] 会话：**FEAT-0018 账号↔设备绑定与风控（App 侧）——`X-Device-Id` 设备身份与统一注入点、账户管理「已绑 N/3 台」与编辑弹层解冻（单台 / 全部）**（DSH `df652837-f760-4e01-8ac5-c7466298000b`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+- 用户口径（逐字）：「如果超过了 3 个的话，它后面想接着绑定其他手机就不能瞬间，它是有时间限制的……大概它如果要再次再增加一个的话，就要过 **6 个月**了」；「6 个月冷却保留，但**派单员在账号管理里可以手动解冻（就在编辑当中）**—— 司机换手机、手机摔坏了，联系派单员解冻即可」；「一个设备……**不能短时间内绑定多个账号** —— 防止有人利用这个漏洞批量注册」；「**测试账号除外**」。
+- 改哪些文件：新增 `android/app/src/main/java/com/tapmoay/sorders/core/DeviceId.kt`、`android/app/src/test/java/com/tapmoay/sorders/core/DeviceIdTest.kt`、`android/app/src/test/java/com/tapmoay/sorders/ui/dispatcher/DeviceCountTextTest.kt`、`_tools/qa/_check_device_id_header.py`、`_tools/qa/_reverse_verify_device_id_header.py`、`_tmp/device_binding_app/report.md`；改 `core/ApiClient.kt`（**全库唯一注入点**）、`core/AppContainer.kt`、`SOrdersApp.kt`、`data/remote/api/Apis.kt`（追加 `interface DeviceApi` + `UserApi` 三个设备端点，追加式）、`data/remote/dto/Dtos.kt`（追加三个设备 DTO，追加式）、`data/repo/AppRepository.kt`（追加三个口子）、`ui/dispatcher/AccountManageViewModel.kt`、`ui/dispatcher/AccountManageScreen.kt`、本文件。
+- **明确不碰**：`docs/changes/FEAT-0018.md` 与 `docs/changes/README.md`（后端会话在写，父会话统一合并）、`ui/dispatcher/AccountCategoryTree.kt` 的分类逻辑、`AccountManageScreen.kt::labelColors` 的取色、登录页注册表单本身（FEAT-0017）、`ui/common/FormRows.kt`、`VERSION`（CHG-0113 在改）、后端任何文件、`git push`。
+- 核心改动：**无** —— 为什么：`core/DeviceId.kt` 是新增文件；`core/ApiClient.kt` / `core/AppContainer.kt` / `SOrdersApp.kt` 都不在 `_tools/qa/_core_files.txt` 里，且改动全是**追加式**（`create()` 多一个参数 + 拦截器里多一行头、容器多一个 `by lazy` 与一个后台补注册、启动多两行），既有请求语义 / 启动语义 / 401 处理一行没改。
 ### [2026-10-11 01:3x → ⏳ 进行中] 会话：**CHG-0113 「我的」页头部资料块下移、留白收紧**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 - 用户口径（逐字）：「把这个我的上面不是有个信息吗？得往下移一点啊，这个中间与下面那个卡片太过于长了，尤其像我们这个账号本身那个中间的信息量本来就比较少一点嘛。所以就防止它导致下面太过于空旷，显得不够美观吧。所以就向下面移一点。」

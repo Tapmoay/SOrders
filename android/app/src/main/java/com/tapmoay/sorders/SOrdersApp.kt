@@ -14,6 +14,12 @@ class SOrdersApp : Application() {
         com.tapmoay.sorders.ui.theme.ThemeMode.load(this)
         container = AppContainer(this)
         container.tokenStore.warmCache()
+        // 设备身份（FEAT-0018）：先把落盘的 install_id / token 读进内存（OkHttp 拦截器是**同步**读的，
+        // 读不了挂起函数）；已经有 token 时下面那一发是空转，零网络开销。
+        // ⚠️ 这一发是**尽力而为**：离线 / 后端不可达就静默算了、绝不阻塞任何业务 ——
+        //    往后任何一发请求发现设备头是空的，拦截器还会补一次（见 AppContainer）。
+        container.deviceId.warmCache()
+        container.ensureDeviceRegistered()
         // 高德搜索 SDK：官方要求 ServiceSettings.setApiKey 显式设置（跟 manifest 双保险）
         try {
             com.amap.api.services.core.ServiceSettings.getInstance().setApiKey(BuildConfig.AMAP_KEY)

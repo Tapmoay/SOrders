@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ui.dispatcher
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
+import com.tapmoay.sorders.data.remote.dto.DeviceBindingDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import com.tapmoay.sorders.ui.common.*
 import com.tapmoay.sorders.ui.theme.*
@@ -277,6 +279,7 @@ fun AccountManageScreen(
                         }
                         items(vm.shownInRail, key = { it.id }) { u ->
                             AccountCard(
+                                vm = vm,
                                 u = u,
                                 onEdit = { vm.openEdit(u) },
                                 onToggle = { vm.toggleActive(u) },
@@ -360,8 +363,178 @@ fun AccountManageScreen(
  *    「这个账号在回收站里…请用「恢复」把它放回来」），再点一次「删除」也是 400
  *    （`users.py:445-446`「这个账号已经删过了」）。⛔ 界面上不该出现按不动的按钮。
  */
+/**
+ * 账号卡上的「已绑 N/3 台」那一行 + 展开后的设备明细（FEAT-0018）。
+ *
+ * ## 为什么是"点一下才拉"
+ * 名额要显示在**每一张**卡上，而 `GET /users/{id}/devices` 是**按账号**的 ——
+ * 一进页面对 5 个账号各打一次是白打（大多数人只是扫一眼这一页）。所以这一行先画
+ * 「已绑 --/3 台」，**点开**（= 真的要看这台账号的设备了）才去拉那一个账号。
+ * ⛔ 不许把"还没拉"画成 0 台：那看着像名额空着（见 `UNKNOWN_DEVICE_COUNT`）。
+ */
+@Composable
+private fun AccountDevicesRow(vm: AccountManageViewModel, u: UserDto) {
+    val open = vm.devicesOpenFor == u.id
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            // 整行可点：这一行既是"显示名额"也是"展开设备"的入口 ——
+            // 只让右边那个小箭头可点的话，指甲大的一块没人点得中。
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { vm.toggleDevices(u.id) }
+                .padding(vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.Devices,
+                contentDescription = null,
+                tint = Color(AccountBrown),
+                modifier = Modifier.size(15.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                deviceCountText(vm.activeDevicesOf(u.id)),
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.weight(1f))
+            if (vm.devicesLoading == u.id) {
+                CircularProgressIndicator(Modifier.size(13.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(
+                    if (open) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (open) "收起设备" else "展开设备",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(17.dp),
+                )
+            }
+        }
+        if (open) DeviceBindBlock(vm = vm, u = u, showHeader = false)
+    }
+}
+
+/**
+ * 「绑定设备」那一块（FEAT-0018）—— 卡片展开后与编辑弹层里画的是**同一份**。
+ *
+ * 派单员在这一块里干的事只有一件：**解冻**（司机换手机 / 手机摔坏了，旧的那台还占着名额）。
+ * 「全部解冻」是司机换手机最常用的一下（旧的那几台一起放开）；单台的「解冻」用在只换/只坏了一台时。
+ *
+ * ⚠️ 历史行（`active = false`）**要显示**：它不占名额、也没有可解冻的东西 ——
+ *    所以那一行是灰字「已失效」而不是按钮（⛔ 界面上不该出现按不动的按钮）。
+ * ⚠️ 失败原话走 `AccountManageViewModel.deviceError` 画在**这一块里**，⛔ 不用页面级 error
+ *    （那会把整页列表顶掉，同 `FormErrorLine` 的注释）。
+ *
+ * @param showHeader 弹层里要标题行（含刷新按钮）；卡片展开后不用（卡片自己那一行已经在头顶了）。
+ */
+@Composable
+private fun DeviceBindBlock(vm: AccountManageViewModel, u: UserDto, showHeader: Boolean) {
+    val rows = vm.devicesOf(u.id)
+    val active = rows?.filter { it.active }.orEmpty()
+    Column(Modifier.fillMaxWidth()) {
+        if (showHeader) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Devices,
+                    contentDescription = null,
+                    tint = Color(AccountBrown),
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("绑定设备", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    deviceCountText(vm.activeDevicesOf(u.id)),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+                CardActionIcon(
+                    icon = Icons.Default.Refresh,
+                    contentDescription = "刷新设备列表",
+                    tint = Color(NavBlue),
+                    onClick = { vm.loadDevices(u.id, force = true) },
+                    enabled = !vm.unfreezing,
+                    size = 15.dp,
+                    container = 30.dp,
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Hint(
+                "一个账号最多 3 台。司机换手机 / 手机坏了，把旧的那台解冻，新手机就能登录。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+            )
+            Spacer(Modifier.height(6.dp))
+        }
+        when {
+            rows == null -> Text(
+                "正在读取设备…",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            rows.isEmpty() -> Text(
+                "还没有设备绑过这个账号（他还没在新手机上登录过）",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            else -> rows.forEach { b -> DeviceRow(vm = vm, u = u, b = b) }
+        }
+        if (active.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Button(
+                onClick = { vm.unfreezeAllDevices(u) },
+                enabled = !vm.unfreezing,
+                modifier = Modifier.fillMaxWidth().height(44.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(AccountBrown)),
+            ) {
+                if (vm.unfreezing) {
+                    CircularProgressIndicator(Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                } else {
+                    Text("全部解冻（" + active.size + " 台）", fontSize = 15.sp)
+                }
+            }
+        }
+        FormErrorLine(vm.deviceError)
+    }
+}
+
+/** 一台设备一行：短号（含来源）+ 绑定时间 / 最后活跃，右侧是它自己的「解冻」。 */
+@Composable
+private fun DeviceRow(vm: AccountManageViewModel, u: UserDto, b: DeviceBindingDto) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(deviceTitle(b), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                deviceMeta(b),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (!b.active) {
+            Text(
+                "已失效",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        } else {
+            // ⚠️ 这个 AccountAction 只许出现在这里：`_check_sheet_form_pages.py` 钉着
+            //    `fun AccountCard(` 那一行里**第一个** AccountAction 是「删除」、**最后**一个是「编辑」。
+            AccountAction("解冻", Icons.Default.LockOpen, Color(MgrGreen)) { vm.unfreezeDevice(u, b) }
+        }
+    }
+}
+
 @Composable
 private fun AccountCard(
+    vm: AccountManageViewModel,
     u: UserDto,
     onEdit: () -> Unit,
     onToggle: () -> Unit,
@@ -430,6 +603,12 @@ private fun AccountCard(
         //    `13923111638_del62` 这种内部值，直接端上来就是乱码。`RosterPhoneRowOf` 按后端的
         //    `phone_display` 画号；号码已经让给新账号时画「号码已让给新账号」（不静默留白）。
         RosterPhoneRowOf(u)
+        Spacer(Modifier.height(4.dp))
+
+        // ---- 行 2.5：这个账号绑了几台设备（FEAT-0018）----
+        // 名额是"这个账号还能不能在新手机上登录"的唯一线索（满了 = 登录 403），所以它挂在卡片上；
+        // 明细按需展开（点这一行才去拉那一个账号，见 `AccountManageViewModel.devices` 那段注释）。
+        AccountDevicesRow(vm = vm, u = u)
         Spacer(Modifier.height(4.dp))
 
         // ---- 行3：动作行（左＝相反/警示 · 右＝编辑）----
@@ -607,6 +786,16 @@ private fun AccountFormSheet(
                 onPick = { vm.draftCategory = it },
                 hint = "只影响左栏怎么分组；四个名册页（账户 / 司机 / 货主 / 批发商）共用这一份分类。",
             )
+        }
+
+        // ---- 白卡 4：绑定设备（FEAT-0018）----
+        // 只在**编辑**时出现：新增账号还没有 id，也就没有设备可解冻。
+        // 派单员最常走到这里的一步是"司机换手机了，把旧的那台解冻"（用户口径 2026-10-11：
+        // 司机换手机 / 手机摔坏了，就找派单员在「账户管理 → 编辑」里解冻）。
+        vm.editing?.let { target ->
+            SectionCard {
+                DeviceBindBlock(vm = vm, u = target, showHeader = true)
+            }
         }
 
         // 校验/保存失败的那句话画在**抽屉里面**（见 FormErrorLine 的注释：

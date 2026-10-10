@@ -14,9 +14,26 @@ class AppContainer(val context: Context) {
     val appContext: Context = context.applicationContext
 
     val tokenStore by lazy { TokenStore(appContext) }
+
+    /**
+     * 设备身份（FEAT-0018 账号↔设备绑定与风控）：App 自己生成的 `install_id` + 后端发的设备 token。
+     *
+     * ⛔ 不是 IMEI / MAC / 序列号（读不到、也是隐私红线）；为什么用"App 实例 ID"、
+     *    以及注册不上时怎么办，都写在 [DeviceId] 的文件头。
+     */
+    val deviceId by lazy { DeviceId(PrefsDeviceIdStore(appContext)) }
+
     // 401 的**原因**从拦截器一路带到界面（BUG-0006）：被顶号 / 被停用 / 改密码 / 令牌过期
     // 四种处置完全不同，原来只有一句写死的「登录已失效，请重新登录」。
-    val api by lazy { ApiClient.create(tokenStore, onSessionExpired = { reason -> clearSession(reason) }) }
+    val api by lazy {
+        ApiClient.create(
+            tokenStore,
+            deviceId,
+            // 任何一发请求发现设备头是空的（这台还没注册上）就来这里补一次：后台、静默、有节流
+            onDeviceIdMissing = { ensureDeviceRegistered() },
+            onSessionExpired = { reason -> clearSession(reason) },
+        )
+    }
     val repo by lazy { AppRepository(api) }
     val socketManager by lazy { SocketManager() }
     val realtimeHub by lazy { RealtimeHub(this) }
@@ -60,6 +77,29 @@ class AppContainer(val context: Context) {
     val pendingOrderId = MutableStateFlow<Long?>(null)
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /**
+     * 让这台设备拿到 [DeviceId] 里的 token（幂等：已经有 token 时直接返回；离线失败下次再说）。
+     *
+     * 调用点只有两个：① [com.tapmoay.sorders.SOrdersApp.onCreate]（冷启动打一发）
+     * ② 拦截器发现设备头是空的时（见 [ApiClient.create] 的 `onDeviceIdMissing`）。
+     *
+     * ⛔ 这是**尽力而为**的一件事：注册不上不许影响任何业务 —— 用户照样要能登录、能看单，
+     *    后端那边只是暂时把请求当成没带设备信息。所以这里连异常都不往外抛。
+     */
+    fun ensureDeviceRegistered() {
+        // ⚠️ 换到 IO：`api` 是懒加载的，它首次构造时会同步探一次后端地址
+        //    （见 ApiEndpoint.baseUrl 的 /health 探测），放主线程上就是启动时卡一下
+        appScope.launch(Dispatchers.IO) {
+            try {
+                deviceId.ensureRegistered(api.deviceApi)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // ⛔ 注册不上不许影响任何一件事（也刻意不打日志：这本来就是允许静默失败的一步）
+            }
+        }
+    }
 
     /** 401 时清除本地会话；AppRoot 观察 sessionFlow 会自动跳回登录页 */
     fun clearSession(reason: String? = null) {

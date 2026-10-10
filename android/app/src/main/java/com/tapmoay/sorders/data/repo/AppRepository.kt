@@ -781,6 +781,22 @@ class AppRepository(private val api: ApiBundle) {
     /** 撤回用：单取一个账号（`users/me` 只能取自己，搜名字是模糊匹配，都不行）。 */
     suspend fun userById(id: Long) = api.userApi.getUser(id)
 
+    // ---- 账号↔设备绑定（FEAT-0018）----
+
+    /**
+     * 这个账号名下绑过的设备（**含历史**：`active=false` 的是已解冻/已到期的行）。
+     *
+     * ⚠️ **按需调**：账户管理页只对"打开的/正在编辑的那一个账号"调一次，
+     *    ⛔ 不许在一进页面时遍历账号列表各打一次（5 个账号 = 5 发请求，还全都可能白打）。
+     */
+    suspend fun devicesOf(userId: Long) = api.userApi.listDevices(userId)
+
+    /** 解冻（解绑）一台设备，把它从 3 台名额里放出来。 */
+    suspend fun unbindDevice(userId: Long, bindingId: Long) = api.userApi.unbindDevice(userId, bindingId)
+
+    /** 全部解冻 —— 司机换手机最常用的一下。 */
+    suspend fun unbindAllDevices(userId: Long) = api.userApi.unbindAllDevices(userId)
+
     // ---- 挂账单位 / 库存 / 收款 ----
     suspend fun arrearsUnits() = api.arrearsApi.listUnits()
     suspend fun createArrearsUnit(body: com.tapmoay.sorders.data.remote.dto.ArrearsUnitCreateRequest) = api.arrearsApi.createUnit(body)

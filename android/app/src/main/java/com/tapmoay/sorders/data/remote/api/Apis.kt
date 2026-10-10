@@ -128,6 +128,37 @@ interface UserApi {
         @Query("q") q: String,
         @Query("limit") limit: Int = 50,
     ): List<UserDto>
+
+    // ---- 账号↔设备绑定与风控（FEAT-0018）------------------------------------
+    // 名额口径：一个账号最多 3 台**在用**设备；超了登录 403（detail 里带最早可替换日期）、
+    // 注册 429。派单员在「账户管理 → 编辑 → 绑定设备」里手动解冻（司机换手机/摔坏了）。
+
+    /**
+     * 这个账号名下绑过的设备 —— **含历史**（[DeviceBindingDto.active] 为 false 的是已经解冻/到期的）。
+     *
+     * ⚠️ 只有派单员能查别人（后端按角色卡：货主/司机只能查自己）。
+     * ⚠️ **按需调**：账户管理页不许在一进页面时对每个账号各打一次
+     *    （5 个账号 = 5 发请求），只在卡片展开 / 进编辑弹层时拉那一个 —— 见
+     *    `AccountManageViewModel.loadDevices`。
+     */
+    @GET("users/{userId}/devices")
+    suspend fun listDevices(@Path("userId") userId: Long): List<DeviceBindingDto>
+
+    /**
+     * 解冻（解绑）**一台**设备，把它从 3 台名额里放出来。后端回 204。
+     *
+     * ⛔ 是解绑不是删除：那台设备下次带着自己的 [com.tapmoay.sorders.core.DeviceIdentity]
+     *    重新注册时会**再占一个名额**（所以"解冻"不是"给这台发永久通行证"）。
+     */
+    @POST("users/{userId}/devices/{bindingId}/unbind")
+    suspend fun unbindDevice(
+        @Path("userId") userId: Long,
+        @Path("bindingId") bindingId: Long,
+    )
+
+    /** 全部解冻 —— 司机换手机最常用的一下（后端回 204，审计 `USER_DEVICE_UNBIND` 的 payload 带 count）。 */
+    @POST("users/{userId}/devices/unbind-all")
+    suspend fun unbindAllDevices(@Path("userId") userId: Long)
 }
 
 @Serializable
@@ -2172,4 +2203,24 @@ interface InvoiceApi {
 
     @POST("invoices/{invoiceId}/restore")
     suspend fun restoreInvoice(@Path("invoiceId") invoiceId: Long): InvoiceDto
+}
+
+/**
+ * 设备注册（FEAT-0018）—— **公开端点**：登录之前就要能调。
+ *
+ * 为什么必须公开：设备头 `X-Device-Id` 要挂在**所有**请求上（包括第一发登录请求），
+ * 而 token 只能由这个端点换回来。要是它也要求登录，就成了先有鸡还是先有蛋。
+ *
+ * 它交换的东西**不含任何人的身份**：App 自己生成的随机 UUID → 后端按它算一个 hmac。
+ * 为什么不用 IMEI / MAC / 序列号见 [com.tapmoay.sorders.core.DeviceIdentity] 的文件头。
+ */
+interface DeviceApi {
+    /**
+     * 用 App 的 [DeviceRegisterRequest.installId] 换一个设备 token（幂等：同一个 id 重复调回同一个 token）。
+     *
+     * ⚠️ 超限（这台设备短时间内已经绑过好几个账号）后端回 **429**，detail 是一句中文原话 ——
+     *    客户端**原样透出**，⛔ 不要在这里翻译成"网络错误"。
+     */
+    @POST("devices/register")
+    suspend fun register(@Body body: DeviceRegisterRequest): DeviceRegisterResponse
 }
