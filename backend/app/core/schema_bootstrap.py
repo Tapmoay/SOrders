@@ -253,6 +253,85 @@ def _prepare_locked(engine: Engine) -> None:
             raise
 
 
+#: 账号分类名册的**默认六类**（用户 2026-10-11 点名，顺序就是他说的顺序）。
+#: 只在名册**整个为空**时用它播种 —— 见 `seed_default_user_categories`。
+USER_CATEGORY_DEFAULTS: tuple[str, ...] = (
+    "派单员",
+    "货主",
+    "批发商",
+    "小车司机",
+    "大车司机",
+    "挂车司机",
+)
+
+
+def seed_default_user_categories(engine: Engine) -> int:
+    """名册**整个为空**时把默认分类摆上；返回这次插入了几个（0 = 没动它）。
+
+    用户 2026-10-11：「本来是有分类的，我们这个分类直接拉取关于那个我们对应已经做好的分类，
+    其实我们分类也就这些：派单员、货主、批发商、大车司机、小车司机、挂车司机」。
+
+    **为什么必须落在代码里**：名册如果只靠人在界面上一个个加，那么每换一个库
+    （新装 / 清库重来）左栏就又是空的 —— 2026-10-10 为「从头开始测试」清零生产时
+    正是把 `user_categories` 一起清掉了，界面上的表现只是「左栏只剩全部」，
+    没有任何人会觉得是数据没了。
+
+    **为什么走自愈而不是迁移**：迁移一生只跑一次（跑过就记进版本表），
+    清库那一次它早就跑完了 —— 名册从此空着，而且**不可恢复**。这一段每次启动都跑、
+    且只在 `COUNT(*) = 0` 时动手，所以：新装的库有六类，被清空的库下次启动自己长回来。
+
+    ⛔ **只在名册整个为空时播种**，绝不复活用户删掉的**单个**分类 ——
+    「用户刚把那个分类删掉、重启一次它又回来了」是 `order_template_categories`
+    那一段注释里记过的坑（2026-09-22 真机抓到）。
+
+    已经在用的分类名（账号上写着、名册里没有的）**排在六个默认名之后**一起收进来，
+    否则那批账号在左栏里点不到（名册里没有的名字不是错误，但也没人愿意手抄一遍）。
+    ⚠️ 回收站里的账号**不算**（与 `_counts` 同一条口径：`services/soft_delete.has_del_suffix`）。
+    """
+    from app.services.soft_delete import has_del_suffix
+
+    insp = inspect(engine)
+    if "user_categories" not in insp.get_table_names():
+        return 0
+    with engine.connect() as conn:
+        existing = conn.execute(text("SELECT COUNT(*) FROM user_categories")).scalar() or 0
+    if existing:
+        return 0
+
+    names = list(USER_CATEGORY_DEFAULTS)
+    if "users" in insp.get_table_names():
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT id, phone, username, TRIM(category) AS c FROM users "
+                    "WHERE category IS NOT NULL AND TRIM(category) <> ''"
+                )
+            ).fetchall()
+        used: dict[str, int] = {}
+        for uid, phone, username, c in rows:
+            if has_del_suffix(uid, phone, username):
+                continue
+            used[str(c)] = used.get(str(c), 0) + 1
+        # 在用的名字按「用得多」在前（同数量按名字排）——与商品分类那次回填同一个口径
+        for name in sorted(used, key=lambda n: (-used[n], n)):
+            if name not in names:
+                names.append(name)
+
+    with engine.begin() as conn:
+        for idx, name in enumerate(names):
+            conn.execute(
+                text(
+                    "INSERT INTO user_categories (name, sort_order, created_at, updated_at) "
+                    "VALUES (:n, :s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                ),
+                {"n": name, "s": idx},
+            )
+    logger.warning(
+        "账号分类名册是空的，已摆上 %s 个分类（默认六类在前：派单员 / 货主 / 批发商 / 小车司机 / 大车司机 / 挂车司机）",
+        len(names),
+    )
+    return len(names)
+
 def _bootstrap_impl(engine: Engine) -> None:
     _import_all_models()
     Base.metadata.create_all(bind=engine, checkfirst=True)
@@ -1811,6 +1890,14 @@ def _bootstrap_impl(engine: Engine) -> None:
                         logger.warning("开销分类名册已回填 %s 个分类（按在用的笔数排序）", len(rows))
             except DBAPIError:
                 logger.debug("开销分类名册回填跳过（表可能刚建或字段不同）")
+
+    # ---------- 账号分类名册（2026-10-11 CHG-0112：默认六类 + 两级分类） ----------
+    # 名册是**数据**，而迁移一生只跑一次 —— 清库之后它不会自己回来。
+    # 为什么放在自愈里、为什么只在名册整个为空时播种：见那个函数的 docstring。
+    try:
+        seed_default_user_categories(engine)
+    except DBAPIError:
+        logger.debug("账号分类名册播种跳过（表可能刚建或字段不同）")
 
     # ---------- 运费分类 / 计费规则按分类（2026-09-21）----------
     # 新表（freight_categories / freight_template_categories / driver_billing_rule_categories）

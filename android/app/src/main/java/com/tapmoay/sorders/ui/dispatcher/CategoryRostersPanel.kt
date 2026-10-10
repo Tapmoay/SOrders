@@ -46,12 +46,16 @@ fun UserCategoriesPanel(
         accent = accent,
         backLabel = "返回名册",
         newPlaceholder = "新分类名（如：自有车 / 外请车 / 长期合作）",
-        hint = "全店一份：账户 / 司机 / 货主 / 批发商四个名册页的左栏都用这一份，顺序就是左栏的顺序。",
+        hint = "全店一份：账户 / 司机 / 货主 / 批发商四个名册页的左栏都用这一份，顺序就是左栏的顺序。" +
+            "两级：在「上层分类」里选一个大类，建出来的就是它下面的子类。",
         emptyText = "还没有分类。不建也能用：四个名册页的左栏只有「全部」一格，账号照样都在。",
         countUnit = "个账号",
         renameHint = "改名会把挂在这个分类下的账号一起改过去（回收站里的也一样，不会掉回未分类）。",
         countLine = "现在有 %d 个账号挂在这一类下。",
-        deleteNote = "（后端不允许删还有账号挂着的分类，真要删请先把它们改到别的分类）",
+        deleteNote = "（后端不允许删还有账号挂着的分类；大类下面还有子类时也不许删，" +
+            "先把它下面的子类删掉或改到别的大类下面）",
+        // 只有账号这份名册能建**子类**（两级）：把大类列出来给它当父。
+        parentChoices = vm.rows.filter { it.parentId == null },
         onBack = onBack,
     )
 }
@@ -81,6 +85,7 @@ fun VehicleCategoriesPanel(
 }
 
 /** 两份名册共用的面板（差别只有几处文案与单位）。 */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RosterPanel(
     vm: RosterViewModel,
@@ -94,6 +99,11 @@ private fun RosterPanel(
     renameHint: String,
     countLine: String,
     deleteNote: String,
+    /**
+     * 「新建」那一格要挂到哪个大类下面（**只有账号分类有二级**）。
+     * 空 = 平表名册（车辆那份）→ 连这个选择器都不画，与两级之前逐像素一样。
+     */
+    parentChoices: List<RosterRow> = emptyList(),
     onBack: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth()) {
@@ -129,6 +139,43 @@ private fun RosterPanel(
                 enabled = !vm.acting && vm.draftName.isNotBlank(),
             )
         }
+        if (parentChoices.isNotEmpty()) {
+            // 「新建」那一格的**归属**（2026-10-11 CHG-0112）：选一个大类 = 建它下面的子类，
+            // 选「顶层分类」= 建一个大类本身。形态与表单里那一格同一个（ExposedDropdownMenuBox +
+            // FormPickRow），⛔ 不是再套一层弹层（规范 §4.14 点名过那种两层 modal）。
+            var pickParent by remember { mutableStateOf(false) }
+            ExposedDropdownMenuBox(expanded = pickParent, onExpandedChange = { pickParent = it }) {
+                FormPickRow(
+                    label = "上层分类",
+                    value = parentChoices.firstOrNull { it.id == vm.draftParentId }?.name ?: "顶层分类",
+                    placeholder = "顶层分类",
+                    onClick = { pickParent = true },
+                    modifier = Modifier.padding(horizontal = 20.dp).menuAnchor(),
+                )
+                ExposedDropdownMenu(expanded = pickParent, onDismissRequest = { pickParent = false }) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (vm.draftParentId == null) "顶层分类　✓" else "顶层分类",
+                                maxLines = 1,
+                            )
+                        },
+                        onClick = { vm.draftParentId = null; pickParent = false },
+                    )
+                    parentChoices.forEach { p ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (p.id == vm.draftParentId) p.name + "　✓" else p.name,
+                                    maxLines = 1,
+                                )
+                            },
+                            onClick = { vm.draftParentId = p.id; pickParent = false },
+                        )
+                    }
+                }
+            }
+        }
         Hint(
             hint,
             style = MaterialTheme.typography.bodySmall,
@@ -151,9 +198,13 @@ private fun RosterPanel(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 itemsIndexed(vm.rows, key = { _, r -> r.id }) { idx, r ->
+                    // 子类把它的**大类名字**写在第二行（2026-10-11 CHG-0112）：管理面板里
+                    // 只有名字与条数，两级之后必须说清这一格挂在哪一类下面。
+                    val parentName = r.parentId?.let { pid -> vm.rows.firstOrNull { it.id == pid }?.name }
                     RosterRowCard(
                         row = r,
                         unit = countUnit,
+                        parentName = parentName,
                         first = idx == 0,
                         last = idx == vm.rows.lastIndex,
                         onUp = { vm.move(idx, -1) },
@@ -239,6 +290,8 @@ private fun RosterPanel(
 private fun RosterRowCard(
     row: RosterRow,
     unit: String,
+    /** 这一格挂在哪个大类下面（`null` = 它自己就是大类）。 */
+    parentName: String? = null,
     first: Boolean,
     last: Boolean,
     accent: Color,
@@ -253,9 +306,15 @@ private fun RosterRowCard(
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Column(Modifier.weight(1f)) {
-                Text(row.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 1)
                 Text(
-                    row.count.toString() + " " + unit,
+                    if (parentName == null) row.name else "└ " + row.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+                Text(
+                    if (parentName == null) row.count.toString() + " " + unit
+                    else "「" + parentName + "」下 · " + row.count + " " + unit,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -383,11 +442,13 @@ fun CategoryPickRow(
     }
 }
 
-/** 左栏那一格（`c|分类名`）→ 分类名；「全部」→ 空串。 */
-fun railNameOf(key: String): String = if (key.startsWith("c|")) key.removePrefix("c|") else ""
+/**
+ * 左栏那一格（`c|分类名`）→ 分类名；「全部」→ 空串。
+ *
+ * 实现只有一份（`AccountCategoryTree.kt::railCategoryName`）—— 两级之后解析 key 的地方
+ * 从两处变成三处（左栏、过滤、聊天/名册页），各自抄一遍迟早会分叉。
+ */
+fun railNameOf(key: String): String = railCategoryName(key)
 
-/** 按左栏那一格过滤（空串 = 全部）。名册与列表都在手上 —— 本地过一遍，不往返后端。 */
-fun <T> inRail(rows: List<T>, key: String, nameOf: (T) -> String): List<T> {
-    val name = railNameOf(key)
-    return if (name.isBlank()) rows else rows.filter { nameOf(it) == name }
-}
+// `inRail`（那一格的本地过滤）随两级一起搬进了 `ui/dispatcher/AccountCategoryTree.kt`：
+// 它现在要认识「点大类 = 它下面所有子类」，而那一套判断要有 JVM 单测钉着。

@@ -61,6 +61,22 @@ data class LoginRequest(
     val username: String? = null,
 )
 
+/**
+ * 自助注册（FEAT-0017，登录页底部「注册新账号」）。
+ *
+ * ⛔ 这里**只有三个字段**，且**永远不许加 `role`/`is_member`**：后端 `RegisterRequest`
+ * 也不声明它们，注册出来的账号一律是**货主**。请求体多带字段后端会忽略（不会 422），
+ * 但客户端先不声明才是根本 —— 免得日后有人顺手把某个开关接上去。
+ *
+ * `phone` 走 `InputRules.mobileInput`（只留数字、11 位），`password` 至少 6 位（与后端同口径）。
+ */
+@Serializable
+data class RegisterRequest(
+    val phone: String,
+    val password: String,
+    val full_name: String = "",
+)
+
 // ===== 用户 =====
 @Serializable
 data class UserDto(
@@ -827,10 +843,20 @@ data class UserCategoryDto(
     @SerialName("sort_order") val sortOrder: Int = 0,
     /** 这一类下**在用**的账号条数（回收站里的账号不算 —— 与后端同一口径）。 */
     @SerialName("user_count") val userCount: Int = 0,
+    /**
+     * 上层分类（`null` = 大类本身）。左栏靠它画成**两级**（大类 + 缩进的子类，
+     * 2026-10-11 CHG-0112）。⚠️ 后端只允许两级：父一定是一个大类。
+     */
+    @SerialName("parent_id") val parentId: Long? = null,
 )
 
 @Serializable
-data class UserCategoryCreateRequest(val name: String, @SerialName("sort_order") val sortOrder: Int? = null)
+data class UserCategoryCreateRequest(
+    val name: String,
+    @SerialName("sort_order") val sortOrder: Int? = null,
+    /** 建在哪个大类下面（`null` = 建一个大类本身）。 */
+    @SerialName("parent_id") val parentId: Long? = null,
+)
 
 @Serializable
 data class UserCategoryUpdateRequest(val name: String? = null, @SerialName("sort_order") val sortOrder: Int? = null)

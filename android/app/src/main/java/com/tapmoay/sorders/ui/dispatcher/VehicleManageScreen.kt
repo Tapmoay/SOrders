@@ -244,7 +244,8 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
     var railKey by mutableStateOf("")
 
     /** 左栏选了一类之后要显示的车（搜索与分类**同时**生效）。 */
-    val shownInRail: List<VehicleDto> get() = inRail(shown, railKey) { it.category }
+    // 车辆分类名册是**平表**（没有两级）：不传 covers，显式写 nameOf（同上）。
+    val shownInRail: List<VehicleDto> get() = inRail(shown, railKey, { it.category })
 
     /** 分类名册（读不到不影响列表：静默，左栏就只有「全部」一格）。 */
     fun loadCategories() {

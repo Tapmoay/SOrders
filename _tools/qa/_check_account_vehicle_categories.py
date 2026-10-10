@@ -213,8 +213,13 @@ def main() -> int:
              "CategoryTriggerChip(" in src)
         c.ok(f"{name}：抽屉底部那格是「管理分类」", 'manageLabel = "管理分类"' in src)
         c.ok(f"{name}：选中与「管理分类」都先关抽屉", src.count("scope.launch { drawer.close() }") >= 2)
+        # 2026-10-11 CHG-0112 起账户页的抽屉是**两级**（大类 + 缩进的子类），那几格由
+        # `vm.railRows` 算出来（`CategoryDrawerItem(key, label, depth)`）——**构造的写法变了，
+        # 意图没变**：每一格只许有 key/label/深度，⛔ 不许夹带条数。所以这里判意图，
+        # 不再判某一行的字面量（判字面量会在下一次改构造时变成一条只会误报的钉子）。
+        items = re.findall(r"CategoryDrawerItem\(([^)]*)\)", src)
         c.ok(f"{name}：抽屉那几格一个条数都不显示（用户 2026-09-19 的裁定）",
-             "CategoryDrawerItem(\"\" + it.name, it.name)" in src.replace("c|", ""))
+             bool(items) and not any("count" in a.lower() for a in items))
         c.ok(f"{name}：⛔ 没有把被否掉的常驻左栏 MasterRail 引进来", "MasterRail(" not in src)
         c.ok(f"{name}：分类管理是同屏第二层（不新开路由）", "managingCategory" in src and "Panel(" in src)
     c.ok("同屏第二层是共用面板（UserCategoriesPanel / VehicleCategoriesPanel 各就各位）",

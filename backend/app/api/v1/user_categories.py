@@ -14,6 +14,21 @@
 3. **删除有名册在用的分类 → 拒绝**（告诉还有几个账号挂着）。
    不提供"顺手把账号改成未分类"的便利：那是**悄悄改数据**。
 
+## 两级（2026-10-11 CHG-0112）
+
+用户 2026-10-11：「假如我的货主和批发商做了分类的话，然后我这个账户管理就会显示
+2 级分类，也就会显示他们里面的子分类。这就方便我们去查角色嘛」。
+
+**大类是一行、子类也是一行** —— 两级的区别只是子类的 `parent_id` 指向大类
+（`NULL` = 大类本身）。所以这一层的形状**没有变成树**：出参仍是平铺的一列
+（按 `sort_order, id` 排序），谁在谁下面由 `parent_id` 表达，树由界面画。
+
+⛔ **只有两级**：父必须自己也是大类（`parent_id IS NULL`），「子类的子类」在建的时候
+就 400 拒掉（`_parent_or_400`）—— 结构里不出现第三层。
+⛔ `users.category` 存的仍然是**叶子名**（账号只认一个字符串），
+所以下面这段改名级联一个字都不用动。
+⛔ 大类**不能**在还有子类的时候删掉（子类会变成没有父的孤儿）。
+
 ⚠️ 「在用」**不含回收站里的账号**：删号时号码/用户名被加了 `_del{id}` 后缀
 （`services/soft_delete.py`），如果把它也算成"挂着这个分类"，就会出现
 "账号都删了，分类却怎么也删不掉"。口径只有 `has_del_suffix` 这一份。
@@ -76,6 +91,29 @@ def _next_sort(db: Session) -> int:
     return (top or 0) + 1
 
 
+def _parent_or_400(db: Session, parent_id: int | None) -> UserCategory | None:
+    """校验「上层分类」这一格（2026-10-11 CHG-0112）：**只两级**，父必须自己也是大类。
+
+    两条拒绝各自说清是哪一种，因为界面把这句话原样贴给用户：
+    · 父不存在（并发删掉了）→ 让他重选一个；
+    · 父自己是子类 → 「只能做两级」，别让他以为可以无限套下去。
+
+    ⚠️ 这里**不**顺手把父改掉、也不自动降级成大类：用户点的是「建在 X 下面」，
+    建到别处就是**悄悄改数据**（与本文件「删分类不顺手把账号改成未分类」同一条纪律）。
+    """
+    if parent_id is None:
+        return None
+    parent = db.get(UserCategory, parent_id)
+    if parent is None:
+        raise HTTPException(status_code=400, detail="上层分类不存在（可能刚被删掉了），换一个再试")
+    if parent.parent_id is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"只能做两级：「{parent.name}」自己就是子分类，不能再往它下面挂",
+        )
+    return parent
+
+
 def ensure_user_category(db: Session, name: str) -> UserCategory | None:
     """确保这个分类名在名册里（不在就补到最后）。给账号的新建/修改复用。
 
@@ -113,9 +151,11 @@ def create_category(
     total = db.scalar(select(func.count(UserCategory.id))) or 0
     if total >= MAX_CATEGORIES:
         raise HTTPException(status_code=400, detail=f"分类最多 {MAX_CATEGORIES} 个，请先清理一些")
+    parent = _parent_or_400(db, body.parent_id)
     row = UserCategory(
         name=body.name,
         sort_order=body.sort_order if body.sort_order is not None else _next_sort(db),
+        parent_id=parent.id if parent is not None else None,
     )
     db.add(row)
     db.flush()
@@ -124,7 +164,14 @@ def create_category(
         operator_id=current.id,
         order_id=None,
         action=OperationAction.USER_CATEGORY_UPSERT,
-        change_payload={"category_id": row.id, "name": row.name, "sort_order": row.sort_order, "op": "create"},
+        change_payload={
+            "category_id": row.id,
+            "name": row.name,
+            "sort_order": row.sort_order,
+            # 归属也要留痕：两级之后「这一格挂在哪一类下面」是名册的一部分
+            "parent_id": row.parent_id,
+            "op": "create",
+        },
     )
     db.commit()
     db.refresh(row)
@@ -211,6 +258,22 @@ def delete_category(
     row = db.get(UserCategory, category_id)
     if row is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
+    # ⛔ 还有子类时先拒（顺序在「还有账号挂着」之前）：子类会变成没有父的孤儿 ——
+    #    它仍然是一行、仍然能被点，但界面上再也说不清它属于哪一类。
+    #    与「还有账号挂着不许删」同一条纪律：不顺手把子类挪到别处（那是悄悄改数据）。
+    kids = db.scalars(
+        select(UserCategory)
+        .where(UserCategory.parent_id == row.id)
+        .order_by(UserCategory.sort_order, UserCategory.id)
+    ).all()
+    if kids:
+        shown = "、".join(k.name for k in kids[:5])
+        more = "" if len(kids) <= 5 else f" 等 {len(kids)} 个"
+        raise HTTPException(
+            status_code=400,
+            detail=f"「{row.name}」下面还有 {len(kids)} 个子分类（{shown}{more}），"
+                   "先把它们删掉或改到别的大类下面再删",
+        )
     used = _counts(db).get(row.name, 0)
     if used:
         raise HTTPException(

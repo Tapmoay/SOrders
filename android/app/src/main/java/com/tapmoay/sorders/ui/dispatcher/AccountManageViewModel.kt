@@ -139,6 +139,22 @@ class AccountManageViewModel(
     var categoryNames by mutableStateOf<List<String>>(emptyList())
         private set
 
+    /**
+     * 名册的**原始行**（含每行的 `parentId`）—— 左栏的两级与「点大类筛全子」都要它。
+     *
+     * [categoryNames] 只是它的名字那一列（自愈判断与老调用点在用）；两级之后真正决定
+     * **筛选范围**的是 [railCovers]（2026-10-11 CHG-0112）。
+     */
+    var categoryRows by mutableStateOf<List<RosterRow>>(emptyList())
+        private set
+
+    /** 左栏要画的那几格：大类一行，紧跟它的子类（子类缩进一级）。 */
+    val railRows: List<RailRow> get() = categoryRailRows(categoryRows)
+
+    /** 选中的那一格**覆盖**的分类名（点大类 = 它自己 ＋ 它下面所有子类）。
+     *  空集 = 「全部」，或那一格已经不在名册里（左栏退化成只有「全部」）。 */
+    val railCovers: Set<String> get() = railNamesUnder(categoryRows, railKey)
+
     /** 左栏选中的那一格（`c|分类名`；空串 = 全部）。 */
     var railKey by mutableStateOf("")
 
@@ -162,13 +178,16 @@ class AccountManageViewModel(
 
     /** 这一页真正要画的账号：先按搜索/名册取，再按左栏那一格、最后按状态档过一遍。 */
     val shownInRail: List<UserDto> get() =
-        inRail(shown, railKey) { it.category }.filter { matchesStatus(it, statusTab) }
+        inRail(shown, railKey, { it.category }, railCovers).filter { matchesStatus(it, statusTab) }
 
     /** 拉左栏那几格。失败**不吵**（左栏退化成只有「全部」，比弹一页错误好）。 */
     fun loadCategories() {
         viewModelScope.launch {
             try {
-                categoryNames = container.repo.userCategories().map { it.name }
+                val rows = container.repo.userCategories()
+                    .map { RosterRow(it.id, it.name, it.userCount, it.sortOrder, it.parentId) }
+                categoryRows = rows
+                categoryNames = rows.map { it.name }
                 // 选中的那一格没了（被改名/删掉）→ 自己回到「全部」：
                 // 不然用户会停在一列空名单前面，以为账号丢了。
                 if (railKey.isNotBlank() && categoryNames.none { "c|" + it == railKey }) railKey = ""

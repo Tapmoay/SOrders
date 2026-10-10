@@ -152,7 +152,9 @@ class UsersManageViewModel(
     var railKey by mutableStateOf("")
 
     /** 左栏选了一类之后要显示的那些账号（没选 = 全部）。 */
-    val shownInRail: List<UserDto> get() = inRail(shown, railKey) { it.category }
+    // 两级（2026-10-11 CHG-0112）只开在**账户管理**那一页；这一页仍是单级，
+    // 所以不传第 4 个参数（covers）—— 显式写 nameOf，⛔ 别用尾随 lambda（它会绑到最后那个参数上）。
+    val shownInRail: List<UserDto> get() = inRail(shown, railKey, { it.category })
 
     /** 分类名册（读不到不影响列表：静默，左栏就只有「全部」一格）。 */
     fun loadCategories() {

@@ -54,7 +54,15 @@ val CategoryDrawerWidth = 240.dp
  * `""` = 全部、`"c|<分类名>"` = 某一类。抽屉末尾那行动作的 `"manage"` 由零件自己加，
  * **不要**混进这个列表里（否则会跟真分类抢同一个 key）。
  */
-data class CategoryDrawerItem(val key: String, val label: String)
+data class CategoryDrawerItem(
+    val key: String,
+    val label: String,
+    /**
+     * 缩进级数：0 = 大类、1 = 子类（2026-10-11 CHG-0112：账户管理页的左栏是两级）。
+     * 默认 0 —— 地址与联系人、车辆那几份名册都是平表，一个字都不用改。
+     */
+    val depth: Int = 0,
+)
 
 /**
  * 分类入口：一行标题里的那颗小胶囊（「全部」/ 某个分类名 + 一个下拉箭头）。
@@ -146,6 +154,7 @@ fun CategoryDrawerSheet(
                     accent = accent,
                     // 「全部」用九宫格、真分类用文件夹：一眼分清"这是复位"还是"这是一类"
                     icon = if (item.key.isEmpty()) Icons.Default.Apps else Icons.Default.Folder,
+                    depth = item.depth,
                     onClick = { onPick(item.key) },
                 )
             }
@@ -171,6 +180,8 @@ private fun CategoryDrawerRow(
     accent: Color,
     onClick: () -> Unit,
     icon: ImageVector? = null,
+    /** 缩进级数（0 = 大类、1 = 子类）；只有账户管理那份名册会传 1。 */
+    depth: Int = 0,
 ) {
     // 选中那格给自己一个浅色底（只有字变色时，一列里"选中的是哪一格"要靠读字才知道；
     // 底色是 `accent.copy(alpha = 0.12f)`，与 `CategoryTriggerChip` 同一口径 —— 一色一功能）
@@ -189,6 +200,10 @@ private fun CategoryDrawerRow(
                 .padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // 子类缩进一级（2026-10-11 CHG-0112）：**不做展开箭头、不做动画** ——
+            // 用户要的是「一眼看出谁在谁下面」，展开/收起反而多一次点击
+            // （他的原话是「假如他没有那么多分类吗？一堆的话到时候查起来非常麻烦」，要的是少翻找）。
+            if (depth > 0) Spacer(Modifier.width((18 * depth).dp))
             // 图标在**最左**：一列分类的图标要对齐成一条线，人才扫得快
             // （原来画在右端，跟选中的对勾抢同一个位置）
             if (icon != null) {

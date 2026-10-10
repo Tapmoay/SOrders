@@ -103,8 +103,12 @@ fun AccountManageScreen(
                     title = "账号分类",
                     // ⛔ 一格都不显示条数（用户 2026-09-19：「那个分组下面不要显示有多少条啊，
                     //    这是多余信息」）—— 条数只在「管理分类」那个面板里出现。
-                    items = listOf(CategoryDrawerItem("", "全部")) +
-                        catVm.rows.map { CategoryDrawerItem("c|" + it.name, it.name) },
+                    // 两级（2026-10-11 CHG-0112）：大类一行，紧跟它的子类（缩进一级）。
+                    // 谁在谁下面、点大类覆盖哪些子类，都在 `AccountManageViewModel.railRows` /
+                    // `railCovers` 里算好（共用纯函数，有 JVM 单测）—— 这里只负责画。
+                    items = listOf(CategoryDrawerItem("", "全部")) + vm.railRows.map {
+                        CategoryDrawerItem(it.key, it.label, it.depth)
+                    },
                     selectedKey = vm.railKey,
                     accent = Color(AccountBrown),
                     manageLabel = "管理分类",
@@ -252,7 +256,7 @@ fun AccountManageScreen(
                         //    本身就没有账号。两句同时冒出来会互相打架（一句说"这一类没有"、
                         //    一句说"换一档"）。
                         // ⛔ 也别合并成一句笼统的"没有账号"：用户要的正是"为什么没有"。
-                        val railShown = inRail(vm.shown, vm.railKey) { it.category }
+                        val railShown = inRail(vm.shown, vm.railKey, { it.category }, vm.railCovers)
                         if (vm.shownInRail.isEmpty() && railShown.isNotEmpty()) {
                             item {
                                 EmptyView(

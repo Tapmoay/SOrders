@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Integer, String
+from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -28,6 +28,16 @@ class UserCategory(Base, TimestampMixin):
 
     ⚠️ 名册里没有的分类名**不是错误**（老数据、或别处直接写库），
     名册页会把它排在名册后面 —— 不许因为它不在名册里就把账号藏起来。
+
+    ## 两级（2026-10-11 CHG-0112）
+    用户 2026-10-11：「假如我的货主和批发商做了分类的话，然后我这个账户管理就会显示
+    2 级分类，也就会显示他们里面的子分类」。**大类是一行、子类也是一行**，
+    区别只在子类的 [parent_id] 指向大类（`NULL` = 大类本身）。
+
+    ⛔ **只有两级**：父必须自己也是大类（`parent_id IS NULL`）—— 这条由写入路径
+    （`api/v1/user_categories.py::_parent_or_400`）拦，所以结构里不出现第三层。
+    `users.category` 存的仍然是**叶子名**（账号只认一个字符串），
+    所以改名级联那段语义一个字都不用动。
     """
 
     __tablename__ = "user_categories"
@@ -37,3 +47,8 @@ class UserCategory(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     # 显示顺序：**小的在前**。新建的排到最后（不是 0 —— 排到 0 会抢在第一个前面）
     sort_order: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    # 上层分类（NULL = 大类本身）。`index=True` 的默认索引名 `ix_user_categories_parent_id`
+    # 与迁移 030 里那句 CREATE INDEX **必须同名** —— 两处建的是同一张索引，别建两条。
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("user_categories.id"), nullable=True, index=True
+    )

@@ -410,9 +410,9 @@ class AppRepository(private val api: ApiBundle) {
 
     // ---- 账号分类名册（2026-10-05；**全店一份**，账户/司机/货主/批发商四个名册页共用）----
     suspend fun userCategories() = api.shipperApi.listUserCategories()
-    suspend fun createUserCategory(name: String, sortOrder: Int? = null) =
+    suspend fun createUserCategory(name: String, sortOrder: Int? = null, parentId: Long? = null) =
         api.shipperApi.createUserCategory(
-            com.tapmoay.sorders.data.remote.dto.UserCategoryCreateRequest(name, sortOrder)
+            com.tapmoay.sorders.data.remote.dto.UserCategoryCreateRequest(name, sortOrder, parentId)
         )
 
     /** 改名 / 改顺序（`PATCH /user-categories/{id}`，后端是部分更新：null = 不动）。 */
@@ -431,8 +431,8 @@ class AppRepository(private val api: ApiBundle) {
      * ⚠️ 这样重建是安全的：后端**不允许删还挂着账号的分类**，能删掉的一定是空分类，
      * 重建出来也就还是空的 —— 不会出现「撤销之后成员看起来回来了、其实没回来」这种错觉。
      */
-    suspend fun restoreUserCategory(name: String, sortOrder: Int? = null) =
-        createUserCategory(name, sortOrder)
+    suspend fun restoreUserCategory(name: String, sortOrder: Int? = null, parentId: Long? = null) =
+        createUserCategory(name, sortOrder, parentId)
 
     /** 整份顺序一次提交（`ids[0]` 排最前）。只传一部分后端会 400。 */
     suspend fun reorderUserCategories(ids: List<Long>) =

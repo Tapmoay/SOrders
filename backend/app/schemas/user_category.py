@@ -28,6 +28,9 @@ class UserCategoryCreate(BaseModel):
     name: str = Field(..., max_length=MAX_SHORT_NAME)
     # 不传 = 排到最后（服务端算 max+1，**不是 0** —— 0 会抢在第一个前面）
     sort_order: int | None = Field(None, description="显示顺序，小的在前；不传=排到最后")
+    # 上层分类（2026-10-11 CHG-0112）。不传 = 大类本身。**只两级**：
+    # 父必须自己也是大类，否则 400 —— 校验在 api/v1/user_categories.py::_parent_or_400。
+    parent_id: int | None = Field(None, description="上层分类编号；不传=大类本身（只两级）")
 
     @field_validator("name", mode="before")
     @classmethod
@@ -62,5 +65,8 @@ class UserCategoryOut(BaseModel):
     id: int
     name: str
     sort_order: int = 0
+    #: 上层分类编号（None = 大类本身）。界面靠它把左栏画成两级 —— 大类 + 缩进的子类。
+    parent_id: int | None = None
     #: 这个分类下**在用**的账号数（删之前要让用户看见「有多少账号挂在这一类」）
+    #: ⚠️ 只数**直接挂在这一格上**的账号，**不含子类**（两级各算各的，界面才说得清）。
     user_count: int = 0

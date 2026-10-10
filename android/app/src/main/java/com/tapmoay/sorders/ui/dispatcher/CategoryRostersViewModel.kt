@@ -17,7 +17,17 @@ import kotlinx.coroutines.launch
  * （`user_count` / `vehicle_count`），所以在 VM 这一层先归一成这一行 ——
  * 面板只写一份（`ui/dispatcher/CategoryRostersPanel.kt`），不抄第二遍。
  */
-data class RosterRow(val id: Long, val name: String, val count: Int, val sortOrder: Int = 0)
+data class RosterRow(
+    val id: Long,
+    val name: String,
+    val count: Int,
+    val sortOrder: Int = 0,
+    /**
+     * 上层分类（`null` = 大类本身）。**只两级**，后端不让建第三层（2026-10-11 CHG-0112）。
+     * 车辆那份名册是平表，这一格永远是 null。
+     */
+    val parentId: Long? = null,
+)
 
 /**
  * 账号分类 / 车辆分类两份名册的**共用内核**（2026-10-05，用户：
@@ -49,6 +59,14 @@ abstract class RosterViewModel(protected val container: AppContainer) : ViewMode
         private set
 
     var draftName by mutableStateOf("")
+
+    /**
+     * 「新建」那一格要挂到哪个大类下面（`null` = 建一个大类本身）。
+     *
+     * 只有**账号分类**有二级（车辆那份是平表，面板上连这个选择器都不画）——
+     * 所以它放在共用内核里，由面板按 `parentChoices` 决定要不要显示。
+     */
+    var draftParentId by mutableStateOf<Long?>(null)
     var renaming by mutableStateOf<RosterRow?>(null)
     var renameText by mutableStateOf("")
     var deleting by mutableStateOf<RosterRow?>(null)
@@ -60,13 +78,13 @@ abstract class RosterViewModel(protected val container: AppContainer) : ViewMode
     init { load() }
 
     protected abstract suspend fun fetch(): List<RosterRow>
-    protected abstract suspend fun createRow(name: String)
+    protected abstract suspend fun createRow(name: String, parentId: Long? = null)
     protected abstract suspend fun renameRow(id: Long, name: String)
     protected abstract suspend fun deleteRow(id: Long)
     protected abstract suspend fun reorderRows(ids: List<Long>): List<RosterRow>
 
     /** 撤销删除：按原来的名字与位置重建一格（名册是硬删，见 [RosterRow] 上面那段）。 */
-    protected abstract suspend fun restoreRow(name: String, sortOrder: Int)
+    protected abstract suspend fun restoreRow(name: String, sortOrder: Int, parentId: Long? = null)
 
     fun load() {
         loading = rows.isEmpty()
@@ -89,7 +107,7 @@ abstract class RosterViewModel(protected val container: AppContainer) : ViewMode
         error = null
         viewModelScope.launch {
             try {
-                createRow(name)
+                createRow(name, draftParentId)
                 actionResult = "已新建分类：" + name
                 draftName = ""
                 load()
@@ -216,7 +234,7 @@ abstract class RosterViewModel(protected val container: AppContainer) : ViewMode
         error = null
         viewModelScope.launch {
             try {
-                createRow(clean)
+                createRow(clean, draftParentId)
                 load()
                 onDone(clean)
             } catch (e: Exception) {
@@ -231,10 +249,12 @@ abstract class RosterViewModel(protected val container: AppContainer) : ViewMode
 /** 账号分类名册（**全店一份**：账户 / 司机 / 货主 / 批发商四个名册页共用）。 */
 class UserCategoriesViewModel(container: AppContainer) : RosterViewModel(container) {
     override suspend fun fetch(): List<RosterRow> =
-        container.repo.userCategories().map { RosterRow(it.id, it.name, it.userCount, it.sortOrder) }
+        container.repo.userCategories().map {
+            RosterRow(it.id, it.name, it.userCount, it.sortOrder, it.parentId)
+        }
 
-    override suspend fun createRow(name: String) {
-        container.repo.createUserCategory(name)
+    override suspend fun createRow(name: String, parentId: Long?) {
+        container.repo.createUserCategory(name, parentId = parentId)
     }
 
     override suspend fun renameRow(id: Long, name: String) {
@@ -245,13 +265,17 @@ class UserCategoriesViewModel(container: AppContainer) : RosterViewModel(contain
         container.repo.deleteUserCategory(id)
     }
 
-    override suspend fun restoreRow(name: String, sortOrder: Int) {
+    override suspend fun restoreRow(name: String, sortOrder: Int, parentId: Long?) {
         // 名册没有回收站：撤销 = 按原名重建一格（新编号）。
-        container.repo.restoreUserCategory(name, sortOrder)
+        // **归属也要带回来**：删掉的是一个子类时，撤销必须还建在同一个大类下面
+        // （否则它会静默变成一个与原来无关的大类）。
+        container.repo.restoreUserCategory(name, sortOrder, parentId)
     }
 
     override suspend fun reorderRows(ids: List<Long>): List<RosterRow> =
-        container.repo.reorderUserCategories(ids).map { RosterRow(it.id, it.name, it.userCount, it.sortOrder) }
+        container.repo.reorderUserCategories(ids).map {
+            RosterRow(it.id, it.name, it.userCount, it.sortOrder, it.parentId)
+        }
 }
 
 /** 车辆分类名册（**全店一份**：车辆管理页）。 */
@@ -259,7 +283,8 @@ class VehicleCategoriesViewModel(container: AppContainer) : RosterViewModel(cont
     override suspend fun fetch(): List<RosterRow> =
         container.repo.vehicleCategories().map { RosterRow(it.id, it.name, it.vehicleCount, it.sortOrder) }
 
-    override suspend fun createRow(name: String) {
+    /** 车辆分类是**平表**（没有两级）：`parentId` 收下但不用 —— 见 [RosterRow.parentId]。 */
+    override suspend fun createRow(name: String, parentId: Long?) {
         container.repo.createVehicleCategory(name)
     }
 
@@ -271,7 +296,7 @@ class VehicleCategoriesViewModel(container: AppContainer) : RosterViewModel(cont
         container.repo.deleteVehicleCategory(id)
     }
 
-    override suspend fun restoreRow(name: String, sortOrder: Int) {
+    override suspend fun restoreRow(name: String, sortOrder: Int, parentId: Long?) {
         // 名册没有回收站：撤销 = 按原名重建一格（新编号）。
         container.repo.restoreVehicleCategory(name, sortOrder)
     }
