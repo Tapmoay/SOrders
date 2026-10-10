@@ -1,12 +1,21 @@
-"""AI 助手那一页的单色强调由 Google 蓝改成主题绿（CHG-0093）—— 一处定义、三处被框住的地方。
+"""AI 助手那一页的单色强调由 Google 蓝改成绿（CHG-0093；CHG-0104 起是 AI 页自己的绿）—— 一处定义、三处被框住的地方。
+
+## ⚠️ CHG-0104（2026-10-10）改的是「绿的来源」，不是「绿这件事」
+用户 2026-10-10 说「它的主颜色还是绿色……它就像微信一样……因为我希望让使用，用人跟微信一样
+亲切啊」（ref `m04856`）。CHG-0093 当年把 `AiAccent` 绑到全 App 的 `ThemeGreen` 上，
+CHG-0101 换主操作色时这一页就**隔着文件跟着一起**变成了红棕。
+CHG-0104 给它解绑：`AiChatGreen`（强调档）/ `AiChatGreenDeep`（实心档＋白字）是 AI 这一片
+**自己的**两个 token。
+⇒ 下面每条判据的**意图一个字没改**，只把锚点从 `ThemeGreen` / `ThemeGreenDeep` 换成
+`AiChatGreen` / `AiChatGreenDeep`，并补了一条「⛔ 不许再绑回 `ThemeGreen`」。
 
 ## 用户要的是什么（2026-10-09，ref m03583）
 用户发来「AI 助手」聊天页的截图，**红框圈了三处**：顶栏右侧那三颗图标（历史 / 新对话 / 设置）、
 输入行左边那颗 **⊕**、右下那颗**圆形发送键**。原话：「这个也改成就是我框起来的，也改成类似的绿色
 就是**统一主题**哦，颜色，**可以做一些稍微的区别**，然后就是给所有的模拟器都改完之后，给所有模有的
 模拟器都装上。」
-⇒ 本判据钉两件事：① 这一页的**单色强调**（`AiAccent`，一处定义、25 个消费点）必须是**主题绿**；
-② 发送键作为"主行动"**深一档**（`ThemeGreenDeep`）—— 用户明确给了"可以做一些稍微的区别"这句话。
+⇒ 本判据钉两件事：① 这一页的**单色强调**（`AiAccent`，一处定义、25 个消费点）必须是**绿**；
+② 发送键作为"主行动"**深一档**（CHG-0104 起是 `AiChatGreenDeep`）—— 用户明确给了"可以做一些稍微的区别"这句话。
 
 ## 为什么这条必须有机器的判据（这里每一处坏了都不报错、不崩、测试也不会红）
 1. **强调色退回蓝**：`private val AiAccent = Color(AiBlue)` 换回去，这一页 25 个消费点
@@ -15,7 +24,7 @@
 2. **设置页没跟上**：`AiSettingsScreen` 的 `accent` 是**另一处**定义（不是同一个常量），
    谁只改了聊天页，齿轮点进去那一页还是蓝的 —— 同一片表面一半绿一半蓝，照样没人报错。
 3. **发送键退回"跟图标同色"**：用户给的是"可以做一些稍微的区别"，
-   把 `else -> SolidColor(Color(ThemeGreenDeep))` 改回 `SolidColor(AiAccent)` 编译、运行全正常，
+   把 `else -> SolidColor(Color(AiChatGreenDeep))` 改回 `SolidColor(AiAccent)` 编译、运行全正常，
    只是主行动与入口一样重了 —— 这是**用户点名要的差别**，只有判据能守。
 4. **两档区别被抹平**：`!canSend -> SolidColor(AiAccent.copy(alpha = 0.45f))`（浅绿 = 还没东西可发）
    若被改成实心深绿，"可发 / 不可发"就彻底看不出来了（用户 2026-09-18 报过「看不清」）。
@@ -25,9 +34,10 @@
    本单**刻意不动**；`android/app/src/test/java/com/tapmoay/sorders/ui/nav/ModulesEntryTest.kt`
    还断言着 `ai.gradient == listOf(AiBlue, AiPurple, AiPink)` 与 `ai.color == AiBlue` ——
    谁把品牌三色一起刷绿，那条单测会红，但"该不该绿"这件事单测说不清，所以这里正面钉住"它没被动过"。
-7. **别人家的页面**：`ui/ai/AiOperationsScreen.kt`（AI 操作日志，并行会话的新页面）里还有两处
-   `Color(AiBlue)` —— 本单⛔不碰别人的文件，所以第 6 节把它显式列为"唯一豁免"，
-   同时保证**聊天页与设置页一处都不许再冒出来**。
+7. **别人家的页面**：`ui/ai/AiOperationsScreen.kt`（AI 操作日志）里原来还有两处
+   `Color(AiBlue)` —— CHG-0104 已经把它们一起收敛了（齿轮点进去的上一级就是设置页，
+   两页同一个控件不能一个绿一个蓝），所以第 6 节的**豁免名单已经清空**，
+   现在整目录一处 `AiBlue` 都不许剩。
 
 ## R4-BOUNDARY-JUSTIFICATION: 为什么代码边界解决不了这件事
 上面 7 条**没有一条是类型属性**：`Color` 与 `Color` 之间没有类型差（`#4285F4` 与 `#00A870` 同型），
@@ -39,17 +49,19 @@
 静默空转保护：`MIN_KT = 100`（目录被搬走 / 一个 .kt 都没扫到就红，不许"扫了 0 个也全绿"）。
 
 ## 判据
-1. `ui/ai/AiChatScreen.kt`：`AiAccent = Color(ThemeGreen)`（不再是 `Color(AiBlue)`）；
-   import 了 `ThemeGreen` / `ThemeGreenDeep`、不再 import `AiBlue`；KDoc 里留了用户口径与 ref；
+1. `ui/ai/AiChatScreen.kt`：`AiAccent = Color(AiChatGreen)`（不再是 `Color(AiBlue)`，
+   ⛔ 也不再是 `Color(ThemeGreen)`）；import 了 `AiChatGreen` / `AiChatGreenDeep`、
+   不再 import `AiBlue`；KDoc 里留了用户口径与 ref；
 2. 顶栏三颗图标（`History` / `AddComment` / `Settings`）＋ 输入行 ⊕ 全都读 `AiAccent`，
    且图标名 / `contentDescription` / `onClick` / `TapTarget` 逐字未动；
-3. 发送键：`else -> SolidColor(Color(ThemeGreenDeep))`、`!canSend -> SolidColor(AiAccent.copy(alpha = 0.45f))`、
+3. 发送键：`else -> SolidColor(Color(AiChatGreenDeep))`、`!canSend -> SolidColor(AiAccent.copy(alpha = 0.45f))`、
    `sending -> SolidColor(MaterialTheme.colorScheme.error)` 三态齐全，`onClick` / 52dp / `CircleShape` /
    `Stop ↔ ArrowUpward` 逐字未动，⛔ 不再退回单色强调；
-4. `ui/ai/AiSettingsScreen.kt`：两处 `accent` 都是 `Color(ThemeGreen)`，没有 `Color(AiBlue)` 残留；
+4. `ui/ai/AiSettingsScreen.kt`：`val accent = Color(AiChatGreen)` ＋ 分段控件 `Color(AiChatGreenDeep)`，
+   没有 `Color(AiBlue)` 残留；
 5. **品牌三段渐变没被动过**（正面证据）：`AiBrand.kt` 的三色定义、`Color.kt` 的三个 token、
    两个消费者（工作台圆钮、空状态星标）都还在；
-6. 全仓 `ui/ai/*.kt` 里读 `AiBlue` 的只剩 `AiOperationsScreen.kt`（并行会话的新页面，显式豁免）。
+6. 全仓 `ui/ai/*.kt` 里**一处 `AiBlue` 都不剩**（CHG-0104 起豁免名单为空）。
 
 用法：python _tools/qa/_check_ai_accent_green.py
 """
@@ -71,9 +83,10 @@ HOME = AND / "ui/home/RoleHomeScreen.kt"
 #: 全仓至少要有这么多 .kt（防"目录被搬走 → 一个都没扫到 → 全绿"）。
 MIN_KT = 100
 
-#: 本单**不碰**的、仍在读 AiBlue 的文件（理由写在第 6 节与变更单的 Known Limitations 里）。
-#: ⚠️ 这个名单只许变短：等并行会话那页落地后，应当另开一单把它也收掉。
-AI_BLUE_EXEMPT = {"AiOperationsScreen.kt"}
+#: 仍在读 AiBlue 的例外文件。⚠️ 这个名单只许变短。
+#: CHG-0104（2026-10-10）把最后的 `AiOperationsScreen.kt` 也收掉了 ⇒ 现在是**空的**，
+#: 第 6 节因此升级成「整目录一处都不剩」。以后再加回任何名字，都必须先说明理由。
+AI_BLUE_EXEMPT: set[str] = set()
 
 
 class Checker:
@@ -130,14 +143,19 @@ def main() -> int:
     print("== 0. 反空转：扫描本身得是活的 ==")
     c.ok(f"扫到 {len(kt)} 个 .kt（下限 {MIN_KT}）", len(kt) >= MIN_KT)
 
-    print("\n== 1. 聊天页：单色强调由 Google 蓝换成主题绿 ==")
-    c.present("AiAccent = 主题绿（#00A870，与全 App 主色同源）", screen_code,
-              r"private val AiAccent = Color\(ThemeGreen\)")
+    print("\n== 1. 聊天页：单色强调由 Google 蓝换成 AI 页自己的绿（CHG-0104 起） ==")
+    c.present("AiAccent = AI 页自己的绿（CHG-0104 起与主操作色解绑）", screen_code,
+              r"private val AiAccent = Color\(AiChatGreen\)")
     c.absent("AiAccent 不再是 Google 蓝", screen_code,
              r"private val AiAccent = Color\(AiBlue\)")
-    c.present("import 了 ThemeGreen", screen, r"^import com\.tapmoay\.sorders\.ui\.theme\.ThemeGreen$")
-    c.present("import 了 ThemeGreenDeep（发送键那一档要用）", screen,
-              r"^import com\.tapmoay\.sorders\.ui\.theme\.ThemeGreenDeep$")
+    # ⚠️ CHG-0104：绿的来源从全 App 主操作色 ThemeGreen 换成 AiChatGreen 之后，
+    #    「绑回主操作色」**重新**成了一种看上去很合理的改法 —— CHG-0101 换主色时
+    #    这一页就是因为当初写成 `Color(ThemeGreen)` 才跟着一起变红棕的。这条盯住它。
+    c.absent("AiAccent 没有再绑回 ThemeGreen（那正是 CHG-0104 的病根）", screen_code,
+             r"private val AiAccent = Color\(ThemeGreen\)")
+    c.present("import 了 AiChatGreen", screen, r"^import com\.tapmoay\.sorders\.ui\.theme\.AiChatGreen$")
+    c.present("import 了 AiChatGreenDeep（发送键那一档要用）", screen,
+              r"^import com\.tapmoay\.sorders\.ui\.theme\.AiChatGreenDeep$")
     c.absent("不再 import AiBlue（用途没了，留着就是死 import）", screen,
              r"^import com\.tapmoay\.sorders\.ui\.theme\.AiBlue$")
     # 这一条查的是**注释**（用户口径留档），所以喂原文、不喂 code_only。
@@ -168,8 +186,8 @@ def main() -> int:
               r"IconButton\(onClick = onTogglePanel, enabled = !sending\)")
 
     print("\n== 3. 发送键：主行动深一档，三态与语义逐字未动 ==")
-    c.present("可发送 = 深一档主题绿（用户说的「稍微的区别」）", screen_code,
-              r"else -> SolidColor\(Color\(ThemeGreenDeep\)\)")
+    c.present("可发送 = 深一档（用户说的「稍微的区别」）", screen_code,
+              r"else -> SolidColor\(Color\(AiChatGreenDeep\)\)")
     c.absent("⛔ 可发送不再与三颗图标同色（退回单色强调就是抹掉主次）", screen_code,
              r"else -> SolidColor\(AiAccent\)")
     c.present("不可发送 = 淡绿（看得见按钮、但看得出还不能发）", screen_code,
@@ -186,14 +204,14 @@ def main() -> int:
               r"contentDescription = if \(sending\) \"停止\" else \"发送\",")
 
     print("\n== 4. 设置页：同一片表面的另一半也得是绿的 ==")
-    c.present("accent = 主题绿（思考档位那一行的强调色）", settings_code,
-              r"val accent = Color\(ThemeGreen\)")
+    c.present("accent = AI 页自己的绿（思考档位那一行的强调色）", settings_code,
+              r"val accent = Color\(AiChatGreen\)")
     c.present("SegmentedPicker 的 accent 同源", settings_code,
-              r"accent = Color\(ThemeGreen\),")
+              r"accent = Color\(AiChatGreenDeep\),")
     c.absent("设置页里没有 Color(AiBlue) 残留", settings_code, r"Color\(AiBlue\)")
     c.absent("设置页不再 import AiBlue", settings, r"^import com\.tapmoay\.sorders\.ui\.theme\.AiBlue$")
-    c.present("设置页 import 了 ThemeGreen", settings,
-              r"^import com\.tapmoay\.sorders\.ui\.theme\.ThemeGreen$")
+    c.present("设置页 import 了 AiChatGreen", settings,
+              r"^import com\.tapmoay\.sorders\.ui\.theme\.AiChatGreen$")
 
     print("\n== 5. 品牌三段渐变：本单刻意没动它（正面证据） ==")
     c.present("AiBrand：三色顺序仍是 蓝→紫→粉", brand_code,
@@ -209,7 +227,7 @@ def main() -> int:
     c.present("消费者②：聊天页空状态星标仍用渐变", screen,
               r"\.background\(aiBrandBrush\(\), RoundedCornerShape")
 
-    print("\n== 6. 全仓 ui/ai：还读 AiBlue 的只剩并行会话那一页（显式豁免） ==")
+    print("\n== 6. 全仓 ui/ai：一处 AiBlue 都不剩（CHG-0104 把豁免名单清空了） ==")
     strays: list[str] = []
     for p in sorted(AI_DIR.rglob("*.kt")):
         for i, line in enumerate(code_only(read(p)).splitlines(), 1):
@@ -218,7 +236,7 @@ def main() -> int:
             if p.name in AI_BLUE_EXEMPT:
                 continue
             strays.append(f"{p.relative_to(ROOT)}:{i} {line.strip()[:60]}")
-    c.ok("聊天页与设置页一处 AiBlue 都不剩", not strays,
+    c.ok("ui/ai 整目录一处 AiBlue 都不剩", not strays,
          "还在：" + " / ".join(strays[:5]))
 
     print("\n" + "=" * 60)

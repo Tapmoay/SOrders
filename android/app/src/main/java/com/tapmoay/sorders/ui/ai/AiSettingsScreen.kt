@@ -53,8 +53,9 @@ import com.tapmoay.sorders.ui.common.PrimaryActionButton
 import com.tapmoay.sorders.ui.common.SectionCard
 import com.tapmoay.sorders.ui.common.SegmentedPicker
 import com.tapmoay.sorders.ui.common.appViewModel
+import com.tapmoay.sorders.ui.theme.AiChatGreen
+import com.tapmoay.sorders.ui.theme.AiChatGreenDeep
 import com.tapmoay.sorders.ui.theme.Success
-import com.tapmoay.sorders.ui.theme.ThemeGreen
 import com.tapmoay.sorders.ui.common.Hint
 
 /**
@@ -81,10 +82,15 @@ fun AiSettingsScreen(
 ) {
     val vm: AiSettingsViewModel = appViewModel { AiSettingsViewModel(ai) }
     val snackbar = remember { SnackbarHostState() }
-    // 这一页的强调色＝主题绿（与聊天页的 AiAccent 同源）。
+    // 这一页的强调色＝AI 页那个绿 AiChatGreen（与聊天页的 AiAccent 同源）。
     // 2026-10-09：原来读 Google AI 蓝 Color(AiBlue)，用户指着聊天页截图说「统一主题」（ref m03583），
     // 而齿轮点进来就是这一页 —— 同一片表面不能一半绿一半蓝，所以这里一起收敛。
-    val accent = Color(ThemeGreen)
+    // 2026-10-10 CHG-0104：跟着聊天页从 Color(ThemeGreen) 换成 AiChatGreen —— 原来那个写法
+    // 会让这一页跟着全 App 主操作色走，CHG-0101 换主色时它**跟着变成了红棕**（用户 ref m04856
+    // 要的是「它的主颜色还是绿色……就像微信一样」）。⛔ 别再写回 ThemeGreen。
+    // ⚠️ 本页凡是**实心底 + 白字**的地方一律读 AiChatGreenDeep（白字 5.59:1；accent 只有 4.03:1），
+    //    见下面「保存」按钮与那个 SegmentedPicker 的选中态。
+    val accent = Color(AiChatGreen)
 
     // 能力开关（查询类 / 操作类 / 可读的列表）收在底部抽屉里，见文件中间那段注释。
     var showCapabilitySheet by remember { mutableStateOf(false) }
@@ -449,7 +455,9 @@ fun AiSettingsScreen(
                         selected = ThinkingLevel.entries.indexOf(vm.thinkingLevel).coerceAtLeast(0),
                         onSelect = { i -> vm.thinkingLevel = ThinkingLevel.entries[i] },
                         // 与聊天页的切换面板同色：同一个 App 里同一个控件的强调色不能两样
-                        accent = Color(ThemeGreen),
+                        // ⚠️ 深那一档：分段控件的选中态是**文字**，坐在这色 14% 的浅底上
+                        //    （AiChatGreen 只有 3.43:1，AiChatGreenDeep 是 4.62:1 ✅）。
+                        accent = Color(AiChatGreenDeep),
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -542,7 +550,9 @@ fun AiSettingsScreen(
                         text = "保存",
                         icon = Icons.Default.Save,
                         onClick = { vm.save() },
-                        containerColor = accent,
+                        // ⚠️ 实心底 + 白字 ⇒ 必须是深那一档（5.59:1）。别图省事写 `accent`：
+                        //    AiChatGreen 压白字只有 4.03:1，不到 AA 的 4.5。
+                        containerColor = Color(AiChatGreenDeep),
                         modifier = Modifier.weight(1f),
                     )
                 }

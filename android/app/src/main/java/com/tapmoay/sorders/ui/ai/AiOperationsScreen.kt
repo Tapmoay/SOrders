@@ -43,7 +43,8 @@ import com.tapmoay.sorders.ui.common.SectionCard
 import com.tapmoay.sorders.ui.common.SegmentedPicker
 import com.tapmoay.sorders.ui.common.TruncationNote
 import com.tapmoay.sorders.ui.common.appViewModel
-import com.tapmoay.sorders.ui.theme.AiBlue
+import com.tapmoay.sorders.ui.theme.AiChatGreen
+import com.tapmoay.sorders.ui.theme.AiChatGreenDeep
 import com.tapmoay.sorders.ui.theme.Success
 import com.tapmoay.sorders.ui.theme.SuccessDark
 import com.tapmoay.sorders.ui.theme.ThemeMode
@@ -82,7 +83,7 @@ fun AiOperationsScreen(
                 onBack = onBack,
                 subtitleTrailing = {
                     IconButton(onClick = { vm.load() }, enabled = !vm.loading) {
-                        Icon(Icons.Default.Refresh, contentDescription = "刷新", tint = Color(AiBlue))
+                        Icon(Icons.Default.Refresh, contentDescription = "刷新", tint = Color(AiChatGreen))
                     }
                 },
             )
@@ -97,7 +98,12 @@ fun AiOperationsScreen(
                 labels = listOf("全部", "只看失败"),
                 selected = if (vm.onlyFailed) 1 else 0,
                 onSelect = { i -> vm.applyOnlyFailed(i == 1) },
-                accent = Color(AiBlue),
+                // CHG-0104（台账 L-66）：这里原来读 Google 蓝 Color(AiBlue)。AI 助手这一片
+                // （聊天页 / 设置页 / 本页）在 CHG-0091 就统一过，只有本页漏了 —— 齿轮点进来
+                // 的上一级就是设置页，两页的同一个控件一个绿一个蓝，正是设置页注释里禁的那件事。
+                // ⚠️ 深那一档：分段控件的选中态是**文字**（坐在这个色 14% 的浅底上），
+                //    AiChatGreen 3.43:1 不到 AA，AiChatGreenDeep 4.62:1 ✅。
+                accent = Color(AiChatGreenDeep),
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
             Hint(

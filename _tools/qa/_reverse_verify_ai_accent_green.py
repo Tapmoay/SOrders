@@ -40,22 +40,29 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "强调色退回 Google 蓝（这一页 25 个消费点一起变回蓝）",
         SCREEN,
-        lambda s: s.replace("private val AiAccent = Color(ThemeGreen)",
+        lambda s: s.replace("private val AiAccent = Color(AiChatGreen)",
                             "private val AiAccent = Color(AiBlue)", 1),
-        "AiAccent = 主题绿",
+        "AiAccent = AI 页自己的绿",
     ),
     (
         "import 又回到 AiBlue（用途已经没了，留着的就是死 import）",
         SCREEN,
-        lambda s: s.replace("import com.tapmoay.sorders.ui.theme.ThemeGreen" + NL,
+        lambda s: s.replace("import com.tapmoay.sorders.ui.theme.AiChatGreen" + NL,
                             "import com.tapmoay.sorders.ui.theme.AiBlue" + NL, 1),
-        "import 了 ThemeGreen",
+        "import 了 AiChatGreen",
     ),
     (
-        "发送键那一档要用的 ThemeGreenDeep 没 import（编译前先红）",
+        "发送键那一档要用的 AiChatGreenDeep 没 import（编译前先红）",
         SCREEN,
-        lambda s: s.replace("import com.tapmoay.sorders.ui.theme.ThemeGreenDeep" + NL, "", 1),
-        "import 了 ThemeGreenDeep",
+        lambda s: s.replace("import com.tapmoay.sorders.ui.theme.AiChatGreenDeep" + NL, "", 1),
+        "import 了 AiChatGreenDeep",
+    ),
+    (
+        "强调色又绑回全 App 主操作色 ThemeGreen（CHG-0101 那个雷复发：别人换主色它就跟着跑）",
+        SCREEN,
+        lambda s: s.replace("private val AiAccent = Color(AiChatGreen)",
+                            "private val AiAccent = Color(ThemeGreen)", 1),
+        "AiAccent 没有再绑回 ThemeGreen",
     ),
     (
         "顶栏「历史」那颗不再读强调色（三颗里漏一颗＝还是旧色）",
@@ -101,9 +108,9 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "发送键退回与三颗图标同色（用户点名要的「稍微的区别」被抹掉）",
         SCREEN,
-        lambda s: s.replace("else -> SolidColor(Color(ThemeGreenDeep))",
+        lambda s: s.replace("else -> SolidColor(Color(AiChatGreenDeep))",
                             "else -> SolidColor(AiAccent)", 1),
-        "可发送 = 深一档主题绿",
+        "可发送 = 深一档",
     ),
     (
         "发送键两档区别被抹平：空格子也画实心深绿（「可发/不可发」彻底看不出来）",
@@ -143,13 +150,13 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "AI 设置页那一处强调色没跟上（同一片表面一半绿一半蓝）",
         SETTINGS,
-        lambda s: s.replace("val accent = Color(ThemeGreen)", "val accent = Color(AiBlue)", 1),
-        "accent = 主题绿",
+        lambda s: s.replace("val accent = Color(AiChatGreen)", "val accent = Color(AiBlue)", 1),
+        "accent = AI 页自己的绿",
     ),
     (
         "设置页 SegmentedPicker 的 accent 单独退回蓝（两处不同源）",
         SETTINGS,
-        lambda s: s.replace("accent = Color(ThemeGreen),", "accent = Color(AiBlue),", 1),
+        lambda s: s.replace("accent = Color(AiChatGreenDeep),", "accent = Color(AiBlue),", 1),
         "SegmentedPicker 的 accent 同源",
     ),
     (
@@ -179,7 +186,7 @@ CASES: list[tuple[str, str, object, str]] = [
         lambda s: re.sub(r"tint = AiAccent, modifier = Modifier\.size\(16\.dp\)\)",
                          "tint = Color(AiBlue), modifier = Modifier.size(16.dp))",
                          s, count=1),
-        "聊天页与设置页一处 AiBlue 都不剩",
+        "ui/ai 整目录一处 AiBlue 都不剩",
     ),
 ]
 

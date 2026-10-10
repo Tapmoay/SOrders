@@ -2108,7 +2108,10 @@ def main() -> int:
     # ⚠️ 2026-10-09 / CHG-0093：**单色强调那一件已经不再跟 Google 蓝走了** ——
     #    全 App 主色换成低饱和深绿（CHG-0091）之后，用户指着聊天页的截图要求「统一主题」
     #    （ref m03583，框的是顶栏三颗图标 + 输入行 ⊕ + 发送键）⇒ 聊天页与设置页的强调色
-    #    改成主题绿 ThemeGreen、发送键改成深一档的 ThemeGreenDeep。
+    #    改成绿、发送键改成深一档。
+    # ⚠️ 2026-10-10 / CHG-0104：用户又说「它的主颜色还是绿色……它就像微信一样」（ref m04856），
+    #    于是绿的**来源**从借来的 `ThemeGreen` 换成 AI 这一片自己的 `AiChatGreen` /
+    #    `AiChatGreenDeep`（CHG-0101 换主操作色时，这一页因为借了语义而跟着变成红棕）。
     #    **品牌三段渐变本身不动**（它是"AI 品牌徽章"不是"强调色"，见下面那几条 present）。
     # 为什么要断言：渐变只要有一处颜色顺序写反或退化成单色，**没有任何功能测试会报错**，
     # 只会"看起来不像 AI 了"——这种偏差只能靠断言 + 只有一处定义来守。
@@ -2136,16 +2139,20 @@ def main() -> int:
     #    而 2026-09-18 用户明确要求发送键改成蓝色（「灰色的话不是很明显、很不容易看清」），
     #    于是把它换成钉**可见性**：两档都必须是品牌蓝家族，**任何一档都不许退回灰色**。
     #    钉"用了哪个画刷"会随设计调整反复红；钉"不许是灰的"才是这条红线真正守的东西。
-    c.present("发送键有内容时是主题绿、深一档（CHG-0093）", screen, r"else -> SolidColor\(Color\(ThemeGreenDeep\)\)")
+    c.present("发送键有内容时是 AI 页的绿、深一档（CHG-0093 / CHG-0104）", screen, r"else -> SolidColor\(Color\(AiChatGreenDeep\)\)")
     c.present("发送键空格子时是**淡绿**而不是灰", screen, r"!canSend -> SolidColor\(AiAccent\.copy\(alpha = 0\.45f\)\)")
     c.absent(
         "发送键任何一档都不许用 surfaceVariant/outline 这类灰（用户报过「看不清」）",
         screen,
         r"!canSend -> [^\n]*colorScheme\.(surfaceVariant|outline)",
     )
-    c.present("发送键停止态仍用单色红（不跟主题绿混）", screen, r"SolidColor\(MaterialTheme\.colorScheme\.error\)")
-    c.present("单色强调 = 主题绿（CHG-0093；不再是 Google 蓝）", screen, r"private val AiAccent = Color\(ThemeGreen\)")
-    c.present("设置页强调色同源（同一片表面不能一半绿一半蓝）", settings, r"val accent = Color\(ThemeGreen\)")
+    c.present("发送键停止态仍用单色红（不跟强调绿混）", screen, r"SolidColor\(MaterialTheme\.colorScheme\.error\)")
+    # ⚠️ CHG-0104（2026-10-10）：绿的来源从全 App 主操作色 `ThemeGreen` 换成 AI 页自己的
+    #    `AiChatGreen`（用户 ref `m04856`「它的主颜色还是绿色……它就像微信一样」）。
+    #    意图一个字没变 —— 还是"单色强调 = 绿"，只是不再借别人的语义：CHG-0091 那次写成
+    #    `Color(ThemeGreen)`，CHG-0101 换主操作色时这一页就隔着文件跟着一起变红棕了。
+    c.present("单色强调 = AI 页自己的绿（CHG-0093 起不再是 Google 蓝；CHG-0104 起不再绑主操作色）", screen, r"private val AiAccent = Color\(AiChatGreen\)")
+    c.present("设置页强调色同源（同一片表面不能一半绿一半蓝）", settings, r"val accent = Color\(AiChatGreen\)")
     c.present("派单端圆钮也用同一个渐变（同一个 AI 不该有两种外观）", home, r"\.background\(aiBrandBrush\(\), CircleShape\)")
     # 输入框提示语：举一个用户自己做不到的例子，等于教错（他照着敲一句，得到的
     # 只会是"你没这个权限"，然后不会再敲第二句）。空状态与提示语都必须按角色给。

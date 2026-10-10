@@ -99,9 +99,9 @@ import com.tapmoay.sorders.ui.common.DangerConfirmDialog
 import com.tapmoay.sorders.ui.common.OneShotSnackbar
 import com.tapmoay.sorders.ui.common.SegmentedPicker
 import com.tapmoay.sorders.ui.common.appViewModel
+import com.tapmoay.sorders.ui.theme.AiChatGreen
+import com.tapmoay.sorders.ui.theme.AiChatGreenDeep
 import com.tapmoay.sorders.ui.theme.MoneyOrange
-import com.tapmoay.sorders.ui.theme.ThemeGreen
-import com.tapmoay.sorders.ui.theme.ThemeGreenDeep
 import com.tapmoay.sorders.ui.theme.aiBrandBrush
 import kotlinx.coroutines.launch
 import com.tapmoay.sorders.ui.common.Hint
@@ -161,20 +161,31 @@ private val ExportActionButtonSize = 44.dp
 private val ExportActionGap = 12.dp
 
 /**
- * AI 的单色强调色 = **主题绿**（#00A870，与全 App 的主操作色同源）。
+ * AI 的单色强调色 = **AI 页自己的绿** [AiChatGreen]（`#4B8C5E`，台账 L-66 / CHG-0104）。
  *
  * 界面里凡是要"表示这是 AI"的单色元素（顶栏那三颗图标、输入行的 ⊕、链接、选中态、
  * 侧栏与抽屉、块引与代码块描边）都读它：**一处定义，这一页所有"这是 AI"的地方一起变**。
  *
- * 历史：原来写的是 Google AI 蓝 `#4285F4`（品牌渐变的起点）。2026-10-09 全 App 主色换成
- * 低饱和深绿（CHG-0091）之后，用户指着这一页的截图说「改成就是我框起来的……统一主题哦」
- * （ref `m03583`，框的是顶栏三颗图标 + 输入行 ⊕ + 发送键）⇒ 收敛到主题绿。
+ * 历史：
+ * · 原来写的是 Google AI 蓝 `#4285F4`（品牌渐变的起点）；
+ * · 2026-10-09 用户指着这一页的截图说「改成就是我框起来的……统一主题哦」（ref `m03583`，
+ *   框的是顶栏三颗图标 + 输入行 ⊕ + 发送键）⇒ 改成读 `ThemeGreen`。
+ *   ⚠️ **那次改动埋了一个雷**：它让这一页的强调色跟着全 App 的主操作色走 —— 于是
+ *   CHG-0101 把主操作色从绿换成红棕 `#8B4A4A` 时，**AI 页毫无防备地一起变成了红棕**。
+ * · CHG-0104 拆开：这一页改读自己那一对 token（用户 ref `m04856`：「它的主颜色还是绿色……
+ *   它就像微信一样……我希望让使用……跟微信一样亲切」）。
+ *
+ * ⛔ **别再写回 `Color(ThemeGreen)`**：那等于把 AI 页的配色绑回全 App 主操作色，
+ *    下次换主色它还会跟着变。这一页要的是"像微信"的那个绿，与主操作色**无关**。
+ * ⛔ **也不要拿它去压白字**：它是强调色档，白字只有 4.03:1（不到 AA 4.5）。
+ *    凡"实心底 + 白字"的地方一律读 [AiChatGreenDeep]（5.59:1），本文件里的
+ *    「新对话」「去设置」两颗按钮与那颗发送键就是这么写的。
  * ⚠️ 品牌三段渐变（[aiBrandBrush] 的蓝→紫→粉）**不在这里**：那是"AI 品牌徽章"
  *    （工作台圆钮、聊天空状态星标），不是强调色，本单刻意没动它。
- * ⚠️ 发送键**不在**这里：它读 [ThemeGreenDeep]（深一档）——用户给的口径是
+ * ⚠️ 发送键**用的不是这个值**：它读 [AiChatGreenDeep]（深一档）——用户给的口径是
  *    「颜色可以做一些稍微的区别」：三颗图标是"入口"，发送键是"主行动"。
  */
-private val AiAccent = Color(ThemeGreen)
+private val AiAccent = Color(AiChatGreen)
 
 /**
  * 确认卡明细区的最大高度。
@@ -1020,7 +1031,11 @@ private fun ModelSwitchSheet(
                 labels = ThinkingLevel.entries.map { it.label },
                 selected = ThinkingLevel.entries.indexOf(vm.thinkingLevel).coerceAtLeast(0),
                 onSelect = { i -> vm.switchThinkingLevel(ThinkingLevel.entries[i]) },
-                accent = AiAccent,
+                // ⚠️ 这里传**深那一档**，不是 [AiAccent]：分段控件的选中态是**文字**
+                //    （Components.kt 的 `color = if (sel) accent else onSurfaceVariant`），
+                //    而它坐在这个色 14% 的浅底上 —— AiChatGreen 只有 3.43:1（不到 AA 的 4.5），
+                //    AiChatGreenDeep 是 4.62:1 ✅。这一页为什么有两个绿，见 [AiAccent] 的注释。
+                accent = Color(AiChatGreenDeep),
             )
             Text(
                 vm.thinkingLevel.hint,
@@ -1139,7 +1154,7 @@ private fun HistoryDrawer(
         Button(
             onClick = onNew,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).heightIn(min = TapTarget),
-            colors = ButtonDefaults.buttonColors(containerColor = AiAccent, contentColor = Color.White),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(AiChatGreenDeep), contentColor = Color.White),
         ) {
             Icon(Icons.Default.AddComment, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
@@ -1370,9 +1385,14 @@ private fun MessageRow(
                 Spacer(Modifier.height(6.dp))
             }
 
+            // 用户自己发出去的那一句：底色读 **AI 页自己的深档**（CHG-0104）。
+            // 原来是 `MaterialTheme.colorScheme.primary` —— 那是**全 App 的主操作色**，
+            // 于是 CHG-0101 换主色时这一条气泡隔着主题一起变成红棕，而这一页别的强调点
+            // 已经全绿了：一页上就它一个红棕，正是用户说的「改了其他颜色」。
+            // 微信里自己发出去的那条就是绿的 ⇒ 这里跟着换回来（白字 5.59:1，过 AA）。
             val bubbleColor = when {
                 m.isError -> MaterialTheme.colorScheme.errorContainer
-                isUser -> MaterialTheme.colorScheme.primary
+                isUser -> Color(AiChatGreenDeep)
                 else -> MaterialTheme.colorScheme.surfaceVariant
             }
             val bubbleText = when {
@@ -1714,7 +1734,7 @@ private fun ExportFileRow(
                                     Icons.Default.Check,
                                     contentDescription = null,
                                     modifier = Modifier.size(13.dp),
-                                    tint = Color(ThemeGreen),
+                                    tint = AiAccent,
                                 )
                             }
                         }
@@ -1749,7 +1769,7 @@ private fun ExportFileRow(
                     enabled = actions.shareEnabled,
                     modifier = Modifier.size(ExportActionButtonSize),
                     colors = IconButtonDefaults.iconButtonColors(
-                        contentColor = Color(ThemeGreen),
+                        contentColor = AiAccent,
                         disabledContentColor = MaterialTheme.colorScheme.outlineVariant,
                     ),
                 ) {
@@ -2061,7 +2081,7 @@ private fun NotConfiguredCard(onOpenSettings: () -> Unit, onRecheck: () -> Unit)
                 onClick = onOpenSettings,
                 modifier = Modifier.fillMaxWidth().heightIn(min = TapTarget),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = AiAccent,
+                    containerColor = Color(AiChatGreenDeep),
                     contentColor = Color.White,
                 ),
             ) {
@@ -2397,13 +2417,19 @@ private fun InputBar(
                                 //
                                 // 改法：**始终是绿的**，只用深浅区分两态——
                                 //   空格子 = 淡绿（看得见"这儿有个发送键"，但仍看得出"还没东西可发"）
-                                //   有内容 = 深绿（ThemeGreenDeep，比顶栏那三颗图标深一档）
+                                //   有内容 = 深绿（AiChatGreenDeep，比顶栏那三颗图标深一档）
                                 // 用户 2026-10-09 的口径是「改成类似的绿色……颜色可以做一些稍微的区别」
                                 // （ref `m03583`）——三颗图标是"入口"、发送键是"主行动"，深一档正好分主次。
                                 // 不敢两边都用实心深绿：那会让"可发/不可发"彻底消失，
                                 // 用户点了没反应比看不清更困惑（这条是原来那行注释里的顾虑，依然成立）。
+                                //
+                                // ⚠️ 2026-10-10 CHG-0104 之前这里读的是 `ThemeGreenDeep`（全 App 那个
+                                //    深一档）—— 两个毛病：① CHG-0101 把主操作色换成红棕之后这颗键**变成红的**，
+                                //    而用户要的是「它的主颜色还是绿色……就像微信一样」（ref `m04856`）；
+                                //    ② 别的页面（比如订单卡的"确认接单"）调一下 `ThemeGreenDeep`，
+                                //    这颗发送键会**隔着文件跟着变**。现在读 AI 页自己那一档，绑死。
                                 !canSend -> SolidColor(AiAccent.copy(alpha = 0.45f))
-                                else -> SolidColor(Color(ThemeGreenDeep))
+                                else -> SolidColor(Color(AiChatGreenDeep))
                             },
                             shape = CircleShape,
                         ),
