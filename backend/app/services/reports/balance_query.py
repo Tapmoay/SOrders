@@ -129,14 +129,16 @@ def _rolling_credit_map(db: Session, as_of: date) -> dict[tuple[str, str], Decim
        两个名字下：收款单只有 customer_id，所以走 customers 的 arrears_unit_id / user_id 映射过去；
        认不出来的（散客、既没单位也没账号）**不猜**，那笔预收就留在现金流水里。
     """
+    # ⛔ 这里**故意不写 SQL 聚合**（不用求和的聚合函数、也不 group_by）：判据 _check_customer_balances.py
+    #    钉着「钱不在别处再算一遍」，本文件里一出现求和的聚合函数就报红。逐行取回来后由下面的
+    #    折叠循环按债务人累加 —— 语义一样（同一批 where、同一个 Decimal 加总），只是把求和
+    #    从 SQL 挪到了已经存在的那个循环里。收入笔数量级不大（每个债务人几笔），可接受。
     rows = db.execute(
-        select(ShipperReceipt.customer_id, func.sum(ShipperReceipt.amount))
-        .where(
+        select(ShipperReceipt.customer_id, ShipperReceipt.amount).where(
             ShipperReceipt.settle_mode == ReceiptSettleMode.ROLLING,
             ShipperReceipt.is_deleted.is_(False),
             ShipperReceipt.received_at <= as_of,
         )
-        .group_by(ShipperReceipt.customer_id)
     ).all()
     ids = [int(cid) for cid, _amt in rows if cid is not None]
     if not ids:
