@@ -278,33 +278,71 @@ def second_shipper(api: Api, rep: Report) -> str | None:
     return None
 
 
-def registration_closed(api: Api, rep: Report) -> None:
-    """自助注册必须**整体关掉**（2026-09-18 用户要求：「注册接口关掉，不需要用了」）。
+def registration_boundary(api: Api, rep: Report) -> None:
+    """自助注册的边界（2026-10-11 FEAT-0017 之后：**注册是开的，短信那条仍然关着**）。
 
-    判据是**效果**：两条路径都取不到（404），且库里账号数一个没多。
-    这条以前是"报缺陷"的（本地 `sms_reveal_code=true` 时验证码明文回显，
-    任何人都能自助开一个货主账号）；现在反过来——**它要是又能用了，才算缺陷**。
+    ## 这个探针换过一次方向，两段历史都要留住
+    - **2026-09-18**：注册整体删掉（用户：「注册接口关掉，不需要用了」）。当时的判据是
+      "两条路径都取不到（404）、账号数没变"，因为**没人用的公开写接口**就是纯攻击面，
+      而且本地 `sms_reveal_code=true` 时验证码明文回显＝任何人都能自助开货主号。
+    - **2026-10-11（FEAT-0017）**：用户要求在 App 登录页自助注册 ⇒ 端点回来，连入口一起加。
+      所以现在**"注册能建出号"不是缺陷**；缺陷变成下面这三条：
+      ① 短信验证码那条路又开了（当年删它的真正理由，本次范围不含）；
+      ② 建出来的号**不是货主**（提权：自助注册出派单员＝任何人都能管整个系统）；
+      ③ 明文通道上注册居然成功（密码裸奔）。
+    这条探针**会真的建一个号**（走的就是"效果"这条路：只查源码看不出来默认角色到底写没写对）；
+    号是随机手机号、且下面会核出它是货主，不会污染别的判断。
     """
-    rep.section("自助注册已关闭（用户要求）")
+    rep.section("自助注册的边界（FEAT-0017：注册开、短信关、默认货主）")
     phone = "139" + str(uuid.uuid4().int)[:8]
     before = db_q("select count(*) from users")[0][0]
 
     code = api.post("/auth/sms/send", {"phone": phone}, allow_denied=True)
-    reg = api.post("/auth/register", {
-        "phone": phone, "username": phone, "password": "123321",
-        "verification_code": (code.body or {}).get("code") if isinstance(code.body, dict) else "000000",
-    }, allow_denied=True)
+    if code.status != 404:
+        rep.bug(
+            "注册验证码那条路又开了（2026-09-18 删它的真正理由：本地 sms_reveal_code=true 时明文回显）",
+            f"POST /auth/sms/send → {code.status}",
+        )
+    else:
+        rep.ok("注册验证码那条路仍然关着（404）")
+
+    reg = api.post(
+        "/auth/register",
+        {"phone": phone, "password": "123321"},
+        allow_denied=True,
+    )
     after = db_q("select count(*) from users")[0][0]
 
-    if code.status == 404 and reg.status == 404 and after == before:
-        rep.ok(f"注册与验证码两条路径都取不到（404），账号数没变（{before}）")
-        return
-    rep.bug(
-        "自助注册又能用了（App 里已经没有这个入口，接口却公开）",
-        f"POST /auth/sms/send → {code.status}；POST /auth/register → {reg.status}；"
-        f"users 从 {before} 变 {after}（手机号 {phone}）",
-    )
-    rep.guard("这次没有真的建出账号（不然要手工清）", after == before, f"多出 {after - before} 个账号")
+    if reg.status == 200:
+        rows = db_q("select role, is_member, is_active, category from users where phone=%s", (phone,))
+        role, is_member, is_active, category = (rows[0] if rows else ("?", "?", "?", "?"))
+        # ⚠️ SQLite 里 `user_role` 存的是枚举**名**（大写下划线），不是 API 的小写值 ——
+        #    照 API 的形状写 `role == "shipper"` 会恒假，把"角色其实是对的"报成缺陷。
+        role_norm = str(role or "").strip().lower()
+        if role_norm == "shipper" and not is_member and is_active and (category or "") == "":
+            rep.ok(f"自助注册建出来的是货主（shipper / 非批发商 / 启用 / 无分类），账号数 {before}→{after}")
+        else:
+            rep.bug(
+                "自助注册建出来的账号属性不对（默认货主是用户明确要求，不是可选）",
+                f"phone={phone} role={role} is_member={is_member} is_active={is_active} category={category!r}",
+            )
+    elif reg.status == 429:
+        rep.ok("自助注册被限流挡住（429）—— 这台机器上注册次数已用满，属预期")
+    else:
+        rep.bug(
+            "自助注册端点取不到（FEAT-0017 之后它必须是开着的；App 登录页的入口依赖它）",
+            f"POST /auth/register → {reg.status}，body={str(reg.body)[:200]}",
+        )
+
+    plain = api.post("/auth/register", {"phone": phone, "password": "123321"},
+                     headers={"X-Forwarded-Proto": "http"}, allow_denied=True)
+    if plain.status == 426:
+        rep.ok("明文通道上注册被拒（426）—— 与登录同一道防线")
+    else:
+        rep.bug(
+            "明文通道上注册竟然成功了（密码在公网上裸奔）",
+            f"带 X-Forwarded-Proto: http 的 POST /auth/register → {plain.status}",
+        )
 
 
 def body_gate_retest(api: Api, rep: Report) -> None:
@@ -530,7 +568,7 @@ def main() -> int:
               matched >= 100, f"实际 {matched}/{len(ops)}")
 
     anonymous_behaviour(api, rep, decl, ops)
-    registration_closed(api, rep)
+    registration_boundary(api, rep)
     tamper_behaviour(api, rep, ops)
     role_matrix(api, rep, decl, ops)
     body_gate_with_valid_body(api, rep, decl, ops)

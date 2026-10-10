@@ -1,8 +1,15 @@
 """登录与令牌。
 
-⚠️ `create_user`（自助注册）已于 2026-09-18 随 `POST /auth/register` 一起删除。
-建账号的唯一入口是派单员 `POST /api/v1/users`（见 `api/v1/users.py::create_user`，
-那里走 `schemas/user.py` 的校验与权限点）。
+⚠️ 历史与现状（`create_user` 的两段）：自助注册的服务层函数曾于 2026-09-18 随
+`POST /auth/register` 一起删除；**2026-10-11（FEAT-0017）用户要求把注册拿回来**。
+现状是**两条**建号路径，各管一种场景：
+- 派单员 `POST /api/v1/users`（`api/v1/users.py::create_user`）—— 建**任意角色**的账号，
+  要 token + `Permission.USER_MANAGE`，走 `schemas/user.py` 的全量校验；
+- 自助注册 `POST /api/v1/auth/register`（`api/v1/auth.py::register`）—— **公开**端点，
+  只能建**货主**，属性全部由服务端写死。
+两条路径都经过 `core/phone.py` 的同一份手机号规则，都写 `OperationAction.USER_CREATE` 审计。
+本模块只提供它们共用的凭据件（`authenticate_user` / `issue_token` / 撤销），
+**不放建号逻辑**：放在服务层就等于开了一条"绕过端点校验也能建号"的路。
 """
 
 import secrets

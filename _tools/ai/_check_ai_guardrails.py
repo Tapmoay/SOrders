@@ -428,6 +428,38 @@ def md_lambda_files() -> list[str]:
     )
 
 
+def py_def_body(text: str, signature: str) -> str:
+    """取出一个顶层（或装饰器下的）Python 函数体，**不含**签名行。
+
+    为什么不能用 `fn_body`：那个是给 Kotlin 写的（找顶格 `}`），Python 函数没有大括号 ——
+    用它取到的会是"文件剩下的全部"，于是断言分不清"这个端点里做了什么"和
+    "同文件别的端点做了什么"（本文件 §28 要在 `auth.py` 里单独核对 `register` 的防线，
+    而那个文件里同时住着 login/token/logout）。
+
+    做法：从签名行往下找到第一行**有内容且不缩进**的行（下一个顶层语句）作为终点。
+    ⚠️ 找不到签名直接 SystemExit —— 静默返回空串会让 §28 的每条断言都"通过"。
+    ⚠️ **签名本身可能跨行**（本仓库的 FastAPI 端点普遍是"一行一个参数"）：那时最后一行是
+    顶格的 `)`，只看缩进会**在签名处就收尾**（实测：`def register(` 只取到 136 个字符、
+    整个函数体没进来，于是下面 6 条断言全部失败）。所以先按括号配对把签名读完，再找终点。
+    """
+    i = text.find(signature)
+    if i < 0:
+        raise SystemExit(f"找不到函数：{signature}（改名了？本脚本的断言要跟着改）")
+    lines = text[i:].split("\n")
+    out = [lines[0]]
+    depth = lines[0].count("(") - lines[0].count(")")
+    in_body = depth <= 0
+    for ln in lines[1:]:
+        if in_body and ln.strip() and not ln[0].isspace():
+            break
+        if not in_body:
+            depth += ln.count("(") - ln.count(")")
+            if depth <= 0:
+                in_body = True
+        out.append(ln)
+    return "\n".join(out)
+
+
 def block_between(text: str, start: str, end: str) -> str:
     """取出 start 标记到下一个 end 标记之间的源码块。
 
@@ -3796,11 +3828,17 @@ def main() -> int:
     c.present("事故修复脚本留档（含还原依据表）",
               read(ROOT / "_tools/fuzz/_repair_price_rules_batch.py"), r"operation_logs")
 
-    # ---- 28. 账号只能由派单员创建 + 文本入参有上界 + 报错是中文（v3.41 用户要求）----
+    # ---- 28. 两条建号路径各自的边界 + 文本入参有上界 + 报错是中文 ----
     #
     # 用户 2026-09-18 三句话：「后端的注册接口关掉因为不需要用了」「文本长度做一个限制」
-    # 「把这些查清楚全修好」。这一节把这三件事钉成可检查的判据。
-    print("\n== 28. 账号唯一的创建路径 / 文本上限 / 中文报错（v3.41）==")
+    # 「把这些查清楚全修好」；**2026-10-11（FEAT-0017）用户把"注册"要回来了**
+    # （「登录界面……输入电话号码……输入密码，就可以登录/注册一个账号了，注册，然后默认账号是货主」）。
+    # ⚠️ 所以这一节里原来那条「自助注册端点不许回来」**换成了它的反面**：端点回来是**要的**，
+    #    要钉的是"它回来之后没有任何提权/明文/刷号的口子"。当年那条判据没有被删掉就了事 ——
+    #    它防的东西全部被下面这组断言接住了（而且更具体：逐条只看 register 这个函数体）。
+    # ⛔ **短信验证码那条路仍然封着**（当年删它的真正理由：本地 `sms_reveal_code=true`
+    #    时验证码明文回显＝等于没有验证；本次范围明确不含短信）。
+    print("\n== 28. 两条建号路径的边界 / 文本上限 / 中文报错 ==")
     auth_api = read(ROOT / "backend/app/api/v1/auth.py")
     auth_svc = read(ROOT / "backend/app/services/auth_service.py")
     users_api = read(ROOT / "backend/app/api/v1/users.py")
@@ -3812,22 +3850,63 @@ def main() -> int:
     text_tests = read(ROOT / "backend/tests/test_text_length_guards.py")
 
     # ⚠️ 判据锚**源码里的路由装饰器**（不是注释、也不是"文件里还有没有 register 这个词"：
-    #    auth.py 的模块 docstring 里就写着这件事，锚词会恒真）。
-    c.absent("自助注册端点不许回来（`POST /auth/register`）",
-             strip_comments(auth_api), r'@router\.post\(\s*"/register"')
+    #    auth.py 的模块 docstring 里就写着这两段历史，锚词会恒真）。
+    auth_clean = strip_comments(auth_api)
+    auth_schema_clean = strip_comments(read(ROOT / "backend/app/schemas/auth.py"))
+    #: `register` 的**函数体**（不含签名行）—— 下面所有断言只看这一段，
+    #: 免得"login 里调了 reject_plaintext_credentials"把 register 的断言喂饱。
+    #: ⚠️ 取自 **auth_api 原文**，不是 auth_clean：`strip_comments` 是为 Kotlin 写的
+    #: （它把 `"""` 当作开关字符串的引号），套在 Python 的模块级 docstring 上会把
+    #: **文件剩下的部分**全当成字符串 —— 实测后果是 reg_body 变成一片空白，
+    #: 于是 `body.role` 那条"提权防线"断言**静默恒真**（正是本文件最怕的假阴性）。
+    #: 函数体里的 Python `#` 注释用下面这行清掉（它不碰三引号）。
+    reg_body = py_def_body(auth_api, "def register(")
+    reg_body = "\n".join(
+        ln.split("#", 1)[0] if ln.lstrip().startswith("#") else ln for ln in reg_body.split("\n")
+    )
+    c.present("自助注册端点在（FEAT-0017 之后这是**要**的，不再是缺陷）",
+              auth_clean, r'@router\.post\("/register"')
+    # ⛔ 提权防线：属性由服务端写死 —— 端点体里**一个都不许从 body 取**。
+    #    只查"schema 里有没有声明"不够（有人可以在函数体里 body.role 兜默认值），
+    #    所以这里查的是函数体里的取值动作。
+    c.ok("注册的 role / is_member / is_active / vehicle_type 全由服务端写死（body 里不许取）",
+         not re.search(r"\bbody\.(role|is_member|is_active|vehicle_type|salary|billing_mode)\b", reg_body),
+         "register 的函数体里出现了 body.role / body.is_member 之类的取值")
+    c.present("注册出来固定是货主（角色字面量写在端点里，不来自入参）",
+              reg_body, r"role=UserRole\.SHIPPER")
+    c.present("注册账号默认不在册（不是批发商）＋ 分类为空",
+              reg_body, r"is_member=False")
+    c.present("注册走的是唯一一份手机号规则（core/phone.py 的类型别名）",
+              auth_schema_clean, r"phone:\s*MobilePhone")
+    c.present("注册的明文通道拦截与登录同一道（core/transport.py）",
+              reg_body, r"reject_plaintext_credentials\(request\)")
+    c.present("注册有自己的次数限流（防脚本批量刷号）",
+              reg_body, r"login_guard\.registration_block_reason\(")
+    c.present("注册成功写审计（复用既有账号动作码，不新造码）",
+              reg_body, r"action=OperationAction\.USER_CREATE")
+    c.absent("注册的审计 payload 里不许出现口令字段",
+             reg_body, r"change_payload=\{[^}]*password")
+    c.present("注册不撤销旧会话（新号不可能有旧会话，也不该顺手作废别人）",
+              reg_body, r"build_token_response\(user\)")
+    c.absent("注册**公开**：没有鉴权依赖（有账号才谈得上权限）",
+             reg_body, r"Depends\(\s*(require_permission|require_roles|CurrentUser)")
+    c.ok("这条端点配了逐条钉住它的单测（形状/重复/默认角色/提权/明文/限流/审计）",
+         (ROOT / "backend/tests/test_self_register.py").exists(),
+         "缺 backend/tests/test_self_register.py")
+
+    # ⛔ 短信那条路仍然封着（当年删它的真正理由，本次范围不含）
     c.absent("注册验证码端点不许回来（`POST /auth/sms/send`）",
-             strip_comments(auth_api), r'@router\.post\(\s*"/sms')
+             auth_clean, r'@router\.post\(\s*"/sms')
     c.absent("auth_service 里不许再有自助建号（create_user）",
              strip_comments(auth_svc), r"def create_user\(")
     c.ok("注册验证码的实现文件已删除（不留死代码）",
          not (ROOT / "backend/app/services/sms_code.py").exists(),
          "app/services/sms_code.py 还在")
-    c.absent("Auth 相关入参 DTO 里的注册/验证码模型不许回来",
-             strip_comments(read(ROOT / "backend/app/schemas/auth.py")),
-             r"class (RegisterRequest|SendSmsRequest)\(")
-    c.present("建账号只剩一条路：派单员 POST /users（要权限点）",
+    c.absent("Auth 入参 DTO 里的**短信验证码**模型不许回来（注册模型回来了，验证码没有）",
+             auth_schema_clean, r"class SendSmsRequest\(")
+    c.present("派单员建号那条路仍然要权限点（任意角色的建号只能走它）",
               users_api, r"require_permission\(Permission\.USER_MANAGE\)")
-    c.present("登录仍然可用（关掉的是注册，不是登录）",
+    c.present("登录仍然可用（这次动的是注册，不是登录）",
               auth_api, r'@router\.post\("/login"')
 
     # 文本上限：唯一定义处 + 关键字段真的接上了

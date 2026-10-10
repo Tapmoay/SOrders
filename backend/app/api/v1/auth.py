@@ -1,25 +1,45 @@
-"""登录与凭据。
+"""登录、登出与自助注册。
 
-⚠️ **这个文件里只许有"进门"的端点，不许有"开门"的端点。**
-`POST /auth/register` 与 `POST /auth/sms/send` 已于 2026-09-18 按用户要求**整体删除**
-（App 侧注册入口在 v3.40 就拆掉了，接口一直公开着；本地 `sms_reveal_code=true` 时
-验证码还是明文回显的，等于任何人都能自助开一个货主账号）。
-账号现在**只有一条创建路径**：派单员 `POST /api/v1/users`（要 token + 权限点）。
+## 这个文件放什么
+**进门**的端点（拿凭据进门：登录、登出、注册）在这里；**开门**的端点（改别人的账号、
+改权限、批量建号）一律不在这里，走 `api/v1/users.py`（要 token + 权限点）。
+
+## "注册"这一条路的两段历史（改这里之前必须先读完）
+- **2026-09-18 删除**：`POST /auth/register` 与 `POST /auth/sms/send` **整体删除**，理由是
+  真的能被打：App 侧注册入口在 v3.40 就拆掉了，接口却一直公开着 —— 一个**没人用的公开写接口**
+  就是纯攻击面；而且当时注册要过短信验证码，本地 `sms_reveal_code=true` 时验证码**明文回显**，
+  等于任何人都能自助开一个货主号。
+- **2026-10-11 拿回来（FEAT-0017，用户要求）**：用户要在 App 登录页自助注册。上面那两条理由
+  现在都不成立了：① App 侧**这次连注册入口一起加**（`ui/login/LoginScreen.kt` 底部文字链），
+  不再"没人用"；② 注册**不要验证码**（短信那条路仍然不做），所以没有"明文回显"这个洞。
+  ⛔ 代价要看清：这个端点**公开、无需 token**，且**没有任何身份核验**（手机号不必真实拥有）。
+  因此端点里必须同时做到三件事：**明文通道拒收**、**来源 IP 次数限流**、**账号属性全部服务端写死**
+  （请求体带 `role`/`is_member`/`is_active` 一律无效）。三条各有单测钉着。
+
+## 账号创建的两条路径（都不许绕过手机号规则与审计）
+派单员 `POST /api/v1/users`（任意角色）＋ 自助注册 `POST /auth/register`（**只能是货主**）。
+两条都写 `OperationAction.USER_CREATE`。
 """
 
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.v1.user_categories import ensure_user_category
 from app.core.business_time import utc_now_naive
+from app.core.security import hash_password
 from app.core.transport import reject_plaintext_credentials
 from app.database import get_db
 from app.deps import CurrentUser
-from app.schemas.auth import LoginRequest, Token
+from app.models import User
+from app.models.enums import OperationAction, UserRole
+from app.schemas.auth import LoginRequest, RegisterRequest, Token
 from app.services import login_guard
 from app.services.auth_service import authenticate_user, is_test_account, revoke_tokens_and_sockets
+from app.services.operation_log_service import write_log
 from app.services.token_response import build_token_response
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -121,3 +141,87 @@ def login_form(
 ) -> Token:
     """OAuth2 兼容：username 字段填手机号。"""
     return _login(db, (form_data.username or "").strip(), form_data.password, _client_ip(request), request, background_tasks)
+
+
+@router.post("/register", response_model=Token)
+def register(
+    body: RegisterRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> Token:
+    """自助注册：手机号 + 密码 → 直接返回 token（注册完就进 App，不用再登一次）。
+
+    ⚠️ 公开端点（**没有** `Depends` 鉴权，所以也没有角色门槛可写在签名里；
+    这是设计：注册的人本来就还没账号）。它的安全边界全部落在下面四道，动其中任何一道
+    都要先看模块 docstring 里那段"两段历史"：
+
+    1. **拒明文**（`reject_plaintext_credentials`）——与登录同一道：注册同样是凭据，
+       明文通道上收密码等于把密码送出去。⚠️ 必须是**第一句**：在任何读库/写库之前。
+    2. **来源 IP 次数限流**（`login_guard.registration_block_reason`）——挡住脚本批量刷号。
+    3. **手机号形状**（`RegisterRequest.phone: MobilePhone`）——`core/phone.py` 的唯一一份规则；
+       ⛔ 这里**不再 strip**：账号同时是登录名，登录按字符串精确匹配，静默接受带空格的账号
+       等于造一个"建得出来、再也登不进去"的号。
+    4. **属性服务端写死**——请求体即使带了 `role` / `is_member` / `vehicle_type` / `is_active`
+       也进不来（schema 没声明这些字段；就算声明了，下面也不会读它）。
+       ⛔ 这一条是提权防线，**别改成"从 body 取默认值"**：`role` 一旦可传，任何人都能自助开派单员。
+
+    与登录不同，这里**不撤销旧会话**（`revoke_tokens_and_sockets`）：新账号不可能有旧会话。
+    `is_test_account` 那类测试号豁免与本端点无关（新号是真实手机号形状，不受影响）。
+    """
+    reject_plaintext_credentials(request)
+    ip = _client_ip(request)
+    reason = login_guard.registration_block_reason(ip)
+    if reason:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=reason)
+
+    phone = body.phone
+    # 文案与派单员建号那条**逐字一致**（api/v1/users.py:166-167）：用户看到的应是同一件事，
+    # 不该因为"从哪个入口建的"而换一种说法。400 而不是 500，也不是 409。
+    if db.scalars(select(User).where(User.phone == phone)).first() is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="该手机号已存在")
+
+    username = phone
+    # 手机号没被占，用户名仍可能被占：库里存在 username == 这个手机号 的老号
+    # （历史上 username 与 phone 可以不同）。这种号让"用手机号登录"落到两条不同记录上，
+    # 必须挡掉 —— 但**不能**泄露那条记录的其它信息，所以只说名字被占。
+    if db.scalars(select(User).where(User.username == username)).first() is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="该用户名已存在")
+
+    user = User(
+        username=username,
+        phone=phone,
+        password_hash=hash_password(body.password),
+        full_name=(body.full_name or "").strip()[:128],
+        role=UserRole.SHIPPER,
+        is_active=True,
+        is_member=False,
+        category="",
+    )
+    db.add(user)
+    db.flush()
+    ensure_user_category(db, user.category)
+
+    # 留痕：复用既有的账号动作码 `USER_CREATE`（`models/enums.py:183`，⛔ 不新造码）。
+    # `operator_id` 记的是**新账号自己**：自助注册没有别人在操作，"谁建的号"与"谁的号"是同一个。
+    # ⛔ 绝不记密码，连哈希也不记；并如实标明这是自助注册（审计页能分清两条建号路径）。
+    write_log(
+        db,
+        operator_id=user.id,
+        order_id=None,
+        action=OperationAction.USER_CREATE,
+        change_payload={
+            "user_id": user.id,
+            "username": user.username,
+            "phone": user.phone,
+            "full_name": user.full_name,
+            "role": user.role.value if isinstance(user.role, UserRole) else str(user.role),
+            "source": "self_register",
+        },
+    )
+    db.commit()
+    db.refresh(user)
+
+    # 计数写在**成功之后**（理由见 login_guard 模块 docstring：失败的尝试由 400/422 自己回）。
+    login_guard.note_registration(ip)
+    return build_token_response(user)

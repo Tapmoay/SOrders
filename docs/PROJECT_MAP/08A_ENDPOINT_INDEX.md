@@ -59,9 +59,9 @@
 - 「权限点反查」段末尾会列出**声明了却没任何端点引用**的权限点——改那些等于没改。
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
-<!-- source_hash: sha256:0a2cee597091376c1589a9d67b24de94ddf7fd79c62474fda03d4f5248ee8fef -->
+<!-- source_hash: sha256:75d276802a8d2d154150ccceb92f78f1ad5e9a9ce14591f500702c6ba36c5c6f -->
 
-## 全量端点（287 个，按文件分组）
+## 全量端点（288 个，按文件分组）
 
 
 ### `backend/app/api/v1/ai_operations.py` — 1 个
@@ -86,13 +86,14 @@
 | 4 | `DELETE /api/v1/arrears-units/{unit_id}` | `delete_unit` | `backend/app/api/v1/arrears.py:205` | 权限:LEDGER_EDIT |
 | 5 | `POST /api/v1/arrears-units/{unit_id}/restore` | `restore_unit` | `backend/app/api/v1/arrears.py:274` | 权限:LEDGER_EDIT |
 
-### `backend/app/api/v1/auth.py` — 3 个
+### `backend/app/api/v1/auth.py` — 4 个
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:84` | 仅登录 |
-| 2 | `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:106` | **公开** |
-| 3 | `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:116` | **公开** |
+| 1 | `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:104` | 仅登录 |
+| 2 | `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:126` | **公开** |
+| 3 | `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:136` | **公开** |
+| 4 | `POST /api/v1/auth/register` | `register` | `backend/app/api/v1/auth.py:147` | **公开** |
 
 ### `backend/app/api/v1/cash_flows.py` — 3 个
 
@@ -579,11 +580,11 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/user-categories` | `list_categories` | `backend/app/api/v1/user_categories.py:97` | 仅登录 |
-| 2 | `POST /api/v1/user-categories` | `create_category` | `backend/app/api/v1/user_categories.py:105` | 权限:USER_MANAGE |
-| 3 | `PATCH /api/v1/user-categories/{category_id}` | `update_category` | `backend/app/api/v1/user_categories.py:135` | 权限:USER_MANAGE |
-| 4 | `POST /api/v1/user-categories/reorder` | `reorder_categories` | `backend/app/api/v1/user_categories.py:177` | 权限:USER_MANAGE |
-| 5 | `DELETE /api/v1/user-categories/{category_id}` | `delete_category` | `backend/app/api/v1/user_categories.py:201` | 权限:USER_MANAGE |
+| 1 | `GET /api/v1/user-categories` | `list_categories` | `backend/app/api/v1/user_categories.py:135` | 仅登录 |
+| 2 | `POST /api/v1/user-categories` | `create_category` | `backend/app/api/v1/user_categories.py:143` | 权限:USER_MANAGE |
+| 3 | `PATCH /api/v1/user-categories/{category_id}` | `update_category` | `backend/app/api/v1/user_categories.py:182` | 权限:USER_MANAGE |
+| 4 | `POST /api/v1/user-categories/reorder` | `reorder_categories` | `backend/app/api/v1/user_categories.py:224` | 权限:USER_MANAGE |
+| 5 | `DELETE /api/v1/user-categories/{category_id}` | `delete_category` | `backend/app/api/v1/user_categories.py:248` | 权限:USER_MANAGE |
 
 ### `backend/app/api/v1/users.py` — 11 个
 
@@ -700,12 +701,13 @@
 
 _（无重复注册）_
 
-### 2. 完全公开（无鉴权）：18 个
+### 2. 完全公开（无鉴权）：19 个
 
 | 方法与路径 | handler | 位置 |
 |---|---|---|
-| `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:106` |
-| `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:116` |
+| `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:126` |
+| `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:136` |
+| `POST /api/v1/auth/register` | `register` | `backend/app/api/v1/auth.py:147` |
 | `GET /api/v1/ledger/entries` | `list_entries` | `backend/app/api/v1/ledger.py:199` |
 | `GET /api/v1/ledger/accounts` | `list_accounts` | `backend/app/api/v1/ledger.py:252` |
 | `GET /api/v1/ledger/temp-shipper-names` | `list_temp_shipper_names` | `backend/app/api/v1/ledger.py:321` |
@@ -731,7 +733,7 @@ _（无重复注册）_
 | 方法与路径 | handler | 位置 | 含 `current.id` |
 |---|---|---|---|
 | `POST /api/v1/ai/telemetry` | `report_ai_calls` | `backend/app/api/v1/ai_telemetry.py:47` | — |
-| `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:84` | — |
+| `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:104` | — |
 | `GET /api/v1/ledger/export-jobs/{job_id}` | `get_export_job` | `backend/app/api/v1/ledger.py:744` | — |
 | `GET /api/v1/ledger/export-jobs/{job_id}/download` | `download_export_job` | `backend/app/api/v1/ledger.py:762` | — |
 | `POST /api/v1/notifications/read-all` | `mark_all_read` | `backend/app/api/v1/notifications.py:192` | ✅ |
@@ -745,7 +747,7 @@ _（无重复注册）_
 | `GET /api/v1/products/{product_id}` | `get_product` | `backend/app/api/v1/products.py:269` | — |
 | `GET /api/v1/system/ai-default` | `read_ai_default` | `backend/app/api/v1/system.py:23` | — |
 | `POST /api/v1/usage/reset` | `reset_usage` | `backend/app/api/v1/usage.py:34` | ✅ |
-| `GET /api/v1/user-categories` | `list_categories` | `backend/app/api/v1/user_categories.py:97` | — |
+| `GET /api/v1/user-categories` | `list_categories` | `backend/app/api/v1/user_categories.py:135` | — |
 | `GET /api/v1/vehicle-categories` | `list_categories` | `backend/app/api/v1/vehicle_categories.py:78` | — |
 
 > ⚠️ 「含 `current.id`」只是**粗筛**：函数体里出现 `current.id` 既可能是行级过滤（`where(shipper_id == current.id)`），也可能只是审计日志的 `operator_id=current.id`。全表共 **154** 个端点命中（占 53%），**要确认是哪种必须读函数体**。涉及文件：`backend/app/api/v1/contact_categories.py`、`backend/app/api/v1/customers.py`、`backend/app/api/v1/driver_billing_rules.py`、`backend/app/api/v1/driver_bills.py`、`backend/app/api/v1/driver_settlements.py`、`backend/app/api/v1/expense_categories.py`、`backend/app/api/v1/expenses.py`、`backend/app/api/v1/freight_categories.py`、`backend/app/api/v1/freight_settlement.py`、`backend/app/api/v1/freight_templates.py`、`backend/app/api/v1/inventory.py`、`backend/app/api/v1/ledger.py`、`backend/app/api/v1/notifications.py`、`backend/app/api/v1/order_products.py`、`backend/app/api/v1/order_template_categories.py`、`backend/app/api/v1/orders_assignment.py`、`backend/app/api/v1/orders_delivery.py`、`backend/app/api/v1/orders_discount.py`、`backend/app/api/v1/orders_lifecycle.py`、`backend/app/api/v1/orders_media.py`、`backend/app/api/v1/orders_payment.py`、`backend/app/api/v1/orders_query.py`、`backend/app/api/v1/orders_return.py`、`backend/app/api/v1/place_categories.py`、`backend/app/api/v1/places.py`、`backend/app/api/v1/price_rules.py`、`backend/app/api/v1/product_categories.py`、`backend/app/api/v1/products.py`、`backend/app/api/v1/return_requests.py`、`backend/app/api/v1/route_categories.py`、`backend/app/api/v1/shipper.py`、`backend/app/api/v1/shipper_ledger.py`、`backend/app/api/v1/shipper_prices.py`、`backend/app/api/v1/unit_conversions.py`、`backend/app/api/v1/usage.py`、`backend/app/api/v1/user_categories.py`、`backend/app/api/v1/users.py`、`backend/app/api/v1/vehicle_categories.py`。

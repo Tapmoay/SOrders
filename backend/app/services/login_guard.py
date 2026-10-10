@@ -18,6 +18,18 @@
 登录成功会清掉该登录名的失败计数（IP 计数保留，避免"用一个正确账号把 IP 洗白"）。
 
 被拒时回 **429 + 中文**，并如实告诉还要等多久 —— 不泄露"这个账号存不存在"。
+
+## 自助注册的次数限流（2026-10-11 FEAT-0017 加，同一个计数家族）
+`POST /auth/register` 是**公开写端点**：不限流的话，一个人可以在一分钟里开一万个货主号
+（每个都是真账号、能收通知能下单，事后只能人工清理）。所以按**来源 IP** 记"注册成功次数"，
+超过 `MAX_REGISTRATIONS_PER_IP` 就拒一段时间 —— 形状与上面两条一致（同窗口、同锁定时长、
+**同样回 429 + 中文**），换的只是计数键与阈值。
+
+⚠️ 为什么记在**成功之后**（`note_registration`）而不是"每次尝试都记"：与登录失败计数区分开，
+一次合法注册只吃掉一个额度（重复号/形状不对的失败尝试由 422/400 自己回，不该让用户为了
+打错一次手机号被锁 15 分钟）；而防的是"批量刷号"这件事本身。
+⛔ 键必须留在 `login_fail:` 前缀家族里 —— 既有测试清场代码扫的就是 `login_fail:*`，
+换前缀会让本机 Redis 里的计数跨用例残留，变成"看着像偶发"的假红。
 """
 
 from __future__ import annotations
@@ -35,6 +47,8 @@ logger = logging.getLogger(__name__)
 MAX_FAILS_PER_ID = 5
 #: 同一来源 IP 允许的连续失败次数（对所有登录名合计）
 MAX_FAILS_PER_IP = 20
+#: 同一来源 IP 在窗口内允许的**自助注册成功**次数（FEAT-0017）
+MAX_REGISTRATIONS_PER_IP = 100
 #: 统计窗口与锁定时长（秒）
 WINDOW_SECONDS = 15 * 60
 LOCK_SECONDS = 15 * 60
@@ -161,6 +175,28 @@ def note_failure(login_id: str, client_ip: str | None) -> None:
 def note_success(login_id: str) -> None:
     """登录成功清掉**该登录名**的失败计数（IP 计数保留）。"""
     _clear(_key("id", (login_id or "").strip()))
+
+
+def registration_block_reason(client_ip: str | None) -> str | None:
+    """要不要拒这次**自助注册**。返回中文原因（None = 放行）。
+
+    只按来源 IP 判（注册时还没有账号，没有"登录名"可记）。阈值见
+    `MAX_REGISTRATIONS_PER_IP` —— 正常用户一辈子也用不到它，它拦的是脚本批量刷号。
+    """
+    if not client_ip:
+        return None
+    if _hits(_key("reg_ip", client_ip)) >= MAX_REGISTRATIONS_PER_IP:
+        return (
+            f"这个网络地址注册的账号太多了，已被临时限制（约 {LOCK_SECONDS // 60} 分钟）。"
+            "请稍后再试；如果是给多人开号，请让派单员在「账号管理」里建。"
+        )
+    return None
+
+
+def note_registration(client_ip: str | None) -> None:
+    """记一次**成功**的自助注册（IP）。"""
+    if client_ip:
+        _bump(_key("reg_ip", client_ip))
 
 
 def reset_for_tests() -> None:

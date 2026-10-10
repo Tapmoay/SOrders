@@ -43,36 +43,26 @@ def test_login_invalid_password(client: TestClient) -> None:
 
 @pytest.mark.auth
 @pytest.mark.fast
-def test_self_registration_is_closed(client: TestClient, db_session) -> None:
-    """自助注册已整体关闭（2026-09-18 用户要求「注册接口关掉，不需要用了」）。
+def test_sms_registration_path_is_still_closed(client: TestClient, db_session) -> None:
+    """**短信**那条注册路径仍然是关的（2026-09-18 删掉的原因只解除了"注册"这一半）。
 
-    判据是**效果**，不是"源码里还有没有字符串"：
-    ① 两条路径都取不到（404）；
-    ② 库里账号数一个没多；
-    ③ 那个手机号也登不进来（没有被换个方式悄悄建号）。
+    ⚠️ 这条用例 2026-10-11（FEAT-0017）被改写过：原来它叫
+    `test_self_registration_is_closed`，同时钉 `/auth/register` 与 `/auth/sms/send` 两条 404。
+    用户要求把注册拿回来（连 App 入口一起加），所以 `/auth/register` 那一半**移出本用例**、
+    改成"注册是开的"一组正向判据（`tests/test_self_register.py`，
+    其中明文/提权/限流/审计逐条钉着）。
+    `/auth/sms/send` 这一半**一个字不改**：当年删它的真正理由是
+    `sms_reveal_code=true` 时验证码**明文回显**，等于没有验证 —— 本次范围明确不含短信。
     """
     from app.models import User
 
     before = db_session.query(User).count()
     phone = "13900000009"
-    attempts = (
-        ("/api/v1/auth/sms/send", {"phone": phone}),
-        (
-            "/api/v1/auth/register",
-            {
-                "username": "reguser9",
-                "password": "pass12345",
-                "phone": phone,
-                "verification_code": "000000",
-            },
-        ),
-    )
-    for path, body in attempts:
-        r = client.post(path, json=body)
-        assert r.status_code == 404, f"{path} 还能调（{r.status_code}）——注册面又开了？"
+    r = client.post("/api/v1/auth/sms/send", json={"phone": phone})
+    assert r.status_code == 404, f"/api/v1/auth/sms/send 还能调（{r.status_code}）——短信重开了？"
 
     db_session.expire_all()
-    assert db_session.query(User).count() == before, "注册接口没关严：库里多出了账号"
+    assert db_session.query(User).count() == before, "短信那条路竟然建了号"
     assert db_session.query(User).filter_by(phone=phone).first() is None
     assert (
         client.post(
