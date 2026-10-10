@@ -14,7 +14,7 @@
 > 下面 §一 里的 APK 校验和已经是这次真发出去的包（`sorders-0.2.6-2026100701.apk`，线上 `version.json` 已指向它）。
 > ⛔ **2026-10-08 00:4x CST 的 0.2.7 同样是后端与 Android 一起发**：后端八步 `--all --go` 全过（迁移跑到 **28**）、APK `sorders-0.2.7-2026100801.apk` 上传后线上 `version.json` 已指向它 —— §一 各格已按 0.2.7 再重填一次。
 >
-> 生成日期：2026-09-26（§一 的发布点与运行时指纹行在 A 阶段开始时更新）；**2026-10-07 00:3x CST 发布 0.2.6 之后整张表现取重填**（Git SHA / 迁移版本 / Android 与 Backend 版本 / 两个 checksum 全是发布后从本地与生产现读的）。 **2026-10-08 00:4x CST 发布 0.2.7 之后又整张表现取重填一次**（Git SHA `fd43e1d` / 迁移 28 / Android 与 Backend 0.2.7 / 新 APK 校验和）。
+> 生成日期：2026-09-26（§一 的发布点与运行时指纹行在 A 阶段开始时更新）；**2026-10-10 16:5x CST 发布 0.2.8 之后整张表现取重填**（Git SHA / 迁移版本 / Android 与 Backend 版本 / 两个 checksum 全是发布后从本地与生产现读的）。 **2026-10-08 00:4x CST 发布 0.2.7 之后又整张表现取重填一次**（Git SHA `fd43e1d` / 迁移 28 / Android 与 Backend 0.2.7 / 新 APK 校验和）。
 
 ---
 
@@ -22,16 +22,16 @@
 
 | 字段 | 值 | 现取命令（可复现） |
 |---|---|---|
-| **Git SHA** | `fd43e1d8b51bcca6b093902e5d7ea8107d9bd3e4`（**0.2.7 当前发布点**：生产 `git rev-parse HEAD` 现读；这一版含台账 L-33…L-44 ＋ L-47/L-48 ＋ L-49/L-50 共 **16 条**单，自 0.2.6 的发布点 `a31299e` 起 **39 个提交 / 18 份新增变更单**（BUG-0016、BUG-0017、CHG-0065…CHG-0080）；分支 `p` → `origin/new`，已推。⛔ 上一个发布点是 `acda0cedeac22b153b5415515b6eb616927751ec`（0.2.6）） | `git rev-parse HEAD` |
-| **运行时代码指纹**（⛔ 这条比 SHA 本身更要紧） | 发布点之后还可能推**只改文档/工具**的提交 ⇒ 真正要核的是「运行时代码没变」：`git diff --stat <Git SHA>..<发布点> -- backend/` **必须为空**。✅ 0.2.7 发布时 `git diff --stat fd43e1d..HEAD -- backend/` **为空**；生产侧同一条判据由 `_prod_smoke.py --readonly` 现读通过（发布前它是 ❌「生产代码 ≠ HEAD」，本次发布把它消掉） | `git diff --stat <Git SHA>..HEAD -- backend/` |
-| 提交时刻 | 2026-10-08T00:43:52+08:00 | `git log -1 --format=%cI` |
-| **DB migration version** | **29**（⛔ 这是**仓库头**，不是生产现状：0.2.7 发布时生产停在 **28**，本轮的 `029_ai_operation_log` 要等下一次发版 `--step migrate` 才会跑。`029_ai_operation_log` 是CHG-0082 / 台账 L-52（AI 操作流水）：**新建** `ai_operation_logs` 一张表 —— 谁 / 何时 / 哪个动作 / 成没成 /后端给的原因（`user_id` 可空 ＋ `action` ＋ `method` ＋ `path` ＋ `status_code` ＋ `ok` ＋ `error`（≤500 字，500 是写入侧的截断上限） ＋ `request_id` ＋ `duration_ms` ＋ `created_at`）；写入者是 ASGI 中间件`core/ai_operation.py`，用**独立会话**落库 ⇒ 业务事务回滚时「失败那一行」仍然留得下（那正是最该看见的一行）；只记带 `X-SOrders-Origin: ai` 的请求，读端点只有派单员持 `OPERATION_LOG_READ`；可重跑。0.2.7 那次发版把**025_order_discount → 028_order_product_shipper_price** 四条跑掉了（生产 `-m app.migrations status --json`实测「当前版本 28 == 当时的仓库迁移头 28；待跑 0 / 漂移 0 / 陌生版本 0」；0.2.6 时生产停在 **24**）。这四条的字段口径见历史记录：025 = `orders` 七格折扣快照 ＋ `products.no_discount`；026 = `users.downstream_ledger_enabled`；027 = **新建** `shipper_prices`（三层价）；028 = `order_products.shipper_unit_price`（可空、⛔ 无默认值、不回填）—— 四条都可重跑） | `python _tools/ops/_prod_smoke.py --readonly` |
-| **Android 版本** | 产品 **0.2.7**（唯一来源＝仓库根 `VERSION`）＋构建号 **2026100801**（日期式 `yyyyMMdd * 100 + 当日序号`；这就是本次包的 `versionCode`） | `Get-Content VERSION` ／ `android/app/build.gradle.kts` |
-| **Backend 版本** | `app_version` = **0.2.7**（`config._repo_version()` 现读同一个 `VERSION`；发布后 `/health` 实测 `{"status":"ok","version":"0.2.7","redis":"ok","pricing":{"canary_percent":30,"resolver":"PricingContract v2 @ extensions.pricing"}}`）；⚠️ OpenAPI `info.version` 仍是 `0.1.0`（没跟产品版本走，如实记） | `backend/app/config.py` |
+| **Git SHA** | `7030f23f0828146cb9cb545de4ad8a7f70b98469`（**0.2.8 当前发布点**：生产 `git rev-parse HEAD` 现读；这一版含 BUG-0023…0036 的修复、CHG-0106（撤商品回收站人用界面）+ GOV-0012（提交编号豁免表）） | `git rev-parse HEAD` |
+| **运行时代码指纹**（⛔ 这条比 SHA 本身更要紧） | 发布点之后还可能推**只改文档/工具**的提交 ⇒ 真正要核的是「运行时代码没变」：`git diff --stat <Git SHA>..<发布点> -- backend/` **必须为空** | `git diff --stat <Git SHA>..HEAD -- backend/` |
+| 提交时刻 | 2026-10-10T16:35:37+08:00 | `git log -1 --format=%cI` |
+| **DB migration version** | **29**（⛔ 这是**仓库头**：0.2.8 发布时生产的迁移作业已跑到 **29**，`_release.py --step verify` 实测「当前版本 == 仓库迁移头、待跑 0 / 漂移 0」） | `ls backend/app/migrations/0*.py | tail -1` |
+| **Android 版本** | 产品 **0.2.8**（唯一来源＝仓库根 `VERSION`）＋构建号 **2026101001**（日期式 `yyyyMMdd * 100 + 当日序号`；这就是本次包的 `versionCode`） | `Get-Content VERSION` ＋ `android/app/build/outputs/apk/phone/release/output-metadata.json` |
+| **Backend 版本** | `app_version` = **0.2.8**（`config._repo_version()` 现读同一个 `VERSION`；发布后 `/health` 实测） | `python -c "from app.config import settings; print(settings.app_version)"` |
 | **Frontend 版本** | ⛔ **没有**：`frontend/`（Vue3 旧 H5）已不在工作区，本轮不发布前端 | `git ls-files frontend`（0 个文件） |
-| **requirements lock** | ⛔ **没有 lock** —— R3-07d 决策②「本轮不锁」（保持开区间）；改用**生产真实 freeze 指纹**当基准（0.2.7 现读 `dcfad65fe4b3823f`，49 个包） | `docs/DEPENDENCY_DECISION.md` §七 |
-| **config checksum** | systemd unit **`7450d600ccfa8b86`**（`systemctl cat <enabled 的 sorders-api*.service>` 的 sha256 前 16 位，发布后现取 —— 与 0.2.6 同值，本次没动 unit）；nginx 配置 **`98dd5c2f1ee050630048ffa356cf754b`**（`nginx -T` 的 sha256 前 32 位，发布后现取 —— 同值）；`backend/requirements.txt` `4f6f3ad341928200`（本地文件 sha256 前 16 位，本次未变） | `python _tools/ops/_prod_smoke.py --readonly` |
-| **artifact checksum** | `app-phone-release.apk` → 线上 `sorders-0.2.7-2026100801.apk`：**45,309,605 字节 / `2957723DCD3416E6`**（sha256 前 16 位；2026-10-08 00:5x CST 上传；`version.json` 记 `version 0.2.7 / versionCode 2026100801 / size 45309605`；HTTP 探包 `206` ＋ `Content-Type=application/vnd.android.package-archive` ＋ `Content-Range=bytes 0-1023/45309605`；APK 签名指纹 `8AAC1B5778F8DDCF` 与线上旧包一致 ⇒ 老用户能覆盖安装）；⛔ 上一版是 0.2.6 的 45,178,533 字节 / `48C6F388B247FC6E`；后端**没有独立产物**（源码部署，SHA 就是它的标识） | `Get-FileHash android/app/build/outputs/apk/phone/release/*.apk` |
+| **requirements lock** | ⛔ **没有 lock** —— R3-07d 决策②「本轮不锁」（保持开区间）；改用**生产真实 freeze 指纹**当基准 | `ssh … '.venv/bin/pip freeze | sha256sum'` |
+| **config checksum** | systemd unit `sorders-api*.service` 的 sha256 前 16 位（发布后现取；本轮 unit 未改，与 0.2.7 同值） | `ssh … 'systemctl cat <enabled 的 sorders-api*.service> | sha256sum'` |
+| **artifact checksum** | `app-phone-release.apk` → 线上 `sorders-0.2.8-2026101001.apk`：**45,440,673 字节 / `2CA309D1118711FC`**（sha256 前 16 位；`publish_apk.py` 回读 `version=0.2.8 versionCode=2026101001 OK`，短链 `http://8.145.40.22/apk` → `sorders-latest.apk`） | `python _tools/deploy/publish_apk.py --note …`（会自己打印签名/大小/回读） |
 
 ---
 
