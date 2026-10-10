@@ -22,12 +22,17 @@ R4-BOUNDARY-JUSTIFICATION:
   1. 年检算法只有一处（唯一实现 + 阈值 + 三档顺序）
   2. 后端优先、本地兜底同一条规则
   3. 两个可空日期字段（DTO 三处）与 PATCH 差量语义
-  4. 表单用既有日期控件（FormPickRow + DatePickerDialog），不新造一套
+  4. 表单用既有日期控件（FormPickRow + DatePickerDialog），不新造一套；
+     未来日期（上牌/上次年检）**在选择层就不可选** —— 后端不做日期范围校验
   5. 车辆卡片那一行（日期 + 还有几天）与分档颜色
   6. 消息族：新类型归车辆族，渲染逻辑未动
   7. 库存「偏低」第三档（warn 橙，不盖低库存）
   8. 单测条数与断言（至少 8 例，钉住上面那几件事）
   9. 判据自身与反向验证脚本
+
+补充一条边界（第 7 条，2026-10-11 后端会话补充口径）：
+  ⑦ 上牌/上次年检两格**选不出未来日期**：后端不做日期范围校验，填了未来日期不报错、
+     只是永远不提醒（"这台车从没响过"只有一年后才发现），所以这道门只能由选择器把。
 """
 import getpass
 import re
@@ -164,6 +169,10 @@ def check_unique(c, sources):
     )
     c.present(ins, "DateTimeParseException", "坏日期串当没填（解析失败不抛）")
     c.equals(count(ins, "plusYears(1)"), 1, "加一年用 plusYears（不是加 365 天）")
+    c.equals(count(ins, "internal fun inspectionDateAllowed("), 1, "未来日期不可选只有一处实现")
+    c.present(ins, "return !day.isAfter(today)", "今天能选、明天不能（边界含今天）")
+    c.equals(count(ins, "internal fun inspectionDateSelectable(utcTimeMillis: Long): Boolean ="), 1,
+             "选择器那条回调的毫秒形态也在同一处")
     c.present(ins, "data class InspectionBadge(", "徽章类型是 public（VM 的公开属性暴露它）")
     c.absent(ins, "internal data class InspectionBadge", "不许回退成 internal（会编译不过）")
     c.absent(scr, "java.time", "界面不碰 java.time（日期格式只有一处）")
@@ -247,9 +256,21 @@ def check_form(c, sources):
     c.present(scr, "DatePickerDialog(", "复用仓库既有的日期选择器")
     c.present(
         scr,
-        "rememberDatePickerState(initialSelectedDateMillis = isoDateToMillis(current))",
+        "initialSelectedDateMillis = isoDateToMillis(current),",
         "已经填过的那天先停在选择器里",
     )
+    c.present(scr, "selectableDates = object : SelectableDates {", "未来日期在**选择层**就不可选")
+    c.present(
+        scr,
+        "override fun isSelectableDate(utcTimeMillis: Long): Boolean = inspectionDateSelectable(utcTimeMillis)",
+        "选择层那条规则来自唯一实现（不是就地再写一遍比较）",
+    )
+    c.present(
+        scr,
+        "if (picked != null && inspectionDateSelectable(picked)) onPick(isoDateOfMillis(picked))",
+        "确认时再兜一层：未来日期不许写回草稿",
+    )
+    c.absent(scr, "selectableDates = DatePickerDefaults.AllDates", "不许把「哪天都能选」留成默认")
     c.present(scr, "DatePicker(state = dpState)", "标准 DatePicker")
     c.present(scr, 'Text("就用这天")', "确认键与「进货日期」同一文案")
     c.present(scr, "pickingRegistration", "上牌日期那一格有自己的开合状态")
@@ -363,6 +384,9 @@ def check_tests(c, sources):
     c.present(ti, "assertNull(changedDateOrNull(", "断言：没改过就不发")
     c.present(ti, 'assertEquals("", changedDateOrNull(', "断言：清空就要发空串")
     c.present(ti, "assertNotEquals(base.plusDays(365)", "断言：不是加 365 天")
+    c.present(ti, 'assertFalse(inspectionDateAllowed("2026-10-12", today))', "断言：明天不可选")
+    c.present(ti, 'assertTrue(inspectionDateAllowed("2026-10-11", today))', "断言：今天可以选")
+    c.present(ti, "assertFalse(inspectionDateSelectable(isoDateToMillis(tomorrowIso)!!))", "断言：毫秒那条回调同样封顶")
     c.present(ti, "MSG_TEXT_WARN", "断言：warn 色取自消息中心那张表")
     c.present(tg, 'familyOf("vehicle.inspection_overdue")', "消息单测认新类型")
     c.present(tg, 'assertEquals(0xFF00AAAEL, familyOf("vehicle.inspection_overdue").color)', "断言新类型竖条色 = #00AAAE")

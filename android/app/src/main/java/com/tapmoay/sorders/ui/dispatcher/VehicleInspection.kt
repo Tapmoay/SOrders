@@ -127,6 +127,28 @@ internal fun isoDateToMillis(raw: String?): Long? =
     parseIsoDate(raw)?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
 
 // ---------------------------------------------------------------------------
+// 未来日期不可选（后端不做日期范围校验）
+// ---------------------------------------------------------------------------
+
+/**
+ * 这一天能不能选：**不许选未来**。
+ *
+ * ⛔ 为什么这道门在界面这一侧：后端**不做**日期范围校验 —— 上牌/上次年检填一个未来的日期，
+ * 后端只是"算不出该提醒的那天"（安静地不提醒），不报错、界面上也看不出来（FEAT-0022
+ * 后端会话 2026-10-11 补充口径）。等用户发现这台车从没被提醒过，一年已经过去了。
+ *
+ * 坏串/空 = 不可选（选不出来的一天不该被写进档案）。
+ */
+internal fun inspectionDateAllowed(iso: String?, today: LocalDate): Boolean {
+    val day = parseIsoDate(iso) ?: return false
+    return !day.isAfter(today)
+}
+
+/** 选择器那条回调要的形态：给毫秒判断能不能选（"今天"取本机当天，界面不碰 java.time）。 */
+internal fun inspectionDateSelectable(utcTimeMillis: Long): Boolean =
+    inspectionDateAllowed(isoDateOfMillis(utcTimeMillis), LocalDate.now())
+
+// ---------------------------------------------------------------------------
 // PATCH 语义：这一格**要不要发**
 // ---------------------------------------------------------------------------
 

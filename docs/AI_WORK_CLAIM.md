@@ -55,9 +55,11 @@
 
 `核心改动`：**无** —— 为什么：改动全在 Android 界面/数据层与 `_tools/qa/`，不含 `_tools/qa/_core_files.txt` 里的任何文件（钱/账本/订单生命周期/权限/审计/迁移都没碰）。
 
-`判据 / 反验`：`python _tools/qa/_check_vehicle_inspection_ui.py`（九层 **145 项全绿**）＋ `python _tools/qa/_reverse_verify_vehicle_inspection_ui.py`（**13 条注入全被抓 ＋ 末尾逐字节还原**：① 编辑把没填的日期也发出去（清空老数据）② 新建没填也发一格空日期 ③ 过期那档画成 warn（分档）④ 30 天以内那档不存在 ⑤ 新类型漏出车辆族 ⑥ 卡片里长出第二套算法 ⑦ 后端给的下次年检日期被丢掉 ⑧ 上牌日期那一格从 DTO 里消失 ⑨ 日期选择器被换掉 ⑩ 偏低盖掉低库存 ⑪ 库存页自己判偏低 ⑫ 偏低不再用 warn 橙 ⑬ 本脚本自己摘掉注入锁）＋单测 `VehicleInspectionTest`（**15 passed**）、`MessageGradingTest`（26）、`ProductCardKitTest`（11）＋ `:app:compilePhoneDebugKotlin` **BUILD SUCCESSFUL**。
+`判据 / 反验`：`python _tools/qa/_check_vehicle_inspection_ui.py`（九层 **153 项全绿**）＋ `python _tools/qa/_reverse_verify_vehicle_inspection_ui.py`（**14 条注入全被抓 ＋ 末尾逐字节还原**：① 编辑把没填的日期也发出去（清空老数据）② 新建没填也发一格空日期 ③ 过期那档画成 warn（分档）④ 30 天以内那档不存在 ⑤ 新类型漏出车辆族 ⑥ 卡片里长出第二套算法 ⑦ 后端给的下次年检日期被丢掉 ⑧ 上牌日期那一格从 DTO 里消失 ⑨ 日期选择器被换掉 ⑩ 偏低盖掉低库存 ⑪ 库存页自己判偏低 ⑫ 偏低不再用 warn 橙 ⑬ 本脚本自己摘掉注入锁 ⑭ 未来日期又能选了（选择器没封顶今天））＋单测 `VehicleInspectionTest`（**17 passed**）、`MessageGradingTest`（26）、`ProductCardKitTest`（11）＋ `:app:compilePhoneDebugKotlin` **BUILD SUCCESSFUL**。
 
-- 状态：✅ **已完成**（2026-10-11 04:12 CST；App 代码提交 `3f2dea04`，判据 ＋ 反验 ＋ 本文书随其后一笔提交）。编译与单测：`& "D:\APPS\gradle-8.9\gradle-8.9\bin\gradle.bat" -p android :app:compilePhoneDebugKotlin --console=plain --max-workers=2` = BUILD SUCCESSFUL；`:app:testEmuDebugUnitTest --tests "*Vehicle*" --tests "*MessageGrading*" --tests "*ProductCardKit*"` 全绿（`VehicleInspectionTest` 15 / `VehicleManageScreenTest` 8 / `MessageGradingTest` 26 / `ProductCardKitTest` 11，failures=0）。报告：`_tmp/inspection_near_low_app/report.md`。⛔ **未 push、未构建 APK、未部署、未发布**（等后端会话收工后由用户一键一起部署）。
+- 状态：✅ **已完成**（2026-10-11 04:12 CST；App 代码提交 `3f2dea04`，判据 ＋ 反验 ＋ 本文书随其后一笔提交）。编译与单测：`& "D:\APPS\gradle-8.9\gradle-8.9\bin\gradle.bat" -p android :app:compilePhoneDebugKotlin --console=plain --max-workers=2` = BUILD SUCCESSFUL；`:app:testEmuDebugUnitTest --tests "*Vehicle*" --tests "*MessageGrading*" --tests "*ProductCardKit*"` 全绿（`VehicleInspectionTest` 17 / `VehicleManageScreenTest` 8 / `MessageGradingTest` 26 / `ProductCardKitTest` 11，failures=0）。报告：`_tmp/inspection_near_low_app/report.md`（§11 后端补充口径、§12 收尾验证）。
+
+**第 3 笔（随动修复，同日）**：后端会话补充口径「日期选择器请封顶今天」（后端不做日期范围校验，未来日期只是永远不提醒）⇒ 新增 `inspectionDateAllowed` / `inspectionDateSelectable`（客户端唯一实现）＋ `VehicleDatePicker` 的 `selectableDates` 与确认兜底 —— **未来日期在校验层不可选**；判据 145 → **153 项**、反验 13 → **14 条注入**，并修 `_tools/qa/_check_vehicle_form.py`（白卡分组 5 → 6，本单加的第 6 组「年检（到期提醒）」）与重生成 `docs/PROJECT_MAP/09A_HINT_CATALOG.md`。⛔ **未 push、未构建 APK、未部署、未发布**（等后端会话收工后由用户一键一起部署）。
 ### [2026-10-11 03:2x → ✅ 已完成（代码/判据/文书；⛔ 未部署未发布）] 会话：**FEAT-0021 给九类新消息补「生产者」（它们现在只会显示、不会自己出现）**（DSH `bc25d535-ddd7-43d1-87e3-82dd7428f701`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径`（2026-10-11 逐字）：「给九类新消息补『生产者』——它们现在只会显示、不会自己出现」；关于库存两档：「**我倾向后者**（先做真实存在的那个阈值），理由写进变更单」；纪律：「⛔ **不要构建 APK、不要部署生产、不要发布** —— 用户说另一个会话在做别的改动，**等它通知后一起一键部署**。只交代码 + 判据 + 文书（**提交但不要 push**）」。
@@ -86,7 +88,7 @@
 
 - 状态：⏳ **进行中**（实现 / 判据 / 反验 / 单测 / 编译已绿；真机走查与提交待做）
 
-### [2026-10-11 02:2x → ✅ 已完成] 会话：**CHG-0114 AI 推荐问题跟着角色走（三档助手身份 ＋ 首次/常规两档预设 ＋ 按习惯排前面并能固定）＋ 全部操作按角色预设（分类左抽屉）**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
+### [2026-10-11 02:2x → ✅ 已完成] 会话：**CHG-0114 AI 推荐问题跟着角色走（三档助手身份 ＋ 首次/常规两档预设 ＋ 按习惯排前面并能固定）＋ 全部操作按角色预设（分类左抽屉 ＋ 半透明悬浮球入口 ＋ 点一条先二次确认 ＋ 置顶带字按钮）**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
 
 `用户口径`（2026-10-11 逐字，ref **m01175**）：「我们 ai 那个**我是货主助手**要随着角色而发生改变啊。而目前只有 3 个派单元呃货主还有批发商这 3 个就够了，然后我们对应的下面不是有预设的一些问题吗？这些问题要跟着角色来进行变的比如说假如这个角色是第一次来那他应该会涉及到哪些问题啊，那像有些人他一开始连订单什么都没有肯定不会有这些问题啦比如说呃帮我下单啊创建联系人啊创建地址肯定是这些问题或者是这些要求包括我们其实也可以在设置当中他自己手动的去编辑一些呃首次的问题预设而且也支持在之后的聊天过程当中……他可以在典型那里然后再选择……然后就可以直接发送省得它每次都要呃都要去那样子搞嘛……我们随着他的使用习惯，他经常问什么问题会提前的呃把它显示出来。当然，他也可以去固定啊，我这个问题，就固定在这里，这也是可以的」；配图 ref **m01174**（改前的空状态：`我是货主助手` ＋ 4 条写死的问题）。
 
@@ -96,9 +98,9 @@
 
 `核心改动`：**无** —— 为什么：本轮没有碰 `_tools/qa/_core_files.txt` 里的任何文件；改动全在展示层与两个新文件里。
 
-`判据 / 反验`：`_check_ai_suggest.py` **59 项全绿**（三档标题互不重样、`AiRole` 仍只有两个枚举值、界面里那两张写死问题表与两元标题一个不剩、入口必须落在 `bottomBar` 里且 `InputBar` 之前、取 `suggests` 前 `ensureScoped()`、两个新文件不碰网络、单测覆盖三档）＋ 反验 **16/16 被抓、6 个被注入文件逐字节还原**（其中两条一开始没红，是注入本身写错了 —— 一条注的是注释、判据先过 `code_only()` 剥掉；一条没把入口挪出 `bottomBar`，已改）＋ 单测 `AiSuggestTest.kt` **37 条**，`:app:testEmuDebugUnitTest` ⇒ **115 个测试类 / 1618 条 / 0 失败 / 0 错误 / 2 跳过**（上一版那三条失败随并行会话修好而消失）：三次失败都不是本单的文件（`ui/messages/MessageGrading.kt` 缺 `contentOrNull` import、`ai/AiWorkflowRunner.kt` 一片 `Unresolved reference` 都是并行会话的在制品），另外撞过 Kotlin 编译器 `OutOfMemoryError`（本机 15.8 GB 只剩 0.9 GB，杀掉两台闲置模拟器才腾到 2.1 GB）与两个会话同时写 `android/app/build/` 导致的 `Could not copy … app_emuDebug.kotlin_module`。真机 `shots/chg0114/ai_home.png`（输入框上方那颗「典型问题」入口）＋ `shots/chg0114/ai_drawer.png`（左抽屉：左栏 16 格分类、右栏「订单」3 问 ＋ 9 个带风险签的操作），⛔ 首页 4 颗没拍到 —— 该机没配模型 API Key，空状态被配置引导卡占着，如实记在变更单 ⑦。**不拿 CHG-0108 那轮的 1507 条冒充本轮数字。**；提交 `faca4df3`（第一版）＋ 本轮实现 `__`。
+`判据 / 反验`：`_check_ai_suggest.py` **65 项全绿**（三档标题互不重样、`AiRole` 仍只有两个枚举值、界面里那两张写死问题表与两元标题一个不剩、入口必须是 `floatingActionButton` 里那颗 `SuggestFab`（`floatingActionButtonPosition = FabPosition.End` ＋ 闲着的时候 `alpha` 小于 1；第一版那行 `SuggestEntryRow` 不许复活）、点一条必须把话挂进 `pending` 再走末尾的 `AlertDialog`（**两个入口都要** —— 只挂一条等于另一条点一下就直接发出去）、置顶必须是**带字**按钮而不是裸图钉、取 `suggests` 前 `ensureScoped()`、两个新文件不碰网络、单测覆盖三档）＋ 反验 **20/20 被抓、6 个被注入文件逐字节还原**（第一版那两条一开始没红，是注入本身写错了 —— 一条注的是注释、判据先过 `code_only()` 剥掉；一条没把入口挪出 `bottomBar`。本轮换成 6 条悬浮球用例：`.alpha(0.55f)` → `1.0f`、`FabPosition.End` → `Center`、点选入口改成直接 `onPick`、确认卡标题改字、置顶按钮改字）＋ 单测 `AiSuggestTest.kt` **37 条**，`:app:testEmuDebugUnitTest` ⇒ **116 个测试类 / 1636 条 / 0 失败 / 0 错误 / 2 跳过**（第一版那三条失败随并行会话修好而消失：`ui/messages/MessageGrading.kt` 缺 `contentOrNull` import、`ai/AiWorkflowRunner.kt` 一片 `Unresolved reference` 都是并行会话的在制品；另外撞过 Kotlin 编译器 `OutOfMemoryError`（本机 15.8 GB 只剩 0.9 GB，杀掉两台闲置模拟器才腾到 2.1 GB）与两个会话同时写 `android/app/build/` 导致的 `Could not copy … app_emuDebug.kotlin_module`）。真机三张：`shots/chg0114/ai_home.png`（右边缘那颗半透明「预设」悬浮球，adbd 报的节点中心 `(975, 2117)`）＋ `shots/chg0114/ai_drawer.png`（左抽屉：左栏 16 格分类、右栏「订单」3 问 ＋ 9 个带风险签的操作，问题卡上写着「置顶」）＋ `shots/chg0114/ai_confirm.png`（点一条之后弹的「就发这一句？」＋ 原样回显那句话 ＋ 「再想想」/「发出去」），首页 4 条首次档这次也拍到了 —— 第一版那台机器没配模型 API Key、空状态被配置引导卡占着（当时如实记成 ⛔），本轮模型已配好（标题栏 `deepseek-flash · 中`）就渲染出来了；⚠️ 取证时 8000 上原本没有后端，常规起回被 `assert_schema_ready` 拒（库 32 / 迁移 33 是另一个会话的在制品），**没有**动他们的迁移，改用 `SORDERS_SKIP_MIGRATIONS=1` 起回只读用途。**不拿 CHG-0108 那轮的 1507 条冒充本轮数字。**；提交 `faca4df3`（第一版）＋ 本轮实现 `__`。
 
-- 状态：✅ **已完成**（判据 59/59 ＋ 反验 16/16 ＋ 单测 1618 条 0 失败 ＋ 真机 2 张 ＋ 全量静检见变更单 ⑧；已提交 `faca4df3`（第一版）＋ 本轮实现 `__`）
+- 状态：✅ **已完成**（判据 65/65 ＋ 反验 20/20 ＋ 单测 1636 条 0 失败 ＋ 真机 3 张 ＋ 全量静检见变更单 ⑧；已提交 `faca4df3`（第一版）＋ 本轮实现 `__`）
 
 ### [2026-10-11 02:2x → ⏳ 进行中] 会话：**FEAT-0019 消息分级与严重度（后端）——`notifications.severity` 判定只有一处（`severity_for` ＋ 列默认值委托）＋ `payload.emphasis`（只点真的出现在标题/正文里的词）＋ 迁移 032**（DSH `b59467f2-d797-43c3-b531-767cfef791c0`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 

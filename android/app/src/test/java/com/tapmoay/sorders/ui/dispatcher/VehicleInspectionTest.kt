@@ -6,8 +6,10 @@ import com.tapmoay.sorders.ui.messages.MessageRisk
 import com.tapmoay.sorders.ui.messages.emphasisColor
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -134,6 +136,27 @@ class VehicleInspectionTest {
         assertEquals("2020-03-01", isoDateOfMillis(millis!!))
         assertNull(isoDateToMillis("2020/03/01"))
         assertNull(isoDateToMillis(""))
+    }
+
+    // ---- 未来日期不可选（后端不做范围校验）----
+
+    @Test
+    fun `选年检日期时不许选未来（今天能选，明天不行）`() {
+        // 后端不做日期范围校验：填了未来日期不会报错，只会"算不出该提醒的那天"。
+        assertTrue(inspectionDateAllowed("2026-10-11", today))
+        assertTrue(inspectionDateAllowed("2020-03-01", today))
+        assertFalse(inspectionDateAllowed("2026-10-12", today))
+        assertFalse(inspectionDateAllowed("2027-01-01", today))
+        assertFalse(inspectionDateAllowed("不是日期", today))
+        assertFalse(inspectionDateAllowed(null, today))
+    }
+
+    @Test
+    fun `选择器那条回调也按同一条规则（毫秒进来）`() {
+        val nowIso = LocalDate.now().toString()
+        val tomorrowIso = LocalDate.now().plusDays(1).toString()
+        assertTrue(inspectionDateSelectable(isoDateToMillis(nowIso)!!))
+        assertFalse(inspectionDateSelectable(isoDateToMillis(tomorrowIso)!!))
     }
 
     // ---- 保存时这一格发不发（PATCH 语义）----

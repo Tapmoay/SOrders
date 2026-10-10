@@ -3,7 +3,8 @@
 
 盯住四件事：
 
-1. 分组一律白卡（规范 §5.0）：四个 FormGroup（车辆 / 车身与属性 / 司机与状态 / 分类），
+1. 分组一律白卡（规范 §5.0）：六个 FormGroup（车辆 / 车身与属性 / 司机与状态 / 分类 /
+   折旧台账（购置信息）/ 年检（到期提醒）），
    行一律走 ui/common/FormRows.kt 那一套 —— 这一页的 OutlinedTextField 必须是 0。
 2. 下拉不许用点选 chips 替代（规范 §5 :1377）：车型与车身型式都是「从固定取值里选一个」，
    必须 ExposedDropdownMenuBox + FormPickRow(menuAnchor)；本页 PickChip 归零。
@@ -128,19 +129,22 @@ def main() -> int:
          all(f"fun {k}(" in forms for k in ROW_KINDS),
          "没有 FormRows 的话这一页几组断言会空过")
 
-    # ── 1. 五个白卡分组 ──────────────────────────────────────────────────
-    c.section("1. 分组一律白卡（规范 §5.0）：五个 FormGroup + 卡外的组标题")
+    # ── 1. 六个白卡分组 ──────────────────────────────────────────────────
+    c.section("1. 分组一律白卡（规范 §5.0）：六个 FormGroup + 卡外的组标题")
     groups = calls(vehicle, "FormGroup(")
-    c.ok(f"白卡分组恰好五个（实际 {len(groups)} 个）", len(groups) == 5,
+    c.ok(f"白卡分组恰好六个（实际 {len(groups)} 个）", len(groups) == 6,
          "多了少了都说明分组结构被改过（第 4 组「分类」是 FEAT-0010 加的；"
-         "第 5 组「折旧台账（购置信息）」是 FEAT-0012 第二期加的 —— 它就是折旧那四格的落点）")
+         "第 5 组「折旧台账（购置信息）」是 FEAT-0012 第二期加的 —— 它就是折旧那四格的落点；"
+         "第 6 组「年检（到期提醒）」是 FEAT-0022 加的 —— 上牌日期 / 上次年检日期两格的落点）")
     want = [("车辆", "LocalShipping", "Color(DriverLime)"),
             ("车身与属性", "Straighten", "Color(DriverLime)"),
             ("司机与状态", "Person", "Color(NavBlue)"),
             # 分类那一组（FEAT-0010）：底色与「车辆」「车身与属性」同一族（都是车辆域）。
             ("分类", "Folder", "Color(DriverLime)"),
            # 折旧台账那一组（FEAT-0012 第二期）：同样是车辆域，底色同一族。
-           ("折旧台账（购置信息）", "Payments", "Color(DriverLime)")]
+           ("折旧台账（购置信息）", "Payments", "Color(DriverLime)"),
+           # 年检那一组（FEAT-0022）：还是车辆域，底色同一族（图标是日历 —— 两个日期格）。
+           ("年检（到期提醒）", "Event", "Color(DriverLime)")]
     for title, icon, tint in want:
         hit = [g for g in groups if f"title = {Q}{title}{Q}" in g and f"tint = {tint}" in g]
         c.ok(f"分组「{title}」在、底色 {tint}、图标 {icon}",
@@ -262,7 +266,7 @@ def main() -> int:
         for label, _ in c.fails:
             print(f"   - {label}")
         return 1
-    print(f"✅ 全部 {c.n_ok} 项通过：五个白卡分组用共用行、两个选取器都是下拉、"
+    print(f"✅ 全部 {c.n_ok} 项通过：六个白卡分组用共用行、两个选取器都是下拉、"
           f"属性一项一行且量纲在标签上、保存键的字是深橄榄、错画在表单里、既有口径没被动。")
     return 0
 
@@ -270,7 +274,7 @@ def main() -> int:
 if __name__ == "__main__":
     if "--list" in sys.argv:
         print("== 它到底在查什么（车辆管理页抽屉表单 CHG-0017）==")
-        print("1. 分组一律白卡：四个 FormGroup（车辆 / 车身与属性 / 司机与状态 / 分类）+ 组内只用共用行")
+        print("1. 分组一律白卡：六个 FormGroup（车辆 / 车身与属性 / 司机与状态 / 分类 / 折旧台账 / 年检）+ 组内只用共用行")
         print("2. 选取器一律下拉：两个 ExposedDropdownMenuBox + menuAnchor，PickChip 归零，")
         print("   车身型式走 vm.setBody(k)（换型式必须剔掉新型式没有的项）")
         print("3. 属性行：attrsFor(vm.draftBody) 过滤 + attrTitle 带量纲 + 一项一行（chunked(2) 归零）")

@@ -1148,7 +1148,10 @@ private fun VehicleEditSheet(
                         color = inspectionInk(badge),
                     )
                 }
-                Hint(
+                // ⛔ 这一句用常显文本、不挂提示开关：它是「下次年检怎么算」的口径，
+                // 被开关藏掉的话用户会以为「两格都空 ⇒ 不提醒」是没生效
+                // （_check_hints.py 第 2 组按分类器钉着这一点）。
+                Text(
                     "下次年检 = 上次年检日期（没填就用上牌日期）+ 1 年；两格都空 ⇒ 这台车不提醒。" +
                         "到期前 30 天提醒一次，过期之后按「已过期」再提醒。",
                     style = MaterialTheme.typography.bodySmall,
@@ -1205,6 +1208,9 @@ private fun VehicleEditSheet(
 /**
  * 一个日期选择器（年检两格共用）：`就用这天` / `清除`（有值才给）/ `取消`。
  *
+ * ⛔ **未来日期不可选**（`selectableDates`）：后端不做日期范围校验，未来日期填得进去、
+ *    只是永远不提醒 —— 这种"填了也没用"的值不该让用户选得出来。
+ *
  * ⚠️ 毫秒 ↔ ISO 串的换算在 `VehicleInspection.kt`（`isoDateOfMillis` / `isoDateToMillis`）——
  * 这一页不碰 `java.time`：日期格式只许有一处，免得界面写进去的串和后端要的串不是同一个。
  */
@@ -1218,12 +1224,22 @@ private fun VehicleDatePicker(
     onClose: () -> Unit,
 ) {
     if (!open) return
-    val dpState = rememberDatePickerState(initialSelectedDateMillis = isoDateToMillis(current))
+    val dpState = rememberDatePickerState(
+        initialSelectedDateMillis = isoDateToMillis(current),
+        // ⛔ 未来日期在**选择层**就点不动：后端不做日期范围校验，填了未来日期只会「安静地
+        //    不提醒」（见 VehicleInspection.kt 的 inspectionDateAllowed）。
+        selectableDates = object : SelectableDates {
+            override fun isSelectableDate(utcTimeMillis: Long): Boolean = inspectionDateSelectable(utcTimeMillis)
+        },
+    )
     DatePickerDialog(
         onDismissRequest = onClose,
         confirmButton = {
             TextButton(onClick = {
-                dpState.selectedDateMillis?.let { onPick(isoDateOfMillis(it)) }
+                val picked = dpState.selectedDateMillis
+                // 兜底：档案里本来就存着一个未来日期时，它是选中态、选择层拦不住 ——
+                // 这里也不许把它写回草稿（显示的日子必须是"算得出提醒"的那一天）。
+                if (picked != null && inspectionDateSelectable(picked)) onPick(isoDateOfMillis(picked))
                 onClose()
             }) { Text("就用这天") }
         },

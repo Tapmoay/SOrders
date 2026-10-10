@@ -12,7 +12,7 @@ _tools/qa/_check_vehicle_inspection_ui.py 是否每次都报红。
 * 注入没生效（锚点变了 → 替换结果与原文件相同）算 SKIP = 失败；
 * 全程拿着 lock_reverse_verify：注入期间别的检查看这份工作区会得到不可信的结论。
 
-这 13 条对应的正是这一单最容易被改坏的地方 —— 它们有个共同点：**改完都能编译、
+这 14 条对应的正是这一单最容易被改坏的地方 —— 它们有个共同点：**改完都能编译、
 App 也照样跑**，只有把日期拿去手工算一遍、或者拿两个窗口对一遍才会发现：
 
 1-2    PATCH 语义：编辑时把没填的日期也原样发出去（清空老车本来填过的日期）、
@@ -24,6 +24,7 @@ App 也照样跑**，只有把日期拿去手工算一遍、或者拿两个窗�
 9      表单：日期选择器被换成别的控件；
 10-12  库存：偏低盖掉低库存、库存页自己判偏低、偏低不再用 warn 橙；
 13     本脚本自己摘掉注入锁（注入期间的结论从此不可信）。
+14     表单：未来日期在选择层就能选中（后端不做范围校验，填了只是永远不提醒）。
 """
 from __future__ import annotations
 
@@ -129,6 +130,11 @@ def _near_low_not_warn_color(s: str) -> str:
                      "private val NearLowInk = Color(0xFF008EAB)")
 
 
+def _picker_allows_future(s: str) -> str:
+    """未来日期又能选了（后端不做范围校验：填了不报错，只是这台车永远不提醒）。"""
+    return s.replace("Boolean = inspectionDateSelectable(utcTimeMillis)", "Boolean = true")
+
+
 def _self_drops_injection_lock(s: str) -> str:
     """本脚本自己摘掉注入锁（注入期间的结论从此不可信）。"""
     return s.replace(LOCK, "locked_x")
@@ -147,6 +153,7 @@ CASES = [
     ("⑩ 偏低盖掉低库存", CARDKIT, _near_low_overwrites_low_stock, "偏低那一档必须在低库存之后"),
     ("⑪ 库存页自己判偏低", INVENTORY, _inventory_judges_itself, "库存页不许自己写"),
     ("⑫ 偏低不再用 warn 橙", CARDKIT, _near_low_not_warn_color, "偏低的字色"),
+    ("⑭ 未来日期又能选了（选择器没封顶今天）", SCREEN, _picker_allows_future, "选择层那条规则来自唯一实现"),
     ("⑬ 本脚本自己摘掉注入锁", SELF, _self_drops_injection_lock, "反向验证先上锁"),
 ]
 
