@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -274,14 +275,30 @@ fun OrderTemplateFormScreen(
     LaunchedEffect(vm.done) { if (vm.done) onSaved() }
 
     val editing = templateId != null
+    // BUG-0031（测试台账 TA-07）：保存被拦下来时，把那句红字**送到用户眼前**。
+    //   原来它只是列表最末一个 item —— 表单长的时候（y≈2794）落在视口外，
+    //   用户点了「保存」却什么也看不见，以为按钮坏了。两道保险：
+    //   ① 底栏常驻一行同款提示（不用滚也看得见）；② 列表自动滚到末尾那一行。
+    val listState = rememberLazyListState()
+    LaunchedEffect(vm.error) {
+        if (vm.error != null) {
+            val last = listState.layoutInfo.totalItemsCount - 1
+            if (last >= 0) listState.animateScrollToItem(last)
+        }
+    }
     Scaffold(
         topBar = { AppTopBar(title = if (editing) "编辑预订单" else "新建预订单", onBack = onBack) },
         bottomBar = {
             Surface(shadowElevation = 8.dp) {
-                Row(
+                Column(
                     Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // 红字就贴在「保存」上方：表单再长也不会把它挤出屏幕（BUG-0031）。
+                    FormErrorLine(vm.error)
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                     PrimaryActionButton(
                         text = if (vm.saving) "保存中…" else "保存",
                         onClick = { vm.save() },
@@ -290,6 +307,7 @@ fun OrderTemplateFormScreen(
                         icon = Icons.Default.Check,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    }
                 }
             }
         },
@@ -301,6 +319,7 @@ fun OrderTemplateFormScreen(
         Column(Modifier.fillMaxSize().padding(padding)) {
             LazyColumn(
                 Modifier.weight(1f),
+                state = listState,
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
