@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FEAT-0021 消息生产者：九类新消息必须**自己出现**，而且不许刷屏。
+"""FEAT-0021 / FEAT-0022 消息生产者：新消息必须**自己出现**，而且不许刷屏。
 
 用户口径（2026-10-11 任务书，历史记录）：
   · 九类 type 已经定名、卡片也渲染好了，但它们**只会显示、不会自己出现** —— 本单补生产者；
@@ -20,10 +20,22 @@ FEAT-0019 把**渲染**做完了，九类消息在界面上却永远是空的 �
 | emphasis 指向正文里没有的片段 | 卡片上少一个落点，消息照发 | 没人 |
 | 深链键丢了 | 点进去跳不到（规范说"缺键就别给"） | 用户 |
 | 每日兜底扫描被删 | 钩子被绕过的漏发再也没人补 | 没人 |
-| NOT_PRODUCED 里不写缺什么字段 | 下一单不知道"为什么没做" | 下一个人 |
+| NOT_PRODUCED 里留着一个**已经做了**的类 | 下一单以为它还缺字段（而它已经在发了） | 下一个人 |
 
 R4-BOUNDARY-JUSTIFICATION: 本判据只**读文本**（backend 的服务 / 端点 / 入口 / 单测 ＋ 两份文档），
 不连库、不起服务、不写任何文件；反向验证 _reverse_verify_message_producers.py 注入后逐字节还原。
+
+### FEAT-0022（2026-10-11）之后本判据跟着变的三处（⛔ 不是把判据放松）
+
+1. 全集从**九类**变成**十类**（`vehicle.inspection_overdue` 是这一单新增的），
+   而 `PRODUCED` 从七类变成**十类全有** —— 于是 `NOT_PRODUCED` 必须是**空**的，
+   判据从「每个不做的类都要写清缺什么字段」改成「一个都不许留在里面」；
+2. `notify_stock_low` 改成**两档共用一个出口**（`type_=band`、`idem_key=band + ...`），
+   `type_="stock.low"` 这个字面量因此不存在了 —— 判据改成断言**两个类型名都在唯一的
+   判档函数 `stock_band` 里**，并且那个 `band` **同时**当类型名与幂等键前缀（两者不会漂移）；
+   这比原来那条更强：原来只能证明"有一处写了 danger 那个名字"；
+3. 每日扫描从四项变成七项（多了 `stock_near_low` / `inspection_due` / `inspection_overdue`），
+   单测里"第二次全是 0"的那串字面量跟着变长。
 
 判据口径（本仓库既有约定）：
   1. 认**代码形状**不认文字：先剥注释与三引号再看结构（散文骗过判据的坑踩过）；
@@ -56,13 +68,14 @@ DESIGN = ROOT / "docs/MESSAGE_CARD_DESIGN.md"
 CHANGE = ROOT / "docs/changes/FEAT-0021.md"
 CLAIM = ROOT / "docs/AI_WORK_CLAIM.md"
 
-#: 九类新消息（本单的全集）。
-NINE = (
+#: 新消息的全集（FEAT-0021 的九类 ＋ FEAT-0022 新增的 `vehicle.inspection_overdue`）。
+TEN = (
     "stock.low", "stock.near_low", "arrears.over_limit", "payable.due_soon", "payable.overdue",
-    "invoice.issued", "vehicle.inspection_due", "account.new_device_login", "account.device_unfrozen",
+    "invoice.issued", "vehicle.inspection_due", "vehicle.inspection_overdue",
+    "account.new_device_login", "account.device_unfrozen",
 )
-#: 有生产者的七类（剩下两类在 NOT_PRODUCED 里写明缺什么字段）。
-SEVEN = tuple(t for t in NINE if t not in ("stock.near_low", "vehicle.inspection_due"))
+#: 有生产者的类 —— FEAT-0022 之后**十类全都有**（所以 `NOT_PRODUCED` 必须是空的）。
+PRODUCED_TYPES = TEN
 #: 档位（§三：由数据判，不由文案判）。
 GRADE = {
     "stock.low": "SEVERITY_DANGER",
@@ -72,12 +85,14 @@ GRADE = {
     "payable.overdue": "SEVERITY_DANGER",
     "invoice.issued": "SEVERITY_INFO",
     "vehicle.inspection_due": "SEVERITY_WARN",
+    "vehicle.inspection_overdue": "SEVERITY_DANGER",
     "account.new_device_login": "SEVERITY_DANGER",
     "account.device_unfrozen": "SEVERITY_INFO",
 }
 MAX_EMPHASIS = 4
 MAX_EMPHASIS_CHARS = 24
-MIN_TESTS = 12
+#: 单测条数下限：FEAT-0022 之后本文件有二十多条（判据自己腐烂时先在这里报红）。
+MIN_TESTS = 18
 
 PASS = 0
 FAIL: list[str] = []
@@ -250,31 +265,38 @@ code_p = code_only(src_p)
 # 一组：九类各归其位（有生产者 / 如实不做）
 # ---------------------------------------------------------------------------
 FUNCS = (
-    "_send", "_to_dispatchers", "notify_stock_low", "scan_stock_low", "payable_due_date",
+    "_send", "_to_dispatchers", "stock_band", "notify_stock_low", "scan_stock_low", "payable_due_date",
     "payable_kind", "notify_payable", "scan_payables", "scan_arrears_over_limit",
-    "notify_invoice_issued", "notify_new_device_login", "notify_device_unfrozen", "run_daily_scan",
+    "notify_invoice_issued", "notify_inspection", "scan_inspection_due",
+    "notify_new_device_login", "notify_device_unfrozen", "run_daily_scan",
 )
 sl = {n: func(src_p, n) for n in FUNCS}
 for n in FUNCS:
     ok(bool(sl[n]), "message_producers 里找不到 def " + n + "( 的切片 —— 生产者被改名或删掉了")
 
 PRODUCER_FUNCS = ("notify_stock_low", "notify_payable", "scan_arrears_over_limit",
-                  "notify_invoice_issued", "notify_new_device_login", "notify_device_unfrozen")
+                  "notify_invoice_issued", "notify_inspection",
+                  "notify_new_device_login", "notify_device_unfrozen")
 
 prod_region = region(src_p, "PRODUCED: tuple[str, ...] = (", "\n)")
 produced = tuple(dict.fromkeys(re.findall(r'"([a-z0-9_.]+)"', prod_region)))
-notprod_region = region(src_p, "NOT_PRODUCED: dict[str, str] = {", "\n}")
+#: ⚠️ end_marker 必须是 "}\n"（那张表的**收尾大括号 + 行尾**）：
+#: FEAT-0022 之后 `NOT_PRODUCED` 是**空字典**（`{}`），原来那个 "\n}" 会一路读到
+#: 后面 `_STOCK_BANDS` 的收尾大括号上，把 stock.low / stock.near_low 当成"没做"的两类
+#: （写这条时真踩到了：判据报"同一类既在 PRODUCED 又在 NOT_PRODUCED"，而代码是对的）。
+notprod_region = region(src_p, "NOT_PRODUCED: dict[str, str] = {", "}\n")
 notproduced = tuple(dict.fromkeys(re.findall(r'^\s{4}"([a-z0-9_.]+)":', notprod_region, re.M)))
 ok(len(produced) >= 5, "读不出 PRODUCED 的成员（表头写法变了？）")
-ok(len(notproduced) >= 1, "读不出 NOT_PRODUCED 的成员（表头写法变了？）")
-ok(set(produced) | set(notproduced) == set(NINE),
-   "九类没有全部登记（PRODUCED ∪ NOT_PRODUCED ≠ 九类），实际：" + repr(sorted(set(produced) | set(notproduced))))
+ok("NOT_PRODUCED: dict[str, str] = {" in src_p,
+   "NOT_PRODUCED 那张表不见了 —— 它是「下一单不做某一类时写理由」的落点，⛔ 不许删（空的也要留着）")
+ok(len(notproduced) == 0,
+   "NOT_PRODUCED 里还有 " + repr(sorted(notproduced)) + " —— FEAT-0022 之后**十类全都有生产者**，"
+   "这张表必须是空的（⚠️ 已经做了的类型留在里面 = 告诉下一个人「它还缺字段」，而它已经在发了）")
+ok(set(produced) == set(TEN), "PRODUCED 不是" + repr(sorted(TEN)) + "，实际：" + repr(sorted(produced)))
 ok(not (set(produced) & set(notproduced)),
    "同一类既在 PRODUCED 又在 NOT_PRODUCED：" + repr(sorted(set(produced) & set(notproduced))))
-ok(set(produced) == set(SEVEN), "PRODUCED 不是" + repr(sorted(SEVEN)) + "，实际：" + repr(sorted(produced)))
 
 EMIT = {
-    "stock.low": "notify_stock_low",
     "arrears.over_limit": "scan_arrears_over_limit",
     "invoice.issued": "notify_invoice_issued",
     "account.new_device_login": "notify_new_device_login",
@@ -283,6 +305,23 @@ EMIT = {
 for t, fname in EMIT.items():
     ok('type_="' + t + '"' in sl.get(fname, ""),
        t + " 的生产者 " + fname + " 里没有 type_=" + repr(t) + "（这一类没有生产者）")
+
+# ⚠️ 库存两档在 FEAT-0022 里改成**共用一个出口**（`type_=band` / `idem_key=band + ...`），
+#    于是 `type_="stock.low"` 这个字面量不再存在。判据**不是**跟着删掉，而是锚到更强的形状上：
+#    两个类型名必须都在**唯一的判档函数**里，而且那个 `band` 同时当类型名与幂等键前缀
+#    （两者在构造上不可能漂移）。原来那条只能证明"有一处写了 danger 那个名字"。
+ok('"stock.low"' in sl["stock_band"] and '"stock.near_low"' in sl["stock_band"],
+   "库存两档的类型名不在唯一的判档函数 stock_band 里 —— 两档会分家（分档散成两处）")
+ok("type_=band" in sl["notify_stock_low"] and "idem_key=band +" in sl["notify_stock_low"],
+   "notify_stock_low 没有拿同一个 band 既当类型名又当幂等键前缀（类型名与去重键会漂移）")
+ok("stock_band(stock, alert)" in sl["notify_stock_low"],
+   "notify_stock_low 没有走 stock_band 判档（自己又写了一遍阈值比较）")
+
+# ⚠️ 车辆两档同理：分档只有 `inspection_due.inspection_kind()` 一处，生产者只把 kind 前传。
+ok("inspection_due.inspection_kind(" in sl["scan_inspection_due"],
+   "scan_inspection_due 没有走 inspection_due.inspection_kind（分档会散成两处）")
+ok("type_=kind" in sl["notify_inspection"] and "idem_key=kind +" in sl["notify_inspection"],
+   "notify_inspection 没有拿同一个 kind 既当类型名又当幂等键前缀")
 for t in ("payable.due_soon", "payable.overdue"):
     ok('"' + t + '"' in sl["payable_kind"],
        t + " 没有出现在 payable_kind 的分档里（临期与逾期分不开）")
@@ -317,8 +356,8 @@ ok("active_dispatchers" in func(src_c, "active_dispatchers") or "def active_disp
    "message_center 里没有 active_dispatchers（收件人判定没了唯一出处）")
 
 sev_table = table_rows(src_c, "SEVERITY_BY_TYPE")
-ok(len(sev_table) >= 9, "读不出 SEVERITY_BY_TYPE 的行（表头写法变了？）")
-for t in NINE:
+ok(len(sev_table) >= 10, "读不出 SEVERITY_BY_TYPE 的行（表头写法变了？）")
+for t in TEN:
     ok(sev_table.get(t) == GRADE[t],
        t + " 的档位不是 " + GRADE[t] + "（实际 " + repr(sev_table.get(t)) + "）")
 
@@ -341,10 +380,10 @@ for fname in PRODUCER_FUNCS + ("_to_dispatchers",):
     for args in calls(sl[fname], "_send") + calls(sl[fname], "_to_dispatchers"):
         idem_calls += 1
         ok("idem_key=" in args, fname + " 里有一次发消息调用没带 idem_key —— 这件事会反复刷屏")
-ok(idem_calls >= 7, "只找到 " + str(idem_calls) + " 处生产者调用（< 7）—— 取法失效了，先修判据")
+ok(idem_calls >= 8, "只找到 " + str(idem_calls) + " 处生产者调用（< 8）—— 取法失效了，先修判据")
 
 daily = sl["run_daily_scan"]
-for needle in ("scan_stock_low(", "scan_payables(", "scan_arrears_over_limit("):
+for needle in ("scan_stock_low(", "scan_payables(", "scan_arrears_over_limit(", "scan_inspection_due("):
     ok(needle in daily, "每日兜底扫描没有调用 " + needle + " —— 那一类漏发就再没人补")
 ok("db.commit()" in daily, "每日扫描没有 commit（扫出来的消息会随请求一起被丢掉）")
 ok("payable_kind(" in sl["scan_payables"], "scan_payables 没有用 payable_kind 分档（临期/逾期会同一档）")
@@ -422,10 +461,12 @@ for fname in PRODUCER_FUNCS:
 
 # 固定新闻词必须与正文对得上（正文里找不到就静默丢掉）
 news = table_rows(src_c, "EMPHASIS_BY_TYPE")
-for t in SEVEN:
+for t in TEN:
     ok(bool(news.get(t)), "EMPHASIS_BY_TYPE 里没有 " + t + " 的固定新闻词")
 ok("库存不足" in news.get("stock.low", ""), "stock.low 的固定新闻词不是「库存不足」")
 ok("已逾期" in news.get("payable.overdue", ""), "payable.overdue 的固定新闻词不是「已逾期」")
+ok("已逾期" in news.get("vehicle.inspection_overdue", ""),
+   "vehicle.inspection_overdue 的固定新闻词不是「已逾期」（逾期不说「逾期」，用户看不出严重性）")
 ok("新设备登录" in news.get("account.new_device_login", ""),
    "account.new_device_login 的固定新闻词不是「新设备登录」")
 login_title = re.search(r'title = "([^"]*)"', code_only(sl["notify_new_device_login"]))
@@ -447,6 +488,11 @@ for label, fname, keys in DEEP:
     for k in keys:
         ok('"' + k + '"' in sl[fname], label + " 的消息没有给深链键 " + k + "（§五：缺键就别给）")
 
+# 车辆族的"深链"是**明确没有**的（§五 写的就是"无 / 永远不跳"）——
+# 判据要钉的是"payload 里写了 vehicle_id，而且**写清了它不是深链承诺**"：
+# 少了后半句，下一个人会以为它是可以跳的键，客户端却永远不跳（"给了键却没反应"）。
+ok('"vehicle_id"' in sl["notify_inspection"] and "永远不跳" in sl["notify_inspection"],
+   "车辆年检的 payload 没有写清「§五：车辆族永远不跳」—— 下一个人会把 vehicle_id 当成深链键")
 ok("MessageGrading.kt" in src_design and "noticeRoute(" in src_design,
    "规范 §五 没写清「客户端按 type 的族跳页」的真实口径（还在说目标从 payload 取）")
 ok("永远不跳" in src_design, "规范 §五 没有写 vehicle 族永远不跳")
@@ -463,15 +509,18 @@ ok("_check_message_producers.py" in src_design, "规范里没有指向本判据�
 test_blocks = [b for b in re.split(r"^def (test_[a-z0-9_]+)\(", src_test, flags=re.M)[1:]]
 test_names = re.findall(r"^def (test_[a-z0-9_]+)\(", src_test, re.M)
 ok(len(test_names) >= MIN_TESTS, "单测只有 " + str(len(test_names)) + " 条（< " + str(MIN_TESTS) + "）")
-for t in SEVEN:
+for t in TEN:
     hit = sum(1 for b in test_blocks if '"' + t + '"' in b)
     ok(hit >= 2, t + " 只有 " + str(hit) + " 条用例（< 2）")
 ok("test_daily_scan_reruns_without_adding_a_single_row" in src_test,
    "没有「连续跑两次扫描、通知条数不增加」那条判据")
 ok(src_test.count("select(func.count()).select_from(Notification)") >= 2,
    "去重那条用例没有真的数通知条数（拿计数当判据）")
-ok('"stock_low": 0, "payable_due_soon": 0, "payable_overdue": 0, "arrears_over_limit": 0' in src_test,
-   "第二次扫描的四个计数没有被断言为 0（第二次跑出了东西却没人发现）")
+# ⚠️ 这一串是**七项**（FEAT-0022 加了库存偏低与两类年检）：少一项就等于
+# "那一类第二次跑出了东西却没人发现"。写成连续字面量是为了让它一眼可核对。
+ok('"stock_low": 0, "stock_near_low": 0, "payable_due_soon": 0, "payable_overdue": 0,' in src_test
+   and '"arrears_over_limit": 0, "inspection_due": 0, "inspection_overdue": 0,' in src_test,
+   "第二次扫描的七个计数没有被断言为 0（第二次跑出了东西却没人发现）")
 ok("def _assert_emphasis_ok" in src_test and "in text" in src_test,
    "单测没有断言「重点词必须原样出现在标题/正文里」")
 ok("MAX_EMPHASIS" in src_test, "单测没有把「最多 4 个片段」钉住")
@@ -497,4 +546,4 @@ for msg in FAIL:
     print("  ❌ " + msg)
 if FAIL:
     sys.exit(1)
-print("  ✅ 九类各归其位、档位只有一处、幂等键钉住去重、钩子在同一事务、重点词在正文里、深链键齐全")
+print("  ✅ 十类各归其位、档位只有一处、幂等键钉住去重、钩子在同一事务、重点词在正文里、深链键齐全")
