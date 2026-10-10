@@ -25,7 +25,7 @@
 | TA-04 | A | 司机端「进行中」列表被实时推送打断后整页报 StandaloneCorouti… | 可见 | **已修复 f7f31f2** | 司机端「进行中」页在一次取数在途时收到实时推送（新派单等），整页被错误态顶掉，文案是协程取消的原始异常串 Standalo… | android\app\src\main\java\com\tapmoay\sorders… | _tmp\test_round3\evidence_a4_list_error… |
 | TA-05 | A | 删除/恢复在途单不产生实时推送：司机端刷新前无变化、刷新后静默消失/静默回归（… | 可疑 | **已修复 db7b3a4** | 派单员 DELETE /orders/{id}（司机已接单的在途单）与 POST /{id}/restore 都只写 op… | backend\app\api\v1\orders_lifecycle.py:45<br>… | _tmp\test_round3\evidence_del_restore.md |
 | TA-06 | A | 派单员软删在途单后，司机端旧卡片仍可点开：详情页只显示「订单不存在」+「重试」… | 可见 | **已修复 db7b3a4** | 派单员软删一张已派给司机的单（DELETE /orders/{id} → 204）后，司机端「进行中」列表里的卡片不会消失… | backend/app/api/v1/orders_lifecycle.py:45<br>… | _tmp/test_round3/evidence_del_stale_car… |
-| TA-07 | A | 预订单模板表单：点「保存」后没有任何可见反馈（校验红字排在视口外，不滚动也不提… | 可见 | 已复现 | 新建预订单时只填名字、不选商品，点底部「保存」后界面完全不动：没有红字、没有 toast、也没跳走，看起来像按钮坏了。把表… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A13_tpl_save_no_feedba… |
+| TA-07 | A | 预订单模板表单：点「保存」后没有任何可见反馈（校验红字排在视口外，不滚动也不提… | 可见 | **已修复 3988501** | 新建预订单时只填名字、不选商品，点底部「保存」后界面完全不动：没有红字、没有 toast、也没跳走，看起来像按钮坏了。把表… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A13_tpl_save_no_feedba… |
 | TA-08 | A | 商品列表卡的单价与改价弹窗口径不一致：0.005 在卡片上显示成 ¥0.01 | 可见 | **已修复 6db304e** | 商品 id=76（T1-prod-frac，库 default_unit_price=0.005，单位 箱）在商品管理列表… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A8_price_frac_display.… |
 | TA-09 | A | 改价弹窗输入负数被静默过滤成正数并保存（-3 存成 3，无提示） | 可疑 | **已修复 6db304e** | 商品改价弹窗（改默认售价）里输入 -3，输入框当场变成 3 —— 负号被输入规则悄悄丢掉，没有任何提示；点保存后库里就是 … | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A8_price_negative_filt… |
 | TA-10 | A | 联系人电话栏输入字母被静默清空，仍能保存出「没有电话」的联系人 | 可疑 | **已修复 6db304e** | 添加联系人时电话栏填 abc，点「添加」直接成功，列表里出现这条联系人，但库里 phone 是空的，没有任何校验提示。同一… | android/app/src/main/java/com/tapmoay/sorders… | _tmp/test_round3/A9_contact_phone_filte… |
@@ -119,13 +119,14 @@
 
 ### TA-07 · 预订单模板表单：点「保存」后没有任何可见反馈（校验红字排在视口外，不滚动也不提示）
 
-- 严重度：可见　／　状态：已复现　／　记录：2026-10-10 03:44 CST
+- 严重度：可见　／　状态：已修复 3988501　／　记录：2026-10-10 03:44 CST　／　修复：2026-10-10（BUG-0031）
 - 现象：新建预订单时只填名字、不选商品，点底部「保存」后界面完全不动：没有红字、没有 toast、也没跳走，看起来像按钮坏了。把表单往下滑一段才看到那句错误就贴在「选商品」下面：「至少选一样商品 —— 预设单就是「以后照这样再下一遍」的那一单」。停在顶部时它的位置约 y≈2794，而可视区只到 y≈2252（底部按钮栏之上），等于永远看不到。
 - 复现：5556/13900000011：①工作台→预订单→底栏「新建预订单」→名字填 T1-tpl-ui→点底部「保存」(577,2221)→界面无变化，库 order_templates 无新行；再下滑 540 1800→540 900 才看到红字。②同流程换名字 T1-tpl-e2，复现一次。对照：先选一件商品（赣南脐橙×1→加入清单）再点同一坐标「保存」→ 保存成功（新增 id=5），证明坐标确实在保存按钮上。
 - 期望：点保存后校验提示要立刻可见：贴在保存按钮上方、或 toast/snackbar、或自动滚到出错那一行。
 - 实际：错误行是表单最后一项 item { FormErrorLine(vm.error) }（排在 商品与数量 → 选商品 之后），停在表单顶部时它在视口之外；保存失败后页面不滚动、也没有 snackbar，用户得不到任何反馈。
 - 证据：_tmp/test_round3/A13_tpl_save_no_feedback.txt
 - 定位：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/OrderTemplateFormScreen.kt:199,438`
+- 补充（2026-10-10，已修复）：**提交 `3988501`（变更单 docs/changes/BUG-0031.md）**。改法：`OrderTemplateFormScreen.kt` 的 bottomBar 里紧贴「保存」上方常驻一行 `FormErrorLine(vm.error)`（表单再长也挤不掉），并把 LazyColumn 绑到 `rememberLazyListState()`、在 `LaunchedEffect(vm.error)` 里 `animateScrollToItem(totalItemsCount - 1)` 滚到列表末尾那一行的同款提示。校验规则与文案一字未改。证据：判据 `_tools/qa/_check_template_error_visible.py` 12/12（改前源码上 6 条不成立）、反验 `_tools/qa/_reverse_verify_template_error_visible.py` 8/8 全红且逐字节还原。
 
 ### TA-08 · 商品列表卡的单价与改价弹窗口径不一致：0.005 在卡片上显示成 ¥0.01
 

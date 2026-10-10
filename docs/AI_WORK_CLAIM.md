@@ -8244,3 +8244,12 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 - 核心改动：**无** —— 为什么：`backend/app/api/v1/ledger.py` 不在 `_tools/qa/_core_files.txt` 里；本单只改一条报错文案的金额写法与两条断言
 - 证据：`_tools/qa/_check_money_display.py` **50 项全绿**（改前 49 通过 / 1 失败）、`_tools/finance/_check_ledger_total_consistency.py` 52/52、`_tools/qa/_check_ledger_manual_entry.py` 49/49、`backend/tests/test_ledger_total_consistency.py` 6 passed、`_check_dev_spec.py` 5 项、`_check_core_freeze.py` 98 项
 - 实现提交：`644c203`
+
+## BUG-0031 · 预订单表单的错误提示看不见（已关闭）
+
+- 谁 / 什么时候：父会话（`session-bd8fe093-…`）2026-10-10（修 TA-07，未派 agent）
+- 改哪些文件：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/OrderTemplateFormScreen.kt`、`_tools/qa/_check_template_error_visible.py`、`_tools/qa/_reverse_verify_template_error_visible.py`、`docs/changes/BUG-0031.md`、`docs/changes/README.md` 表行、本文件、`docs/TEST_BUG_LEDGER.md` 的 TA-07 行与详情块
+- 明确不碰：`vm.save()` 的校验顺序与全部错误文案、表单字段行为、`FormErrorLine` 的实现、保存键启用条件、后端与接口
+- 核心改动：**无** —— 为什么：`OrderTemplateFormScreen.kt` 不在 `_tools/qa/_core_files.txt` 里，本单只改错误提示的摆放与一次自动滚动
+- 证据：判据 12/12（`_tmp/wt_final` 的改前源码上 6 条不成立）＋ 反验 8/8 全红且逐字节还原 ＋ `gradle :app:compileEmuDebugKotlin` BUILD SUCCESSFUL ＋ 真机 5556 复现
+- 实现提交：`3988501`
