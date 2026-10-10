@@ -31,6 +31,23 @@
 
 ## 进行中
 
+### [2026-10-11 01:3x → ⏳ 进行中] 会话：**CHG-0113 「我的」页头部资料块下移、留白收紧**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+- 用户口径（逐字）：「把这个我的上面不是有个信息吗？得往下移一点啊，这个中间与下面那个卡片太过于长了，尤其像我们这个账号本身那个中间的信息量本来就比较少一点嘛。所以就防止它导致下面太过于空旷，显得不够美观吧。所以就向下面移一点。」
+
+- 改哪些文件：`android/app/src/main/java/com/tapmoay/sorders/ui/profile/ProfileHeader.kt`（padding top 8→22 / bottom 60→40）、`VERSION`（0.2.12→0.2.13）、`docs/changes/CHG-0113.md`、`docs/changes/README.md`、本文件。
+
+- **明确不碰**：状态栏让位方式、头部不滚的结构、白卡 24dp 圆角、三端共用组件的分支、别的页面排版，以及并行的 FEAT-0018 两个会话正在改的文件（`core/DeviceId.kt`、`data/remote/**`、`AccountManageScreen.kt` 的设备区）。
+
+
+### [2026-10-11 02:0x → ⏳ 进行中] 会话：**FEAT-0018 账号↔设备绑定与风控（后端）——一个账号最多 3 台设备、6 个月冷却、一台设备最多 5 个账号、注册同设备 24h 只 1 个号；派单员可手动解冻**（DSH `5a098ab8-c647-4088-b804-dcd3988c9636`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+- 用户口径（逐字，语音转写）：「一个账号大概只能绑定一个手机/一个设备（mac/设备序列号，唯一）。只不过……也不说完全只能绑定 3 个吧，如果超过了 3 个的话，它后面想接着绑定其他手机就不能瞬间，它是有时间限制的……大概它如果要再次再增加一个的话，就要过 **6 个月**了」；「我们的一个设备（一个唯一的设备地址）不能同时间、短时间内绑定多个账号 —— 防止有人利用这个漏洞批量注册一堆账号来攻击服务器」；「**测试账号除外**（内部账号没有这些限制，随便登录）」；追加拍板：「6 个月冷却保留，但派单员在账号管理里可以手动解冻（就在编辑当中）—— 司机换手机、手机摔坏了，联系派单员解冻即可」；同日口径更新：「一台设备也就是一部手机，它可以绑多部账号，**至少是可以绑 5 个**」。
+- 背景硬事实：`account_devices` 是**新表**（迁移 `031_account_devices`）；豁免判据 `is_test_account`（`backend/app/services/auth_service.py:60`）是**唯一**一处，⛔ 不在别处重写前缀判断。
+- 改哪些文件：新增 `backend/app/models/account_device.py`、`backend/app/migrations/031_account_devices.py`、`backend/app/services/device_service.py`、`backend/app/schemas/device.py`、`backend/app/api/v1/devices.py`、`backend/tests/test_device_binding.py`、`_tools/qa/_check_account_device_binding.py`、`_tools/qa/_reverse_verify_account_device_binding.py`、`docs/changes/FEAT-0018.md`；改 `backend/app/models/__init__.py`、`backend/app/models/enums.py`、`backend/app/api/v1/router.py`、`backend/app/api/v1/auth.py`、`backend/app/api/v1/users.py`、`backend/app/services/login_guard.py`、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenter.kt`（新审计码的中文名）、`docs/changes/README.md`、本文件。
+- **明确不碰**：登录顶号（`token_version` / `session_revoked_*`）、`is_test_account` 本身、`/auth/login` 的 426 明文拦截、`settings.ai_test_phone_prefix`、FEAT-0017 既有判据与 `backend/tests/test_self_register.py` 的形状、Android 侧其余全部（`X-Device-Id` 的注入点在 App 那个会话）、`git push`。
+- 核心改动：`backend/app/models/enums.py` —— 为什么必须动核心：新审计码 `USER_DEVICE_UNBIND` 只能加在全仓唯一的 `OperationAction` 枚举里（`_tools/ai/_check_action_labels.py` 要求它与 Android `ReportCenter.kt::actionLabel` 的中文名一一对应），别处没有第二个能加的地方。
+
 ### [2026-10-11 01:0x → ⏳ 进行中] 会话：**CHG-0112 账号分类两级：名册带六个默认分类（代码里的默认来源）＋ 账户管理左栏「大类 + 缩进的子类」，点大类筛出它下面所有子类**（DSH `2bfc890c-5294-4efc-a1a6-bd61b6e4ede5`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 - 用户口径（逐字，语音转写）：「我们这个账户管理啊，我们现在不是没有分类吗？其实本来是有分类的，我们这个分类直接拉取关于那个我们对应已经做好的分类，其实我们分类也就这些：**派单员、货主、批发商、大车司机、小车司机、挂车司机**……假如我的货主和批发商做了分类的话，然后我这个账户管理就会显示 **2 级分类**，也就会显示他们里面的子分类。这就方便我们去查角色嘛……假如他没有多少分类吗？**一堆的话到时候查起来非常麻烦**」。
