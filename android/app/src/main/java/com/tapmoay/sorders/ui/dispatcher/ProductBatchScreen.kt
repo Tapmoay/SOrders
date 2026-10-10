@@ -319,7 +319,11 @@ fun ProductBatchScreen(
     // 用户口语叫「固价」，系统里的规范词是「不参与打折」，同一个 `products.no_discount`。
     confirmingFixed?.let { fixed ->
         val n = vm.selected.size
-        AlertDialog(
+        // 台账 L-20 / CHG-0064 的规矩：弹层只走共用件 CardAlertDialog（⛔ 不许自己写裸 AlertDialog）。
+        // 语气取 WARN —— 与「沽清/上架确认」（ProductCardKit.kt::ProductActiveConfirmDialog）同一档：
+        // 它改的是打折规则，不是删数据（删走 DangerConfirmDialog）。
+        CardAlertDialog(
+            tone = DialogTone.WARN,
             onDismissRequest = { confirmingFixed = null },
             title = { Text(if (fixed) "把选中的 $n 个商品设成固价（不参与打折）？" else "把选中的 $n 个商品设回参与打折？") },
             text = {

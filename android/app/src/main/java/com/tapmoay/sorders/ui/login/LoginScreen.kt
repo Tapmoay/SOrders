@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.core.Session
+import com.tapmoay.sorders.ui.common.CardAlertDialog
 import com.tapmoay.sorders.ui.common.appViewModel
 import com.tapmoay.sorders.ui.theme.PrimaryContainer
 
@@ -189,7 +190,9 @@ private fun RegisterDialog(
 ) {
     val rvm: RegisterViewModel = appViewModel { RegisterViewModel(container) }
 
-    AlertDialog(
+    // 台账 L-20 / CHG-0064 的规矩：弹层只走共用件 CardAlertDialog（⛔ 不许自己写裸 AlertDialog）。
+    // 语气用默认 INFO —— 注册是常规动作，不是危险动作。
+    CardAlertDialog(
         onDismissRequest = { if (!rvm.loading) onDismiss() },
         title = { Text("注册新账号") },
         text = {

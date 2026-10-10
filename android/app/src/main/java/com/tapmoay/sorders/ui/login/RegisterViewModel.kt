@@ -9,7 +9,6 @@ import com.tapmoay.sorders.core.ApiClient
 import com.tapmoay.sorders.core.ApiEndpoint
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.core.Session
-import com.tapmoay.sorders.core.TokenStore
 import com.tapmoay.sorders.data.remote.dto.RegisterRequest
 import com.tapmoay.sorders.core.AppContainer
 import kotlinx.coroutines.launch
