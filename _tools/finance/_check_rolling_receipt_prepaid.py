@@ -2,17 +2,12 @@
 """BUG-0036（测试台账 TB-14）：未指定订单的收款（滚动收款）要冲减客户欠款、冲掉的部分进「预收」。
 
 判据（静态锚点 + 行为）：
-  1. 报表侧有归集函数 _rolling_credit_map，且只认**未撤销、截止报表日**的 rolling 收款；
-  2. 归集口径与 _debtor_of 一致（挂账单位 → 货主账号），认不出来的**不猜**；
-  3. 冲减只落在**已经有欠款行**的债务人身上，并且 prepaid += credit / balance -= credit 成对出现；
+  1. 归集函数 rolling_receipt_credit_map 在 **service**（app/services/receipt_credit.py）里，
+     只认**未撤销、截止报表日**的 rolling 收款，认不出来的散客不猜；
+  2. 报表层（services/reports/balance_query.py）只**调用**它 —— ⛔ 不许自己 func.sum
+     （钱不在别处再算一遍，_tools/qa/_check_customer_balances.py 钉着这一条）；
+  3. 冲减只落在**已经有欠款行**的债务人身上，且 prepaid += credit / balance -= credit 成对出现；
   4. 两个单测钉着：收 124 → 欠款少 124、预收多 124；撤销 → 原样回去；别的债务人的行不动。
-
-R4-BOUNDARY-JUSTIFICATION: 这一单**只改核心区的一条报表取数**（客户往来账的归集），没有加扩展点：
-不新增端点、不新增列、不动滚动收款本身的写入规则。边界解决不了 —— 被查的是**两份实现的口径一致性**：
-归集函数认债务人的方式必须与 _debtor_of 一字不差（挂账单位 → 货主账号），而「认不出来的不猜」
-是一条**缺省行为**的纪律（跳过 vs 猜一个），类型系统只能表达「有个债务人」，表达不了
-「宁可少冲也不能冲到别人头上」。错法的后果是「收 124，别人少了 124」，两边都不报错 ——
-所以必须有一条机器判据同时钉住归集口径、成对冲减（prepaid += / balance -=）与两个单测。
 
 用法：
   python _tools/finance/_check_rolling_receipt_prepaid.py             # 主工作树
@@ -20,13 +15,13 @@ R4-BOUNDARY-JUSTIFICATION: 这一单**只改核心区的一条报表取数**（�
 """
 import re
 import sys
-
-# 判据/反验会打 ✅/❌ —— GBK 控制台下必须自己把 stdout 钉成 UTF-8（_check_tool_scripts.py）。
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from pathlib import Path
 
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
-SRC = ROOT / "backend/app/services/reports/balance_query.py"
+SERVICE = ROOT / "backend/app/services/receipt_credit.py"
+BQ = ROOT / "backend/app/services/reports/balance_query.py"
 TEST = ROOT / "backend/tests/test_rolling_receipt_prepaid.py"
 
 PASS = 0
@@ -41,35 +36,36 @@ def ok(cond, msg):
         FAIL.append(msg)
 
 
-raw = SRC.read_text(encoding="utf-8", errors="replace") if SRC.is_file() else ""
-text = "\n".join(l for l in raw.splitlines() if not l.strip().startswith("#"))
+def stripped(p: Path) -> str:
+    raw = p.read_text(encoding="utf-8", errors="replace") if p.is_file() else ""
+    return "\n".join(l for l in raw.splitlines() if not l.strip().startswith("#"))
 
-ok(SRC.is_file(), "找不到 backend/app/services/reports/balance_query.py")
-ok(re.search(r"from app\.models import .*\bShipperReceipt\b", text) is not None, "没有 import ShipperReceipt")
-ok(re.search(r"from app\.models\.enums import .*\bReceiptSettleMode\b", text) is not None,
-   "没有 import ReceiptSettleMode")
 
-m = re.search(r"def _rolling_credit_map\(.*?(?=\ndef |\Z)", text, re.S)
-helper = m.group(0) if m else ""
-ok(bool(helper), "找不到 _rolling_credit_map（滚动收款没人归集）")
-ok("ShipperReceipt.settle_mode == ReceiptSettleMode.ROLLING" in helper, "没有只认 rolling 收款")
-ok("ShipperReceipt.is_deleted.is_(False)" in helper, "没有排除已撤销的收款（撤销了还在冲账）")
-ok("ShipperReceipt.received_at <= as_of" in helper, "没有按报表日截断（未来的收款会冲今天的账）")
-ok('("unit", str(c.arrears_unit_id))' in helper, "没有把收款归到挂账单位（与 _debtor_of 口径不一致）")
-ok('("shipper", str(c.user_id))' in helper, "没有把收款归到货主账号")
-ok(helper.count("continue") >= 2, "认不出来的收款没有跳过（会猜一个债务人出来）")
+svc = stripped(SERVICE)
+bq = stripped(BQ)
 
-m2 = re.search(r"def build_customer_balances\(.*?(?=\ndef |\Z)", text, re.S)
-main = m2.group(0) if m2 else ""
-ok("_rolling_credit_map(db, as_of)" in main, "出报表时没有调用归集函数")
-ok('g["prepaid"] += credit' in main and 'g["balance"] -= credit' in main,
+ok(SERVICE.is_file(), "缺 backend/app/services/receipt_credit.py（归集该在 service 里）")
+ok("def rolling_receipt_credit_map(" in svc, "service 里没有 rolling_receipt_credit_map")
+ok("ShipperReceipt.settle_mode == ReceiptSettleMode.ROLLING" in svc, "没有只认 rolling 收款")
+ok("ShipperReceipt.is_deleted.is_(False)" in svc, "没有排除已撤销的收款（撤销了还在冲账）")
+ok("ShipperReceipt.received_at <= as_of" in svc, "没有按报表日截断（未来的收款会冲今天的账）")
+ok('("unit", str(c.arrears_unit_id))' in svc, "没有把收款归到挂账单位（与 _debtor_of 口径不一致）")
+ok('("shipper", str(c.user_id))' in svc, "没有把收款归到货主账号")
+ok(svc.count("continue") >= 2, "认不出来的收款没有跳过（会猜一个债务人出来）")
+
+ok(BQ.is_file(), "找不到 backend/app/services/reports/balance_query.py")
+ok("from app.services.receipt_credit import rolling_receipt_credit_map" in bq,
+   "报表层没有从 service 取归集结果")
+ok("rolling_receipt_credit_map(db, as_of)" in bq, "出报表时没有调用归集函数")
+ok("func.sum(" not in bq, "报表层又自己 func.sum 了一遍钱（_check_customer_balances.py 会红）")
+ok('g["prepaid"] += credit' in bq and 'g["balance"] -= credit' in bq,
    "没有成对冲减（prepaid += / balance -=）")
-ok(re.search(r"if g is None:\s*\n\s*continue", main) is not None,
+ok(re.search(r"if g is None:\s*\n\s*continue", bq) is not None,
    "没有跳过「没有欠款行」的债务人（会凭空多出一行）")
-i_apply = main.find("_rolling_credit_map(db, as_of)")
-i_out = main.find("out_rows = [")
+i_apply = bq.find("rolling_receipt_credit_map(db, as_of)")
+i_out = bq.find("out_rows = [")
 ok(i_apply >= 0 and i_out > i_apply, "冲减发生在出报表之后（等于没冲）")
-ok("未指定订单的收款" in raw, "notes 里没写这条口径（用户看不到钱去哪了）")
+ok("未指定订单的收款" in bq, "notes 里没写这条口径（用户看不到钱去哪了）")
 
 ok(TEST.is_file(), "缺 backend/tests/test_rolling_receipt_prepaid.py")
 t = TEST.read_text(encoding="utf-8", errors="replace") if TEST.is_file() else ""
@@ -82,4 +78,4 @@ if FAIL:
     for f in FAIL:
         print("   -", f)
     sys.exit(1)
-print("✅ 全部 %d 项通过：滚动收款按债务人冲减欠款并进「预收」，撤销后原样回去（BUG-0036 / TB-14）。" % PASS)
+print("✅ 全部 %d 项通过：滚动收款在 service 里按债务人归集，报表层只调用并冲减欠款/增加预收（BUG-0036 / TB-14）。" % PASS)
