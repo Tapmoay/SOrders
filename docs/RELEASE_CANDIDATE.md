@@ -25,9 +25,9 @@
 | **Git SHA** | `7030f23f0828146cb9cb545de4ad8a7f70b98469`（**0.2.8 当前发布点**：生产 `git rev-parse HEAD` 现读；这一版含 BUG-0023…0036 的修复、CHG-0106（撤商品回收站人用界面）+ GOV-0012（提交编号豁免表）） | `git rev-parse HEAD` |
 | **运行时代码指纹**（⛔ 这条比 SHA 本身更要紧） | 发布点之后还可能推**只改文档/工具**的提交 ⇒ 真正要核的是「运行时代码没变」：`git diff --stat <Git SHA>..<发布点> -- backend/` **必须为空** | `git diff --stat <Git SHA>..HEAD -- backend/` |
 | 提交时刻 | 2026-10-10T16:35:37+08:00 | `git log -1 --format=%cI` |
-| **DB migration version** | **29**（⛔ 这是**仓库头**：0.2.8 发布时生产的迁移作业已跑到 **29**，`_release.py --step verify` 实测「当前版本 == 仓库迁移头、待跑 0 / 漂移 0」） | `ls backend/app/migrations/0*.py | tail -1` |
-| **Android 版本** | 产品 **0.2.9**（唯一来源＝仓库根 `VERSION`）＋构建号 **2026101005**（日期式 `yyyyMMdd * 100 + 当日序号`；这就是本次包的 `versionCode`） | `Get-Content VERSION` ＋ `android/app/build/outputs/apk/phone/release/output-metadata.json` |
-| **Backend 版本** | `app_version` = **0.2.8**（`config._repo_version()` 现读同一个 `VERSION`；发布后 `/health` 实测） | `python -c "from app.config import settings; print(settings.app_version)"` |
+| **DB migration version** | **32**（⛔ 这是**仓库头**：0.2.8 发布时生产跑到 **29**；此后 FEAT-0018 加了 `031_account_devices`、FEAT-0019 加了 `032_notification_severity` ⇒ 仓库头现为 **32**。⚠️ 这两条**到本次更新时还没在生产跑过**，下一次发布必须走 `_release.py --step migrate` 并回读「当前版本 == 仓库迁移头、待跑 0 / 漂移 0」） | `ls backend/app/migrations/0*.py | tail -1` |
+| **Android 版本** | 产品 **0.2.14**（唯一来源＝仓库根 `VERSION`：FEAT-0018 收尾把它从 0.2.13 抬到 0.2.14。⚠️ **这个版本还没打包发布** —— 最近一次真发出去的包仍是 0.2.9 的构建号 **2026101005**，发布时这一格要连同构建号一起按实际包回填） | `Get-Content VERSION` ＋ `android/app/build/outputs/apk/phone/release/output-metadata.json` |
+| **Backend 版本** | `app_version` = **0.2.14**（`config._repo_version()` 现读同一个 `VERSION`；⚠️ 与上一格同理：0.2.14 还没发布，这里填的是**仓库现值**，发布后要用 `/health` 实测值回填） | `python -c "from app.config import settings; print(settings.app_version)"` |
 | **Frontend 版本** | ⛔ **没有**：`frontend/`（Vue3 旧 H5）已不在工作区，本轮不发布前端 | `git ls-files frontend`（0 个文件） |
 | **requirements lock** | ⛔ **没有 lock** —— R3-07d 决策②「本轮不锁」（保持开区间）；改用**生产真实 freeze 指纹**当基准 | `ssh … '.venv/bin/pip freeze | sha256sum'` |
 | **config checksum** | systemd unit `sorders-api*.service` 的 sha256 前 16 位（发布后现取；本轮 unit 未改，与 0.2.7 同值） | `ssh … 'systemctl cat <enabled 的 sorders-api*.service> | sha256sum'` |
