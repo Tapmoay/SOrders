@@ -31,6 +31,44 @@
 
 ## 进行中
 
+### [2026-10-11 02:2x → ⏳ 进行中] 会话：**CHG-0114 AI 推荐问题跟着角色走（三档助手身份 ＋ 首次/常规两档预设 ＋ 按习惯排前面并能固定）**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
+
+`用户口径`（2026-10-11 逐字，ref **m01175**）：「我们 ai 那个**我是货主助手**要随着角色而发生改变啊。而目前只有 3 个派单元呃货主还有批发商这 3 个就够了，然后我们对应的下面不是有预设的一些问题吗？这些问题要跟着角色来进行变的比如说假如这个角色是第一次来那他应该会涉及到哪些问题啊，那像有些人他一开始连订单什么都没有肯定不会有这些问题啦比如说呃帮我下单啊创建联系人啊创建地址肯定是这些问题或者是这些要求包括我们其实也可以在设置当中他自己手动的去编辑一些呃首次的问题预设而且也支持在之后的聊天过程当中……他可以在典型那里然后再选择……然后就可以直接发送省得它每次都要呃都要去那样子搞嘛……我们随着他的使用习惯，他经常问什么问题会提前的呃把它显示出来。当然，他也可以去固定啊，我这个问题，就固定在这里，这也是可以的」；配图 ref **m01174**（改前的空状态：`我是货主助手` ＋ 4 条写死的问题）。
+
+`改哪些文件`：`android/app/src/main/java/com/tapmoay/sorders/ai/AiSuggest.kt`（新，纯数据 ＋ 纯函数：`AiSuggestWho` 三档 / `AiSuggestPack` 三套 / `home()` / `rank()` / `usedQuestions()`）、`android/app/src/main/java/com/tapmoay/sorders/ai/AiSuggestStore.kt`（新，本机偏好 `first` / `pinned` / `taps`）、`android/app/src/main/java/com/tapmoay/sorders/ai/AiContainer.kt`（暴露 `suggests`）、`android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiChatScreen.kt`（标题读 `who.title`；两张写死问题表搬走；`bottomBar` 里加 `SuggestEntryRow`；新增 `SuggestLibrarySheet`；`EmptyGuide` 换签名并加图钉）、`android/app/src/main/java/com/tapmoay/sorders/ui/ai/AiSettingsScreen.kt`（首次预设编辑区 ＋ 恢复默认）、`android/app/src/test/java/com/tapmoay/sorders/ai/AiSuggestTest.kt`（新，28 条）、`_tools/qa/_check_ai_suggest.py`（新，47 项）、`_tools/qa/_reverse_verify_ai_suggest.py`（新，12 条注入）、`docs/changes/CHG-0114.md`（新，九节）、`docs/changes/README.md`（表尾一行）、本文件。
+
+**明确不碰**：后端 `AiRole`（永远只有 `DISPATCHER` / `SHIPPER` 两个值 —— 批发商是 `users.is_member = 1` 的运行时属性，为了一句文案去加第三个角色会连带影响权限与写操作闸门）；AI 请求体；`AiHabit` 既有字段；聊天页的消息流 / 附件 / 导出卡 / 语音；登出与切账号的会话清理口径。
+
+`核心改动`：**无** —— 为什么：本轮没有碰 `_tools/qa/_core_files.txt` 里的任何文件；改动全在展示层与两个新文件里。
+
+`判据 / 反验`：`_check_ai_suggest.py` **47 项全绿**（三档标题互不重样、`AiRole` 仍只有两个枚举值、界面里那两张写死问题表与两元标题一个不剩、入口必须落在 `bottomBar` 里且 `InputBar` 之前、取 `suggests` 前 `ensureScoped()`、两个新文件不碰网络、单测覆盖三档）＋ 反验 **12/12 被抓、6 个被注入文件逐字节还原**（其中两条一开始没红，是注入本身写错了 —— 一条注的是注释、判据先过 `code_only()` 剥掉；一条没把入口挪出 `bottomBar`，已改）＋ 单测 `AiSuggestTest.kt` **28 条**、`:app:testEmuDebugUnitTest` **110 个 XML / 1507 条 / 0 失败 / 0 错误 / 2 skipped**；提交 `__`。
+
+- 状态：⏳ **进行中**（判据 47/47 ＋ 反验 12/12 ＋ 单测 1507 条 0 失败；真机截图与全量静检待补；提交 `__`）
+
+### [2026-10-11 02:2x → ⏳ 进行中] 会话：**FEAT-0019 消息分级与严重度（后端）——`notifications.severity` 判定只有一处（`severity_for` ＋ 列默认值委托）＋ `payload.emphasis`（只点真的出现在标题/正文里的词）＋ 迁移 032**（DSH `b59467f2-d797-43c3-b531-767cfef791c0`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径`（2026-10-11 逐字）：「消息（底部 Tab）……要按消息类型做颜色区别，而且**只有未读状态才有这个样式**，已读所有消息样式一样」；「文字也要按风险程度着色……按风险程度分红 / 橙 / …（重要程度不同 → 文字颜色不同）」；追加修正：「你的文字不能全部用颜色给他去搞出来……真正的重心是这几个字……**全是重点就是没有重点**」⇒ 只有**被点名的关键词与数字**上色，其余正常深色；点名列表由发消息那一侧在 `payload["emphasis"]` 里给，客户端不猜。
+
+`改哪些文件`：`backend/app/models/notification.py`（severity 列 ＋ 词汇表 ＋ `severity_default`）、`backend/app/schemas/notification.py`（`NotificationOut.severity`）、`backend/app/services/message_center.py`（`SEVERITY_BY_TYPE` / `EMPHASIS_BY_TYPE` / `severity_for` / `emphasis_for` / `emphasis_payload` ＋ `create_message` 出口 ＋ 8 个发布点补 emphasis）、`backend/app/api/v1/notifications.py`（price-notify 走 `emphasis_payload`，payload 老字段保留）、`backend/app/migrations/032_notification_severity.py`（新）、`backend/tests/test_notification_severity.py`（新，8 条）、`_tools/qa/_check_notification_severity.py`（新，77 项）、`_tools/qa/_reverse_verify_notification_severity.py`（新，7 条注入）、`docs/changes/FEAT-0019.md`（新，九节 ＋ 第 ⑩ 节留给 App 侧）、`docs/changes/README.md`（表尾一行）、本文件。
+
+**明确不碰**：`android/app/src/main/java/com/tapmoay/sorders/ui/messages/**`（App 侧另一会话）；`speech_important` 语义；既有未读角标语义（`unread-count` / `emit_unread_count`）；payload 老字段（旧 H5 `ShipperPriceNoticeBar.vue` 与 App 在读）；`POST /notifications` 的构造方式；`services/data_retention.py`（核心区）。
+
+`核心改动`：**无** —— 为什么：本轮没有碰 `_tools/qa/_core_files.txt` 里的任何文件；清单里的 `services/data_retention.py` 虽然也裸构造通知（`order_purge_blocked` / `driver_bill_cancelled`），但它的档位由**模型的列默认值**现算，所以一个字都没改它。
+
+`判据 / 反验`：`_check_notification_severity.py` **77 项全绿**（判定只出现一次、表覆盖代码里出现的每个 type、出参带 severity、重点词不过滤不标、迁移可重跑）＋ 反验 **7/7 被抓、逐字节还原** ＋ 单测 **8 passed** ＋ `_check_migrations.py` **168 项 exit 0**；已提交 `3fc4f91c` / `3f955f0c`。
+
+### [2026-10-11 03:0x → ⏳ 进行中] 会话：**FEAT-0019 消息卡片分级与深链（App 侧）——按类型取色的 6px 竖条 + 只给被点名的关键词按风险着色 + 点卡片直达那一页（库存那条定位到商品）**（DSH `0b82f608-747c-4efd-ab8e-25618044f2ef`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径`：底部「消息」现在只有未读数；要**按消息类型做颜色区别**，而且**只有未读才有这个样式**、**已读所有消息一个样**。卡片（方案 A）：最左边一条 **6px 方角竖条**（色 = 该类型对应**工作台那一格**的颜色）+ 同色小标签。⚠️ 用户随后**否掉「整条正文上色」**，逐字：「你的文字不能全部用颜色给他去搞出来……你全部都用一样的东西导致没有任何的重心点……我们的真正的重心是这几个字：第一**库存不足**、以及现在还剩多少库存的那个个数……**其他的文字你用正常的黑色就可以了**。因为只有这些信息才是重点。你要记住一点：**全是重点就是没有重点**。」⇒ 只给**被点名的关键词与数字**按风险着色（danger 红 `#D93025` / warn 橙 `#E07B00` / info 不上风险色、只加粗），**点名列表由发消息那一侧在 `payload["emphasis"]` 里给，客户端不猜**；已读连高亮一并去掉。样式表（用户已过目）：`_tmp/palette_demo/messages_all.html`（17 类，截图 `messages_all.png`）与 `_tmp/palette_demo/messages.html`。
+
+`改法`：① 新建 `ui/messages/MessageGrading.kt` —— **唯一一处**「type → 族 → 颜色 / severity → 风险档 / `payload["emphasis"]` 分词 / 这张卡该去哪一页 + 链接文案」；退货申请那条线仍**先调既有** `ui/messages/NoticeRouting.kt::noticeReturnRoute`（⛔ 不复制它的判断，`request_id` 只在那一个文件里出现）。② `ui/messages/MessagesScreen.kt` 卡片按样本重画：未读 = 6px 方角竖条 + 同色 12% 底小标签 + 标题 + 正文（**只有 emphasis 片段加粗上风险色，其余正常深色**）+「查看… ›」；已读 = 无竖条、无彩标、无高亮、整条灰调、不画链接。⛔ 不动底部 Tab 未读角标的既有逻辑。③ 深链：`onOpenOrder` / `onOpenReturnRequest` 两个回调**并成一个** `onOpenRoute(route: String)`，点卡片 → `vm.markRead` → 按 `noticeRoute(roleKey, type, payload)` 跳；**payload 缺键 = 返回 null 不跳**（不再有"有 order_id 就瞎开订单详情"的兜底）。④ 库存那条要定位到商品：`ui/nav/Routes.kt` 加 `fun inventory(focusProductId: Long? = null)`（复用既有 `withFocus`，`?focus=` 键名仍**只有一处**）；`NavGraph.kt` 库存路由改 `Routes.INVENTORY + "?focus={focusId}"`（`navArgument("focusId")` `defaultValue = 0L`，照退货申请那两条抄）；`ui/dispatcher/InventoryScreen.kt` 加**可选**参数 `focusProductId: Long = 0L`（默认不聚焦，工作台老入口行为不变），命中时滚到那张卡并加一圈描边。⑤ `data/remote/dto/Dtos.kt` 的 `NotificationDto` 补 `severity: String? = null`（后端会话加出参；旧响应没这个键时回落 info）。
+
+**文件清单**：`android/app/src/main/java/com/tapmoay/sorders/ui/messages/MessageGrading.kt`（新）、`android/app/src/main/java/com/tapmoay/sorders/ui/messages/MessagesScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/nav/Routes.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/nav/NavGraph.kt`、`android/app/src/main/java/com/tapmoay/sorders/ui/home/RoleHomeScreen.kt`（只改 MessagesScreen 调用点）、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/InventoryScreen.kt`、`android/app/src/main/java/com/tapmoay/sorders/data/remote/dto/Dtos.kt`（只加一个字段）、`android/app/src/test/java/com/tapmoay/sorders/ui/messages/MessageGradingTest.kt`（新）、`_tools/qa/_check_message_card_grading.py`（新）、`_tools/qa/_reverse_verify_message_card_grading.py`（新）、`docs/AI_WORK_CLAIM.md`。
+
+**明确不碰**：后端（`backend/**` 一个字节不改 —— `severity` 出参与 `payload["emphasis"]` 由后端会话发，App 只按现成字段画）；`docs/changes/FEAT-0019.md` 与 `README.md`（后端会话在写、父会话合并）；`ui/dispatcher/AccountManage*`（FEAT-0018 单子）；`ui/profile/**`；`ui/login/**`；底部 Tab 未读角标的既有逻辑（`ui/nav/Modules.kt::bottomTabs` 与 `RealtimeHub.unreadCount`）；`ui/messages/NoticeRouting.kt`（只调用、不改）。
+
+`判据 / 反验`：`_tools/qa/_check_message_card_grading.py`（≥20 项：类型色/映射只有一处、6px 方角竖条、已读不带色不带高亮、风险色只在 MessageGrading.kt 里、emphasis 只包片段而不是整行、缺键不跳、库存深链带 focus 且库存页真的接受该参数、底部角标未动）＋ `_tools/qa/_reverse_verify_message_card_grading.py`（≥6 条注入，逐字节还原）＋ Kotlin 单测 `MessageGradingTest`（≥10 例）。
+
 ### [2026-10-11 02:3x → ⏳ 进行中] 会话：**FEAT-0018 账号↔设备绑定与风控（App 侧）——`X-Device-Id` 设备身份与统一注入点、账户管理「已绑 N/3 台」与编辑弹层解冻（单台 / 全部）**（DSH `df652837-f760-4e01-8ac5-c7466298000b`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 - 用户口径（逐字）：「如果超过了 3 个的话，它后面想接着绑定其他手机就不能瞬间，它是有时间限制的……大概它如果要再次再增加一个的话，就要过 **6 个月**了」；「6 个月冷却保留，但**派单员在账号管理里可以手动解冻（就在编辑当中）**—— 司机换手机、手机摔坏了，联系派单员解冻即可」；「一个设备……**不能短时间内绑定多个账号** —— 防止有人利用这个漏洞批量注册」；「**测试账号除外**」。
