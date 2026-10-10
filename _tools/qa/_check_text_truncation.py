@@ -365,7 +365,10 @@ def main() -> int:
         "窗口里没有 maxLines = 2：" + pay_line[-160:],
     )
     c.ok("溢出仍带省略号（不是 Clip）", "overflow = TextOverflow.Ellipsis," in pay_line, "窗口里没有 Ellipsis")
-    c.ok("头部底部留白没被这一行吃掉（bottom = 60.dp）", "bottom = 60.dp" in pr, "留白被压了")
+    # 2026-10-11（CHG-0113）：用户真机要求「我的」页资料块整体下移、深色头部留白收紧 ——
+    # ui/profile/ProfileHeader.kt 的 padding 由 top = 8.dp / bottom = 60.dp 改成 top = 22.dp /
+    # bottom = 40.dp。这条断言**没有放宽**（仍然钉着"留白不许被上面那行吃掉"），只跟着改成新值。
+    c.ok("头部底部留白没被这一行吃掉（bottom = 40.dp）", "bottom = 40.dp" in pr, "留白被压了")
     c.ok("那句话仍来自 pay_summary（界面不许自己拼钱）", "user?.paySummary.orEmpty()" in pr, "取值来源变了")
 
     # ---- 6. P4 ----
