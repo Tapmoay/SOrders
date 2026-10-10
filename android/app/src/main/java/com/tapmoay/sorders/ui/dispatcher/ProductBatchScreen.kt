@@ -287,7 +287,7 @@ fun ProductBatchScreen(
         DangerConfirmDialog(
             title = "删除选中的 " + vm.selected.size + " 个商品？",
             message = "删除是软删：它们从列表里消失，但库存流水、订单行、账本都原样留着。" +
-                "列表顶端的「回收站」里可以逐个恢复。",
+                "商品管理页最上面那一排的「回收站」里可以逐个恢复。",
             confirmText = "删除",
             onConfirm = { confirmingDelete = false; vm.delete() },
             onDismiss = { confirmingDelete = false },

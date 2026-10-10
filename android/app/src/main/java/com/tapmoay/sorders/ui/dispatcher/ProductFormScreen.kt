@@ -322,7 +322,7 @@ fun ProductFormScreen(
                     }
                     Spacer(Modifier.height(6.dp))
                     Hint(
-                        "删除是软删：商品从列表里消失，但数据和账都留着 —— 列表顶端的「回收站」里能把它恢复回来。",
+                        "删除是软删：商品从列表里消失，但数据和账都留着 —— 商品管理页最上面那一排的「回收站」里能把它恢复回来。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline,
                         modifier = Modifier.padding(horizontal = 4.dp),
@@ -409,7 +409,7 @@ fun ProductFormScreen(
         DangerConfirmDialog(
             title = "删除商品「${vm.name}」？",
             message = "删除是软删：它从商品列表里消失，但库存流水、订单行、账本都原样留着。" +
-                "列表顶端的「回收站」里可以把它恢复回来。",
+                "商品管理页最上面那一排的「回收站」里可以把它恢复回来。",
             confirmText = "删除",
             onConfirm = { confirmingDelete = false; vm.delete { onBack() } },
             onDismiss = { confirmingDelete = false },

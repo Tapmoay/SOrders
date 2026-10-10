@@ -92,11 +92,12 @@ object AiReadCatalog {
         )),
         ReadAction("expense_categories.list_categories", "开销分类名册（「开销管理」左栏那一列的名字与顺序，带每类下有**几笔开销**；⚠️ 改名会级联改掉挂在这一类下的开销记录）", "/api/v1/expense-categories", "", setOf("dispatcher"), false, listOf(
         )),
-        ReadAction("expenses.list_expenses", "支出记录", "/api/v1/expenses", "category、driver_id、date_from、date_to", setOf("dispatcher"), false, listOf(
+        ReadAction("expenses.list_expenses", "支出记录", "/api/v1/expenses", "category、driver_id、date_from、date_to、deleted_only", setOf("dispatcher"), false, listOf(
             ReadParam("category", "str", false, emptyList(), false),
             ReadParam("driver_id", "int", false, emptyList(), true),
             ReadParam("date_from", "date", false, emptyList(), false),
             ReadParam("date_to", "date", false, emptyList(), false),
+            ReadParam("deleted_only", "bool", false, emptyList(), false),
         )),
         ReadAction("freight_categories.list_categories", "运费分类名册（「哪几类货」那张配置表：名字、顺序，带每类下挂着**几条价目**与**几份计费规则**；⚠️ 还有价目/规则挂着时不许删）", "/api/v1/freight-categories", "", setOf("dispatcher"), false, listOf(
         )),
@@ -143,10 +144,11 @@ object AiReadCatalog {
             ReadParam("limit", "int", false, emptyList(), false),
             ReadParam("offset", "int", false, emptyList(), false),
         )),
-        ReadAction("ledger.list_receipts", "收款记录", "/api/v1/ledger/receipts", "customer_id、date_from、date_to", setOf("dispatcher"), false, listOf(
+        ReadAction("ledger.list_receipts", "收款记录", "/api/v1/ledger/receipts", "customer_id、date_from、date_to、include_deleted", setOf("dispatcher"), false, listOf(
             ReadParam("customer_id", "int", false, emptyList(), true),
             ReadParam("date_from", "str", false, emptyList(), false),
             ReadParam("date_to", "str", false, emptyList(), false),
+            ReadParam("include_deleted", "bool", false, emptyList(), false),
         )),
         ReadAction("ledger.list_temp_shipper_names", "临时货主名清单", "/api/v1/ledger/temp-shipper-names", "", setOf("dispatcher"), false, listOf(
         )),
@@ -199,8 +201,10 @@ object AiReadCatalog {
         )),
         ReadAction("product_categories.list_categories", "商品分类名册（下单页左侧那一列的分组与显示顺序，带每类下有几个商品）", "/api/v1/product-categories", "", setOf("dispatcher", "driver", "shipper"), false, listOf(
         )),
-        ReadAction("products.list_products", "商品列表（含库存、单位、分类、售价；⚠️ 不含批发商专属价，那是另一张表）", "/api/v1/products", "include_inactive", setOf("dispatcher", "shipper"), false, listOf(
+        ReadAction("products.list_products", "商品列表（含库存、单位、分类、售价；⚠️ 不含批发商专属价，那是另一张表）", "/api/v1/products", "include_inactive、deleted_only、include_deleted", setOf("dispatcher", "shipper"), false, listOf(
             ReadParam("include_inactive", "bool", false, emptyList(), false),
+            ReadParam("deleted_only", "bool", false, emptyList(), false),
+            ReadParam("include_deleted", "bool", false, emptyList(), false),
         )),
         ReadAction("products.product_cost_history", "商品成本价的历史（某段时间的成本价是多少、从什么时候到什么时候、是进货录的还是手改的）", "/api/v1/products/cost-history", "product_id、limit", setOf("dispatcher"), false, listOf(
             ReadParam("product_id", "int", false, emptyList(), true),

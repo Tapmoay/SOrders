@@ -1,6 +1,6 @@
 {
  "generated_by": "_gen_ai_read_catalog.py",
- "source_hash": "sha256:8fe15c6ac1e04d2617b025634bb3208f934d7eebadca7cfce9d59e838f52dbfc",
+ "source_hash": "sha256:0e5d5d877a3baa2a0df573b1c9d144e3feea363c0898fbc6edf24e3e04ff7289",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
   "read_endpoints": 89,
@@ -439,7 +439,7 @@
    "module_cn": "开销分类",
    "method": "get",
    "path": "/api/v1/expense-categories",
-   "at": "backend/app/api/v1/expense_categories.py:73",
+   "at": "backend/app/api/v1/expense_categories.py:83",
    "auth": "角色:dispatcher",
    "roles": [
     "dispatcher"
@@ -455,7 +455,7 @@
    "module_cn": "费用",
    "method": "get",
    "path": "/api/v1/expenses",
-   "at": "backend/app/api/v1/expenses.py:21",
+   "at": "backend/app/api/v1/expenses.py:92",
    "auth": "角色:dispatcher",
    "roles": [
     "dispatcher"
@@ -496,6 +496,16 @@
      "name": "date_to",
      "arg": "date_to",
      "type": "date",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "deleted_only",
+     "arg": "deleted_only",
+     "type": "bool",
      "required": false,
      "enum": [],
      "is_id": false,
@@ -814,7 +824,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/accounts",
-   "at": "backend/app/api/v1/ledger.py:190",
+   "at": "backend/app/api/v1/ledger.py:252",
    "auth": "体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -861,7 +871,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/entries",
-   "at": "backend/app/api/v1/ledger.py:137",
+   "at": "backend/app/api/v1/ledger.py:199",
    "auth": "体内仅允许:派单员\\|货主",
    "roles": [
     "dispatcher",
@@ -939,7 +949,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/receipts",
-   "at": "backend/app/api/v1/ledger.py:815",
+   "at": "backend/app/api/v1/ledger.py:882",
    "auth": "仅登录 + 体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -975,6 +985,16 @@
      "is_id": false,
      "is_path": false,
      "desc": ""
+    },
+    {
+     "name": "include_deleted",
+     "arg": "include_deleted",
+     "type": "bool",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
     }
    ],
    "skipped_params": []
@@ -986,7 +1006,7 @@
    "module_cn": "账本",
    "method": "get",
    "path": "/api/v1/ledger/temp-shipper-names",
-   "at": "backend/app/api/v1/ledger.py:259",
+   "at": "backend/app/api/v1/ledger.py:321",
    "auth": "体内仅允许:派单员",
    "roles": [
     "dispatcher"
@@ -1469,7 +1489,7 @@
    "method": "get",
    "path": "/api/v1/products",
    "at": "backend/app/api/v1/products.py:82",
-   "auth": "权限:ORDER_CREATE + 体内含角色判断（需读源码）",
+   "auth": "权限:ORDER_CREATE + 体内权限:PRODUCT_MANAGE + 体内含角色判断（需读源码）",
    "roles": [
     "dispatcher",
     "shipper"
@@ -1479,6 +1499,26 @@
     {
      "name": "include_inactive",
      "arg": "include_inactive",
+     "type": "bool",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "deleted_only",
+     "arg": "deleted_only",
+     "type": "bool",
+     "required": false,
+     "enum": [],
+     "is_id": false,
+     "is_path": false,
+     "desc": ""
+    },
+    {
+     "name": "include_deleted",
+     "arg": "include_deleted",
      "type": "bool",
      "required": false,
      "enum": [],
@@ -1496,7 +1536,7 @@
    "module_cn": "商品管理",
    "method": "get",
    "path": "/api/v1/products/cost-history",
-   "at": "backend/app/api/v1/products.py:189",
+   "at": "backend/app/api/v1/products.py:233",
    "auth": "权限:PRODUCT_MANAGE",
    "roles": [
     "dispatcher"
@@ -2196,7 +2236,7 @@
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/contacts",
-   "at": "backend/app/api/v1/shipper.py:222",
+   "at": "backend/app/api/v1/shipper.py:239",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",
@@ -2213,7 +2253,7 @@
    "module_cn": "地址与联系人",
    "method": "get",
    "path": "/api/v1/shipper/locations",
-   "at": "backend/app/api/v1/shipper.py:378",
+   "at": "backend/app/api/v1/shipper.py:395",
    "auth": "角色:dispatcher\\|shipper",
    "roles": [
     "dispatcher",

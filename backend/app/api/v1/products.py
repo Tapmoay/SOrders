@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
-from sqlalchemy import case, select
+from sqlalchemy import case, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import uploads_root
@@ -91,11 +91,49 @@ def list_products(
         False,
         description="含已下架商品（派单员价格管理、货主下单选品目录）",
     ),
+    # ⚠️ 2026-10-10 BUG-0035（测试台账 TA-11 / TA-03）：商品删除弹窗一直承诺
+    #    「列表顶端的『回收站』里可以把它恢复回来」，而这里**恒过滤 is_deleted=false**、
+    #    连一个回收站参数都没有 —— 客户端即便想画那个入口也取不到数据。
+    #    两个参数都是**查询参数**（不是新端点）；缺省 false 时行为与加它们之前逐字一致。
+    deleted_only: bool = Query(
+        False,
+        description="只看回收站（被软删的商品，按删除时间倒序）——仅能恢复商品的角色（派单员）",
+    ),
+    include_deleted: bool = Query(
+        False,
+        description="连回收站一起看（已删除的排在最后）——仅能恢复商品的角色（派单员）",
+    ),
 ) -> list[ProductOut]:
     rk = user_role_key(current)
     if include_inactive and rk not in (UserRole.DISPATCHER.value, UserRole.SHIPPER.value):
         include_inactive = False
-    q = select(Product).where(Product.is_deleted.is_(False)).order_by(
+    # 回收站只有**能把它恢复回来的人**能看：恢复端点要 product:manage，这里用同一把尺子。
+    # ⛔ 不静默降级成「没有已删商品」—— 那会把「你没权限」说成「回收站是空的」（两句完全不同的结论）。
+    if (deleted_only or include_deleted) and not role_has_permission(rk, Permission.PRODUCT_MANAGE):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权查看回收站")
+    if deleted_only:
+        # ⛔ 回收站分支**不许**再套 is_active 过滤：删除那条路会强制 is_active=False
+        #    （见 delete_product），套上去的结果是回收站恒为空 ——
+        #    「删掉了，但回收站里也找不到」比没有回收站更让人以为数据丢了。
+        # 排序 = 删除时间倒序（刚删的在最上面，用户要找的就是它）；同一时刻按 id 倒序。
+        q_bin = (
+            select(Product)
+            .where(Product.is_deleted.is_(True))
+            .order_by(Product.deleted_at.desc(), Product.id.desc())
+        )
+        # 白名单照旧（None = 不受限；派单员不受限，所以这一条对回收站通常是空操作）
+        ids_bin = visible_product_ids(db, current)
+        if ids_bin is not None:
+            q_bin = q_bin.where(Product.id.in_(ids_bin or {-1}))
+        return [product_out(p, rk) for p in db.scalars(q_bin).all()]
+    q = select(Product)
+    if not include_deleted:
+        q = q.where(Product.is_deleted.is_(False))
+    if include_deleted:
+        # 「连回收站一起看」时已删的一律殿后。它写在 is_active **之前**是有意的：
+        # 已删商品一定 is_active=False，不先钉住这一项，它们会与「下架」混在同一段里。
+        q = q.order_by(case((Product.is_deleted.is_(False), 0), else_=1))
+    q = q.order_by(
         case((Product.is_active.is_(True), 0), else_=1),
         # ⚠️ 顺序 = 在售优先 → **排过序的在前**（小的在前）→ **没排过的排最后**（按 id 倒序，新的在前）。
         #
@@ -115,7 +153,13 @@ def list_products(
     #    ⛔ 上一版的 `Product.id.desc()`（新的在前）由这一行取代 —— 用户定的基础序是"先创建的在前"。
     q = usage_service.with_popularity(q, Product, usage_service.KIND_PRODUCT, current)
     if not include_inactive:
-        q = q.where(Product.is_active.is_(True))
+        if include_deleted:
+            # 缺省只看在售 —— 但「连回收站一起看」时要放行**已删的**：
+            # 它们一定 is_active=False，否则上面那一行会把回收站里的行整批滤掉
+            # （表现是「删掉的商品在『连回收站一起看』里也不见了」）。
+            q = q.where(or_(Product.is_active.is_(True), Product.is_deleted.is_(True)))
+        else:
+            q = q.where(Product.is_active.is_(True))
     # 白名单（v3.43）：`custom` 的货主只看到勾选的那些。`None` = 不受限。
     # ⚠️ 过滤放在**这一个**出口上（列表 + 详情都用同一份判据），
     #    否则会出现"列表里看不到、接口还收他的单"——看起来限制了、其实没有。

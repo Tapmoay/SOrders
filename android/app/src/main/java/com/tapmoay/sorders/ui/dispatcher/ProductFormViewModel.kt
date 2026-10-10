@@ -371,8 +371,13 @@ class ProductFormViewModel(
      * 删除商品（**软删**：后端只是打标记，`POST /products/{id}/restore` 能恢复）。
      *
      * ⚠️ 用户 2026-09-20 定的硬规矩：**所有删除一律软删 + 界面上要有一个手边的恢复入口**。
-     * 所以删完回列表之后，列表顶端那条**撤销条**（`ProductsScreen` 的 `undoDelete`）要能把它捞回来 ——
-     * 只把恢复藏在 AI 撤回卡里是不算的。
+     * 所以删完回列表之后，**商品管理页最上面那一排的「回收站」**要能把它捞回来 ——
+     * 那个入口 2026-10-10 才做出来（BUG-0035 / 测试台账 TA-11）：
+     * `ProductsScreen` 的 `SegmentedPicker(在用 / 回收站)` → `ProductsViewModel.restoreFromBin`
+     * → `POST /products/{id}/restore`。只把恢复藏在 AI 撤回卡里是不算的。
+     *
+     * ⛔ 这段原来引用的是列表页里一条**从来不存在**的「撤销条」，
+     *    正是这一轮在修的那种"承诺了没做"（文案指的入口必须真的在）。
      */
     fun delete(onDone: (String) -> Unit) {
         val id = productId ?: return
