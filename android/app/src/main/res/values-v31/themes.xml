@@ -1,0 +1,21 @@
+<resources>
+    <!--
+      API 31+：系统**强制**给每次冷启动画一屏「启动画面」（用户嘴里的
+      「一开始进 app 的那个预加载动画」）。默认底色取 `windowBackground`（白），
+      图标取应用图标 —— 所以在 CHG-0108 之前，用户看到的是
+      **白底 + 那枚旧蓝色的方块图标**，跟 App 里已经换成的绿完全不搭。
+
+      这里只做两件事：
+      1. 底色 = 登录页那枚 LOGO 的底色（`PrimaryContainer`，同一个值写在
+         `values/colors.xml` 的 `splash_background`，判据会核对两边相等）；
+      2. 图标显式写 `@mipmap/ic_launcher`（其实就是系统默认，写出来是为了
+         「启动画面用哪枚图标」这件事在代码里看得见，而不是靠默认值）。
+
+      ⛔ 不要在这里覆盖 `Theme.SOrders.Base` 的那两条状态栏设置 —— 那会让
+      「改基础项只改一处」失效。基础项一律改 `values/themes.xml`。
+    -->
+    <style name="Theme.SOrders" parent="Theme.SOrders.Base">
+        <item name="android:windowSplashScreenBackground">@color/splash_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+    </style>
+</resources>

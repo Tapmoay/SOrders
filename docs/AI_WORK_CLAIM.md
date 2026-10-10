@@ -31,15 +31,26 @@
 
 ## 进行中
 
+### [2026-10-10 立项 → ⏳ CST 进行中] 会话：**CHG-0108 桌面图标与启动画面跟上 App 的配色**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
+
+`用户口径`（逐字，ref **m00879**）：「**既然我们的图标改成了这个颜色那我们手机桌面上的图标也要改一下包括加载动画也就是我们一开始进app的那个预加载动画也要改一下。**」；同一条消息附了一张图：登录页那枚 LOGO（淡绿圆角方块 ＋ 墨绿货车）。
+`病灶`：`res/drawable/ic_launcher_background.xml`（`#D9E8FF` 旧蓝）、`ic_launcher_foreground.xml`（`#0A3168` 旧藏蓝）、`values/colors.xml`（`#FFB020` 旧橙金，早于 CHG-0091）三处的字面量**是手抄的，不是读 token** —— CHG-0091「整体基调从蓝变绿」之后 App 里全换了，唯独这三处没人跟，于是桌面图标一直是蓝的；而 API 31+ 每次冷启动那屏系统启动画面（用户嘴里的「预加载动画」）取的正是这枚图标，**底色默认还是 `windowBackground`（白）**，所以用户看到的是「白底 ＋ 蓝图标 → 然后进 App 才是绿的」。
+`改法`：三处字面量改成 `Color.kt` 的**现值**（`PrimaryContainer` `#DBE8E1` / `OnPrimaryContainer` `#0E3021`）；`values/colors.xml` 新增 `splash_background`（同色）；新增 `values-v31/themes.xml` 把 `android:windowSplashScreenBackground` 指到它、`windowSplashScreenAnimatedIcon` 显式写 `@mipmap/ic_launcher`；主题拆成 `Theme.SOrders.Base`（基础项唯一一份）＋ `values/themes.xml` 与 `values-v31/themes.xml` 各自继承，**避免 v31 把状态栏那两条再抄一遍**。
+`判据 / 反验`：`_tools/qa/_check_app_icon_green.py` ✅ **26/26**（**读 `Color.kt` 现算再对资源里的字面量**，不是把现值抄进判据；另钉住 monochrome 与 foreground 的 `pathData` 逐字相同、清单仍指向 `@mipmap/ic_launcher`、通知栏小图标没被换成自适应图标）；反向验证 `_tools/qa/_reverse_verify_app_icon_green.py` ✅ **12/12**，其中第 ⑧ 条当场抓出判据的一处**假绿**（`@mipmap/ic_launcher` 这串字被自己的 KDoc 满足 —— 已改成只看代码）；单测 ⇒ **110 个 XML / 1507 条 / 0 失败 / 2 skipped**（本单不碰 Kotlin，跑它是为了证明没碰坏）；真机 ⇒ **✅ 两张**（`shots/chg0108_splash.png` 启动画面底色 `#DBE8E1`、货车 `#0E3021`，逐字节一致；`shots/chg0108_appinfo.png` 系统「应用信息」页里那枚图标货车 `#0E3021`）；全量静检 ⇒ __。
+
+- 状态：⏳ **进行中**（变更单 `docs/changes/CHG-0108.md`；台账 **L-70**；Blast Radius **L0 —— 展示层（纯资源）**；提交 `__`）。
+- 核心改动：**无** —— 为什么：只动 `android/app/src/main/res/**` 的资源与一份新增的 `values-v31/themes.xml`，外加本单自己的判据/反验脚本与文书；没有一个是 `_tools/qa/_core_files.txt` 里的核心区文件。
+
+
 ### [2026-10-10 16:1x → ⏳ CST 进行中] 会话：**CHG-0107 整体提彩度：保住色相与明度，把 C\* 抬高 45%（工作台不再发灰）**（DSH `session-10277b92-5044-4bf7-9f3e-ed2b1e5030fc`）
 
 `用户口径`（逐字，ref **m00711**）：「**呃把整体的样式再调鲜艳一点感觉还是有点灰啊啊。这次快一点啊，因为我们只是调个颜色**」；沿用的前置口径 ref **m06201**：「……来调整它们的明度或者说是饱和度，但是**不要调整，它们的色相**啊」。
 
 `改法`：`LCh` 里**保 L\* 与 h、只把 C\* ×1.45**（撞该 L\*/h 的色域上限按 0.96 封顶），近中性色（C\* < 6）不碰；撞 `_check_ledger_dashboard.py:392-400` 的「太深/太沉」上界（`44 ≤ max(R,G,B)/255×100 ≤ 88`）那 7 格二分回压；**AI 品牌那几颗（`AiBlue`/`AiPurple`/`AiPink`）与 CHG-0104 的 `AiChatGreen`/`AiChatGreenDeep` 整体退回原值** —— 提彩度会让 `AiBlue` 与「地址与联系人」的距离掉到 57（下限 60），并把 AI 绿的彩度推到 52.8 越出 `AiChatGreenTest` 的带子。
 
-`判据 / 反验`：14 个配色判据全绿（`_check_palette_uniformity` ✅66、彩度比 **2.00** 擦上限；`_check_low_sat_palette` ✅109；`_check_green_theme` ✅40；`_check_ledger_dashboard` ✅152；`_check_ai_chat_green` ✅55；`_check_vehicle_ui` ✅46；`_check_roster_cards` ✅60；`_check_warm_surface_palette` ✅42；`_check_report_money_color` ✅37；`_check_address_palette` ✅47；`_check_sold_out_card_grey` ✅65；`_check_ledger_cash` ✅61；`_check_ai_accent_green` ✅40；`_check_ai_export_card` ✅89）；反向验证脚本注入原文已按现值重锚；单测 ⇒ **110 个 XML / 1507 条 / 0 失败 / 2 skipped**；真机 ⇒ **✅ 三张**（`shots/chg0107_login.png` 登录键 `#006C43`；`shots/chg0107_grid.png` 宫格代理下单 `#00AC6E` / 订单管理 `#91871D` / 账户管理 `#AC7217` / 货主管理 `#009481`，与源码逐字节一致）；全量静检 ⇒ __。
+`判据 / 反验`：14 个配色判据全绿（`_check_palette_uniformity` ✅66、彩度比 **2.00** 擦上限；`_check_low_sat_palette` ✅109；`_check_green_theme` ✅40；`_check_ledger_dashboard` ✅152；`_check_ai_chat_green` ✅55；`_check_vehicle_ui` ✅46；`_check_roster_cards` ✅60；`_check_warm_surface_palette` ✅42；`_check_report_money_color` ✅37；`_check_address_palette` ✅47；`_check_sold_out_card_grey` ✅65；`_check_ledger_cash` ✅61；`_check_ai_accent_green` ✅40；`_check_ai_export_card` ✅89）；反向验证脚本注入原文已按现值重锚；单测 ⇒ **110 个 XML / 1507 条 / 0 失败 / 2 skipped**；真机 ⇒ **✅ 三张**（`shots/chg0107_login.png` 登录键 `#006C43`；`shots/chg0107_grid.png` 宫格代理下单 `#00AC6E` / 订单管理 `#91871D` / 账户管理 `#AC7217` / 货主管理 `#009481`，与源码逐字节一致）；全量静检 ⇒ ❌ 不通过 3 条（`_check_report_facts` 两条：`docs/RELEASE_CANDIDATE.md` 没写 `VERSION` 的 `0.2.8`、`_check_generated_freshness` 的 hint_catalog source_hash 不一致；另 1 条「既有红线随动③」），**均非本单**。
 
-- 状态：⏳ **进行中**（变更单 `docs/changes/CHG-0107.md`；台账 **L-69**；Blast Radius **L0 —— 展示层**；提交 `__`）。
+- 状态：✅ **已完成**（变更单 `docs/changes/CHG-0107.md`；台账 **L-69**；Blast Radius **L0 —— 展示层**；实现提交见变更单 ⑧）。
 - 核心改动：**无** —— 为什么：只动 `ui/theme/Color.kt` 的数值、`android/**` 里硬编码的同一批色值，加上随动的判据与文书；没有一个是 `_tools/qa/_core_files.txt` 里的核心区文件。
 
 ### [2026-10-10 立项 → ✅ 已完成] 会话：**GOV-0012 R3-D02 豁免表：3 条没编号的历史提交变成「被点名的正常情形」（含化石防御）＋ R3-D17 边界理由补回**（DSH `fb39bd7d-7b82-489c-ac6f-7041547a95da`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）

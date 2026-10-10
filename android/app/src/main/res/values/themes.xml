@@ -1,6 +1,17 @@
 <resources>
-    <style name="Theme.SOrders" parent="android:Theme.Material.Light.NoActionBar">
+    <!--
+      应用主题。分两层是为了让「启动画面」那两条只能给 API 31+ 的属性
+      （`android:windowSplashScreen*`）单独放在 `values-v31/themes.xml` 里覆盖，
+      而**不必把基础项抄两遍** —— 抄两遍就一定会有一天只改了一边。
+
+      ⚠️ 改基础项（状态栏那两条）只改 `.Base`；改启动画面去 `values-v31/themes.xml`。
+      判据 `_tools/qa/_check_app_icon_green.py` 会盯着「两层都指向 .Base」这件事。
+    -->
+    <style name="Theme.SOrders.Base" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
     </style>
+
+    <!-- API < 31：系统不给启动画面，冷启动时露的是 windowBackground（系统默认白） -->
+    <style name="Theme.SOrders" parent="Theme.SOrders.Base" />
 </resources>

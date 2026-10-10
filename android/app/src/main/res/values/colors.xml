@@ -1,8 +1,12 @@
 <resources>
     <!--
-      图标的兜底底色：真正的背景是 drawable/ic_launcher_background.xml 的橙金渐变，
-      这一项是给「读不到矢量」的极老工具链/第三方取色用的，取渐变起点同色即可。
-      改图标时两个地方一起改，别让它们各说各的。
+      图标的兜底底色 / 启动画面底色：真正的背景是 drawable/ic_launcher_background.xml，
+      这两项给「读不到矢量」的极老工具链、第三方取色、以及 API 31+ 的系统启动画面用。
+      改图标时这几个地方一起改，别让它们各说各的。
+
+      CHG-0108（2026-10-10）：原来是橙金 #FFB020（早于 CHG-0091「整体基调从蓝变绿」，
+      一直没跟着换）。现在跟登录页那枚 LOGO 一个值 —— 见 Color.kt 的 PrimaryContainer。
     -->
-    <color name="ic_launcher_background">#FFB020</color>
+    <color name="ic_launcher_background">#DBE8E1</color>
+    <color name="splash_background">#DBE8E1</color>
 </resources>
