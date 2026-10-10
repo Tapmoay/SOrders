@@ -1,6 +1,6 @@
 {
  "generated_by": "_gen_ai_read_catalog.py",
- "source_hash": "sha256:0c8ecaf5c84d176c4bd513c2d8761ff2ffd0a99422d4bb173f8d658d81572eda",
+ "source_hash": "sha256:dabac73e7b5aa2f48e4ed2c159f831939f380e0a68918bac16ea85da95779b0f",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
   "read_endpoints": 89,
@@ -2904,7 +2904,7 @@
    "module_cn": "账号分类",
    "method": "get",
    "path": "/api/v1/user-categories",
-   "at": "backend/app/api/v1/user_categories.py:97",
+   "at": "backend/app/api/v1/user_categories.py:135",
    "auth": "仅登录",
    "roles": [
     "dispatcher",
@@ -2922,7 +2922,7 @@
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users",
-   "at": "backend/app/api/v1/users.py:128",
+   "at": "backend/app/api/v1/users.py:129",
    "auth": "权限:USER_MANAGE",
    "roles": [
     "dispatcher"
@@ -2993,7 +2993,7 @@
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users/me",
-   "at": "backend/app/api/v1/users.py:63",
+   "at": "backend/app/api/v1/users.py:64",
    "auth": "仅登录 + 体内含角色判断（需读源码）",
    "roles": [
     "dispatcher",
