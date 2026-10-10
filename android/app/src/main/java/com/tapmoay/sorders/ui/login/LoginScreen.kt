@@ -18,6 +18,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.core.Session
 import com.tapmoay.sorders.ui.common.appViewModel
 import com.tapmoay.sorders.ui.theme.PrimaryContainer
@@ -29,6 +30,8 @@ fun LoginScreen(
 ) {
     val vm: LoginViewModel = appViewModel { LoginViewModel(container) }
     val scroll = rememberScrollState()
+    // 注册小表单的开合（FEAT-0017）。默认为 false —— 登录页第一眼仍然只有登录。
+    var showRegister by remember { mutableStateOf(false) }
 
     // 整块内容**垂直居中**（用户 2026-09-18：注册入口与开发账号提示去掉之后，
     // 内容全挤在顶部、下面一大片空，看着像没画完）。
@@ -131,6 +134,136 @@ fun LoginScreen(
                     Text("登 录", style = MaterialTheme.typography.labelLarge)
                 }
             }
+
+            // 注册入口：**一行文字链**，不是第二个按钮/第二张卡。
+            // 用户 2026-10-11（FEAT-0017）：「我们登录界面它其实可以注册账号的」——而登录页的
+            // 主角是登录，两个同样大的按钮会让人第一眼分不清该点哪个（仓库里早有同类口径：
+            // "两个入口一实一虚"、主操作只有一个）。放在登录按钮**下面**是因为这里的读者是
+            // **还没有账号的人**（老用户根本不需要往下看）。
+            //
+            // ⚠️ 这一行加在这里会改变整块的垂直高度；外面那套"居中"是靠
+            //    `heightIn(min = viewportHeight)` + `Arrangement.Center` 撑出来的，
+            //    所以内容变高之后仍然居中，**不要**为此去掉 heightIn（去掉就贴顶了，见 :33-47）。
+            Spacer(Modifier.height(6.dp))
+            TextButton(
+                onClick = { showRegister = true },
+                enabled = !vm.loading,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant, // 不抢眼
+                ),
+            ) {
+                Text("注册新账号", style = MaterialTheme.typography.bodyMedium)
+            }
         }
     }
+
+    // 小表单：手机号 + 密码（+ 姓名可选）。⛔ 不做成单独一整页 —— 注册是低频动作，
+    // 为一个三字段的表单离开登录页、回来还要重新输手机号（用户会骂）。
+    if (showRegister) {
+        RegisterDialog(
+            container = container,
+            onDismiss = { showRegister = false },
+            onRegistered = onLoginSuccess,
+        )
+    }
+}
+
+/**
+ * 注册小表单（手机号 + 密码 + 姓名可选）。
+ *
+ * ## 为什么是 Dialog 而不是登录页里的第二组输入框
+ * 登录与注册的**第一件输入**相同（手机号）但**后果**不同：注册会真的建一个账号。
+ * 两套输入框并排摆着，用户很容易在"想登录"时把密码填进注册那一栏 —— 于是凭空多一个号。
+ * 弹层把这个区别摆在明面上（要主动点开），也不需要为它做路由。
+ *
+ * ## 说人话的错误
+ * [RegisterViewModel.register] 里失败时取的是 `ApiClient.toApiException(e).message`：
+ * 后端**中文原话原样透出**（"该手机号已存在"、426 那句升级提示、429 那句限流提示），
+ * 英文的校验错误走 `humanizeValidation` 的中文兜底。所以这里**不要**再翻译一遍。
+ */
+@Composable
+private fun RegisterDialog(
+    container: AppContainer,
+    onDismiss: () -> Unit,
+    onRegistered: (Session) -> Unit,
+) {
+    val rvm: RegisterViewModel = appViewModel { RegisterViewModel(container) }
+
+    AlertDialog(
+        onDismissRequest = { if (!rvm.loading) onDismiss() },
+        title = { Text("注册新账号") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                Text(
+                    "用手机号注册，注册后就是货主，可以直接下单。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(14.dp))
+                OutlinedTextField(
+                    value = rvm.phone,
+                    // 输入即规整：只留 ASCII 数字、剥掉 86 前缀、截到 11 位（与后端同一口径）。
+                    // 顺手清掉上一次的错误提示 —— 让红字停在屏幕上、用户改完还看着它，会以为没改对。
+                    onValueChange = { rvm.phone = InputRules.mobileInput(it); rvm.error = null },
+                    label = { Text("手机号") },
+                    placeholder = { Text("11 位，例如 13800000000") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = rvm.password,
+                    onValueChange = { rvm.password = it; rvm.error = null },
+                    label = { Text("密码") },
+                    placeholder = { Text("至少 " + RegisterViewModel.MIN_PASSWORD + " 位") },
+                    singleLine = true,
+                    visualTransformation = if (rvm.showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { rvm.showPassword = !rvm.showPassword }) {
+                            Icon(
+                                if (rvm.showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (rvm.showPassword) "隐藏密码" else "显示密码",
+                            )
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = rvm.fullName,
+                    onValueChange = { rvm.fullName = it },
+                    label = { Text("姓名（可不填）") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                if (rvm.error != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        rvm.error.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                // 注册成功**不弹任何解释**：直接进 App（用户要的是"注册完就能用"）。
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { rvm.register(onRegistered) },
+                enabled = !rvm.loading,
+            ) {
+                if (rvm.loading) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Text("注册并进入")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !rvm.loading) { Text("取消") }
+        },
+    )
 }

@@ -15,6 +15,19 @@ interface AuthApi {
     suspend fun login(@Body body: LoginRequest): TokenDto
 
     /**
+     * 自助注册：手机号 + 密码 → **直接拿到 token**（与登录同一个返回形状）。
+     *
+     * ⚠️ 2026-10-11（FEAT-0017）：这条端点 2026-09-18 被整体删除过（App 侧注册入口 v3.40
+     * 就拆了、接口却公开着，还带一个本地明文回显的短信验证码）。现在**连入口一起加回来**，
+     * 且不要验证码 —— 后端那边因此多做了三道：明文通道 426、同 IP 注册次数限流、
+     * 账号属性服务端写死（带 role 也提不了权）。
+     *
+     * ⛔ 不要在客户端做"注册成功后再自动登录一次"：后端已经把 token 给回来了。
+     */
+    @POST("auth/register")
+    suspend fun register(@Body body: RegisterRequest): TokenDto
+
+    /**
      * 登出：让**服务端**把这个账号已发出的令牌全部作废（`token_version` +1）。
      *
      * ⚠️ 2026-09-19 审计：原来客户端登出只清本机 DataStore，服务端不知道 ——
