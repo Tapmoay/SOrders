@@ -31,7 +31,7 @@
 | **Frontend 版本** | ⛔ **没有**：`frontend/`（Vue3 旧 H5）已不在工作区，本轮不发布前端 | `git ls-files frontend`（0 个文件） |
 | **requirements lock** | ⛔ **没有 lock** —— R3-07d 决策②「本轮不锁」（保持开区间）；改用**生产真实 freeze 指纹**当基准 | `ssh … '.venv/bin/pip freeze | sha256sum'` |
 | **config checksum** | systemd unit `sorders-api*.service` 的 sha256 前 16 位（发布后现取；本轮 unit 未改，与 0.2.7 同值） | `ssh … 'systemctl cat <enabled 的 sorders-api*.service> | sha256sum'` |
-| **artifact checksum** | `app-phone-release.apk` → 线上 `sorders-0.2.8-2026101001.apk`：**45,440,673 字节 / `2CA309D1118711FC`**（sha256 前 16 位；`publish_apk.py` 回读 `version=0.2.8 versionCode=2026101001 OK`，短链 `http://8.145.40.22/apk` → `sorders-latest.apk`） | `python _tools/deploy/publish_apk.py --note …`（会自己打印签名/大小/回读） |
+| **artifact checksum** | `app-phone-release.apk` → 线上 `sorders-0.2.8-2026101003.apk`：**45,440,957 字节 / `7B195985DB486D35`**（sha256 前 16 位；`publish_apk.py` 回读 `version=0.2.8 versionCode=2026101003 OK`，短链 `http://8.145.40.22/apk` → `sorders-latest.apk`） | `python _tools/deploy/publish_apk.py --apk … --version-code … --note …` |
 
 ---
 
@@ -57,8 +57,13 @@
 - 留痕：order_id=**20905**、order_no=**SO202610100551555025**、金额 **1.00 元**、状态 **PENDING_DISPATCH → DISPATCHED → CANCELLED**；
   测试单**留成 CANCELLED 不删除**（删除是软删，也要留痕）。
 
-Android：publish_apk.py 打出并上传 sorders-0.2.8-2026101001.apk（45,440,673 字节，签名与线上一致 ⇒ 存量用户可直接升级），
-version.json 回读 version=0.2.8 versionCode=2026101001，短链 http://8.145.40.22/apk → sorders-latest.apk。
+Android：publish_apk.py 打出并上传 **sorders-0.2.8-2026101003.apk**（45,440,957 字节，签名与线上一致 ⇒ 存量用户可直接升级），
+version.json 回读 version=0.2.8 versionCode=2026101003，短链 http://8.145.40.22/apk → sorders-latest.apk。
+
+⚠️ 为什么连发三次构建号（2026101001 → 1002 → 1003）：第一次的包在 CHG-0108（桌面图标 / 启动画面跟上新版配色）
+**之前**就编好了；图标那笔提交（9a879b67，16:52）落地后必须重编，否则用户升级到的 0.2.8 桌面图标还是旧的蓝色 ——
+正是用户当天点出来的那个毛病。1002 那次因为「线上已有同号包」被 publish_apk 判成无需上传（上传的是旧字节），
+所以用 1003 重发；最终线上是 1003（含图标修复）。
 
 ## 二、CI 证据（这份候选被机器验过）
 
