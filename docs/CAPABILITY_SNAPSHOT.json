@@ -1,8 +1,8 @@
 {
  "generated_by": "_gen_capability_snapshot.py",
- "source_hash": "sha256:77f99ff277bb1c5a57c55b0579948b91191c271f40d222cad4f49bd9101741c1",
- "source_commit": "84707351",
- "generated_at": "2026-10-10T08:32:08Z",
+ "source_hash": "sha256:38caa3e5761ae277a2b7900185459592bd88853ab307f1037f946b5a8f0b67cf",
+ "source_commit": "964219b9",
+ "generated_at": "2026-10-10T18:04:29Z",
  "source_files": [
   "backend/app/core/capabilities.py",
   "backend/app/core/role_capabilities.py",
@@ -575,6 +575,7 @@
    "USER_DELETE",
    "USER_RESTORE",
    "CUSTOMER_MERGE",
+   "USER_DEVICE_UNBIND",
    "USER_CATEGORY_UPSERT",
    "USER_CATEGORY_DELETE",
    "USER_CATEGORY_REORDER",
@@ -626,7 +627,7 @@
   "capabilities": 28,
   "role_capabilities": 5,
   "write_capabilities": 20,
-  "audited_action_codes": 125,
+  "audited_action_codes": 126,
   "audit_exceptions": 1
  }
 }

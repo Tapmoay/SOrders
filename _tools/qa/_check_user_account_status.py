@@ -184,7 +184,7 @@ def main() -> int:
     c.present("状态档判据：「已停用」排掉回收站", vm, "2 -> !u.isActive && !u.isDeleted")
     c.present("状态档判据：「已删除」= 回收站", vm, "3 -> u.isDeleted")
     c.present("状态档：默认停在「在用」", vm, "var statusTab by mutableStateOf(1)")
-    c.present("状态档：列表按档过滤", vm, "inRail(shown, railKey) { it.category }.filter { matchesStatus(it, statusTab) }")
+    c.present("状态档：列表按档过滤", vm, "inRail(shown, railKey, { it.category }, railCovers).filter { matchesStatus(it, statusTab) }")
     c.present("状态档：档位行在搜索框下面（常驻）", screen, "SegmentedStatusTabs(")
     c.present("状态档：档位色一档一格", screen, "colors = ACCOUNT_STATUS_COLORS,")
     c.present("状态档：选中态来自 ViewModel", screen, "selected = vm.statusTab,")

@@ -109,6 +109,9 @@ AUDIT_COVERAGE: dict[str, tuple[str, ...]] = {
                        'PURCHASE_ORDER_DELETE', 'PURCHASE_ORDER_RESTORE'),
     # ---- 账号 / 通知 ----
     'user:manage': ('USER_CREATE', 'USER_UPDATE', 'USER_DELETE', 'USER_RESTORE', 'CUSTOMER_MERGE',
+                   # FEAT-0018 设备风控：解冻走的就是 Permission.USER_MANAGE（api/v1/users.py 三个端点），
+                   # 与账号的增删改同一批人 —— 所以认领在同一个能力域里。
+                   'USER_DEVICE_UNBIND',
                     # FEAT-0010（2026-10-05）：账号分类名册 —— 账户 / 司机 / 货主 / 批发商四个名册页
                     # 左栏那一列就是按 `users.category` 分组的。名册的三个写动作归到这里，
                     # 因为它的门就是 `Permission.USER_MANAGE`（`api/v1/user_categories.py`，rbac 里只有
