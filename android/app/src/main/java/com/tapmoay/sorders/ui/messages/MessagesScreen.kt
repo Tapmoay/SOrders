@@ -236,6 +236,13 @@ fun MessagesScreen(
  * ⛔ **只有未读才画**：用户的铁律是「只有未读才有这个样式，已读所有消息一个样」—— 已读的卡片
  *    没有竖条、没有彩标、高亮也一并去掉，整条灰调。改这里之前先看那句。
  */
+/**
+ * 未读卡片的**阴影**（用户 2026-10-11 口径：「未读的时候会有阴影，读了就不会有」——用来做"体积感"，
+ * 取代原来那层"没读就有一层灰"的灰尘遮罩）。⛔ 别改回"未读用更深的底色"：用户已经否掉那种做法，
+ * 理由是"现在已经有颜色做区别了，有颜色=没读、没颜色=已读"。
+ */
+private val MESSAGE_CARD_SHADOW = 3.dp
+
 private val MESSAGE_BAR_WIDTH = 6.dp
 private val MESSAGE_BAR_SHAPE = RoundedCornerShape(3.dp)
 private val MESSAGE_BAR_INSET_START = 8.dp
@@ -266,12 +273,18 @@ private fun MessageCard(
             .fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         shape = MaterialTheme.shapes.medium,
+        // 2026-10-11（用户口径，逐字）：「以前是因为没有搞颜色，所以会搞一个——如果他没有读的话会有一层灰，
+        //    就是一层的灰尘遮罩……现在我们已经有了颜色做了区别，**所以不需要搞这个灰尘了**：
+        //    有颜色就表示还没有读、没有颜色就表示已经读了。另外为了方便做一个区别，**在那卡片上加一层阴影**，
+        //    就是未读的时候会有阴影、读了就不会有 —— 体积感。」
+        // ⇒ 未读**不再**用更深的容器色（那层"灰"），改成「同一个底色 + 一层阴影」；
+        //    已读照旧：无竖条、无彩标、无高亮、**无阴影**，整条灰调。
         color = when {
             selected -> MaterialTheme.colorScheme.primaryContainer
-            unread -> MaterialTheme.colorScheme.surfaceContainerHigh
             else -> MaterialTheme.colorScheme.surface
         },
-        tonalElevation = 1.dp,
+        tonalElevation = 0.dp,
+        shadowElevation = if (unread) MESSAGE_CARD_SHADOW else 0.dp,
         border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
     ) {
         // 竖条要与内容**一样高**，所以这一行按内容的最小固有高度排（这样下面 fillMaxHeight 才有意义）
