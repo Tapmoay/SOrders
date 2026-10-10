@@ -41,9 +41,9 @@
 
 `核心改动`：**无** —— 为什么：本轮没有碰 `_tools/qa/_core_files.txt` 里的任何文件；改动全在展示层与两个新文件里。
 
-`判据 / 反验`：`_check_ai_suggest.py` **47 项全绿**（三档标题互不重样、`AiRole` 仍只有两个枚举值、界面里那两张写死问题表与两元标题一个不剩、入口必须落在 `bottomBar` 里且 `InputBar` 之前、取 `suggests` 前 `ensureScoped()`、两个新文件不碰网络、单测覆盖三档）＋ 反验 **12/12 被抓、6 个被注入文件逐字节还原**（其中两条一开始没红，是注入本身写错了 —— 一条注的是注释、判据先过 `code_only()` 剥掉；一条没把入口挪出 `bottomBar`，已改）＋ 单测 `AiSuggestTest.kt` **28 条**、`:app:testEmuDebugUnitTest` **110 个 XML / 1507 条 / 0 失败 / 0 错误 / 2 skipped**；提交 `__`。
+`判据 / 反验`：`_check_ai_suggest.py` **47 项全绿**（三档标题互不重样、`AiRole` 仍只有两个枚举值、界面里那两张写死问题表与两元标题一个不剩、入口必须落在 `bottomBar` 里且 `InputBar` 之前、取 `suggests` 前 `ensureScoped()`、两个新文件不碰网络、单测覆盖三档）＋ 反验 **12/12 被抓、6 个被注入文件逐字节还原**（其中两条一开始没红，是注入本身写错了 —— 一条注的是注释、判据先过 `code_only()` 剥掉；一条没把入口挪出 `bottomBar`，已改）＋ 单测 `AiSuggestTest.kt` **28 条已写**，但 `:app:testEmuDebugUnitTest` **这轮一次都没跑通**：三次失败都不是本单的文件（`ui/messages/MessageGrading.kt` 缺 `contentOrNull` import、`ai/AiWorkflowRunner.kt` 一片 `Unresolved reference` 都是并行会话的在制品），另外撞过 Kotlin 编译器 `OutOfMemoryError`（本机 15.8 GB 只剩 0.9 GB，杀掉两台闲置模拟器才腾到 2.1 GB）与两个会话同时写 `android/app/build/` 导致的 `Could not copy … app_emuDebug.kotlin_module`。真机截图与全量静检依赖同一个编译，同样待补。**不拿 CHG-0108 那轮的 1507 条冒充本轮数字。**；提交 `__`。
 
-- 状态：⏳ **进行中**（判据 47/47 ＋ 反验 12/12 ＋ 单测 1507 条 0 失败；真机截图与全量静检待补；提交 `__`）
+- 状态：⏳ **进行中**（判据 47/47 ＋ 反验 12/12；单测 / 真机 / 全量静检被并行会话挡住待补；提交 `__`）
 
 ### [2026-10-11 02:2x → ⏳ 进行中] 会话：**FEAT-0019 消息分级与严重度（后端）——`notifications.severity` 判定只有一处（`severity_for` ＋ 列默认值委托）＋ `payload.emphasis`（只点真的出现在标题/正文里的词）＋ 迁移 032**（DSH `b59467f2-d797-43c3-b531-767cfef791c0`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 

@@ -41,6 +41,9 @@ import com.tapmoay.sorders.ai.AiProviders
 import com.tapmoay.sorders.ai.AiReads
 import com.tapmoay.sorders.ai.AiRole
 import com.tapmoay.sorders.ai.AiRolePrompt
+import com.tapmoay.sorders.ai.AiSuggestCodec
+import com.tapmoay.sorders.ai.AiSuggestWho
+import com.tapmoay.sorders.ai.AiSuggests
 import com.tapmoay.sorders.ai.AiTools
 import com.tapmoay.sorders.ai.LlmClient
 import com.tapmoay.sorders.ai.ThinkingLevel
@@ -653,6 +656,96 @@ fun AiSettingsScreen(
                         Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("清除习惯记录", fontSize = 15.sp)
+                    }
+                }
+            }
+
+            // ---------------- 首次来时的推荐问题（用户自己改；CHG-0114） ----------------
+            // 用户 m01175：「我们其实也可以在设置当中他自己手动的去编辑一些呃首次的问题预设」。
+            // 空状态那 4 条是**他自己点的第一批**，所以这份预设比任何默认值都准 ——
+            // 一个批发商和一个刚注册的货主，嘴里要问的话根本不是一批。
+            val suggestWho = AiSuggests.whoOf(ai.currentActor)
+            if (suggestWho != null) {
+                var customFirst by remember(suggestWho) { mutableStateOf(ai.suggests.customFirst(suggestWho)) }
+                var draft by remember(suggestWho) { mutableStateOf("") }
+                val defaultFirst = remember(suggestWho) { AiSuggests.defaultFirst(suggestWho) }
+                val current = customFirst ?: defaultFirst
+                fun writeFirst(next: List<String>?) {
+                    val cleaned = next?.let { AiSuggestCodec.cleanList(it, AiSuggestCodec.MAX_FIRST) }
+                    ai.suggests.setCustomFirst(suggestWho, cleaned?.takeIf { it.isNotEmpty() })
+                    customFirst = cleaned?.takeIf { it.isNotEmpty() }
+                }
+
+                SectionCard {
+                    Text(
+                        "第一次进来时的推荐问题",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Hint(
+                        "还没问过任何东西的时候，下面这 ${current.size} 条就是他看到的全部。" +
+                            "改掉之后以你写的为准；" +
+                            (if (customFirst == null) "现在还是默认那几条。" else "现在用的是你自己改过的。"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    current.forEachIndexed { i, q ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(q, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            IconButton(
+                                onClick = { writeFirst(current.filterIndexed { j, _ -> j != i }) },
+                                modifier = Modifier.size(40.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.DeleteOutline,
+                                    contentDescription = "删掉「$q」",
+                                    tint = MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { draft = it.take(AiSuggestCodec.MAX_QUESTION_CHARS) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("再加一条") },
+                        placeholder = { Text("比如：帮我加一个常用地址") },
+                        singleLine = true,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(
+                            onClick = {
+                                val one = AiSuggestCodec.clean(draft) ?: return@TextButton
+                                if (current.size >= AiSuggestCodec.MAX_FIRST) return@TextButton
+                                writeFirst(current + one)
+                                draft = ""
+                            },
+                            enabled = draft.isNotBlank() && current.size < AiSuggestCodec.MAX_FIRST,
+                            contentPadding = PaddingValues(horizontal = 0.dp),
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("加进去", fontSize = 15.sp)
+                        }
+                        Spacer(Modifier.weight(1f))
+                        if (customFirst != null) {
+                            TextButton(
+                                onClick = { writeFirst(null) },
+                                contentPadding = PaddingValues(horizontal = 0.dp),
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("恢复默认", fontSize = 15.sp)
+                            }
+                        }
                     }
                 }
             }

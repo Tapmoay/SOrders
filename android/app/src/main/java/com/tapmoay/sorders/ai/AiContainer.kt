@@ -106,6 +106,7 @@ class AiContainer(
     private var builtScope: String? = null
     private var convStore: AiConversationStore? = null
     private var habitStore: AiHabitStore? = null
+    private var suggestStoreRef: AiSuggestStore? = null
     private var memStore: AiMemoryStore? = null
     private var keyStoreRef: AiKeyStore? = null
 
@@ -116,6 +117,7 @@ class AiContainer(
         builtScope = s
         convStore = AiConversationStore(appContext, s)
         habitStore = AiHabitStore(appContext, s)
+        suggestStoreRef = AiSuggestStore(appContext, s)
         memStore = AiMemoryStore(appContext, s)
         keyStoreRef = AiKeyStore(appContext, s)
     }
@@ -250,6 +252,16 @@ class AiContainer(
 
     /** 使用习惯（本机统计，含开关）。 */
     val habits: AiHabitStore get() { ensureScoped(); return habitStore!! }
+
+    /**
+     * 推荐问题的记忆：手动编辑过的**首次预设**、**固定**住的问题、每个问题**点过几次**。
+     *
+     * 与 [habits] 同一条隐私边界（只写 App 私有 prefs、按用户分区、不上传）。
+     * 它**不复用** [habits]：那边存的是"给模型看的口径习惯"（工具次数、时间区间），
+     * 这边存的是"给他看的问题清单"——两件事的寿命与清空时机都不一样
+     * （设置页可以单独「恢复默认问题」而不动习惯统计）。
+     */
+    val suggests: AiSuggestStore get() { ensureScoped(); return suggestStoreRef!! }
 
     /**
      * 长期事实记忆（本机文件，逐条可查看/编辑/删除）。

@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NorthEast
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
@@ -86,6 +87,9 @@ import com.tapmoay.sorders.ai.AiConversations
 import com.tapmoay.sorders.ai.AiPendingWrite
 import com.tapmoay.sorders.ai.AiRecentPhotos
 import com.tapmoay.sorders.ai.AiRole
+import com.tapmoay.sorders.ai.AiSuggestPack
+import com.tapmoay.sorders.ai.AiSuggestWho
+import com.tapmoay.sorders.ai.AiSuggests
 import com.tapmoay.sorders.ai.AiVision
 import com.tapmoay.sorders.ai.AiWriteRisk
 import com.tapmoay.sorders.ai.StoredExportRecipe
@@ -199,27 +203,10 @@ private val DetailMaxHeight = 200.dp
 /** 抽屉宽度：固定 300dp。手机上留出约 1/6 的遮罩够手指侧滑关掉；平板上也不会宽得离谱。 */
 private val DrawerWidth = 300.dp
 
-/**
- * 示例问题：点一下＝填入输入框并直接发送。
- *
- * ⚠️ **按角色分开**。v3.13 给货主开了 AI 入口之后，他看到的却是
- * 「哪个司机跑得最多」「把货主账单导成表格」——**那些他既没权限、也不是他要问的**。
- * 空状态是用户对这一页的第一印象，写错等于告诉他"这东西不是给你的"。
- */
-private val SAMPLE_QUESTIONS_DISPATCHER = listOf(
-    "今天哪些货主的单最多？",
-    "哪个司机这个月跑得最多？",
-    "有哪些商品库存到红线了？",
-    "把这个月的货主账单导成表格",
-)
-
-/** 货主的问题示例：他有权限做的事、他真正要问的（下单/地址/账本）。 */
-private val SAMPLE_QUESTIONS_SHIPPER = listOf(
-    "我最近的订单有哪些？",
-    "帮我加一个常用地址",
-    "我这个月的账结了吗？",
-    "有哪些商品能下单？",
-)
+// ⚠️ 示例问题原来就在这个位置写死成两张常量表（派单员 4 条 / 货主 4 条）。
+// 2026-10-11（CHG-0114）搬到 `ai/AiSuggest.kt` 的 `AiSuggests`——因为接下来它要按
+// **三类角色 × 两档（首次 / 常规）** 分叉，还多了一份用户自己编辑的首次预设，
+// 写死在界面文件里既没法单测、也没法被设置页读到。界面这边只管取和画。
 
 /**
  * 输入框里的灰字提示，同样按角色给。
@@ -227,9 +214,19 @@ private val SAMPLE_QUESTIONS_SHIPPER = listOf(
  * 派单端的例子是"库存到红线"——那是**派单员才有的能力**；货主照着敲一句，
  * 得到的只会是一次"你没这个权限"，而他不会再敲第二句。提示语是"教用户怎么用"，
  * 举一个他自己做不到的例子，等于教错。
+ *
+ * ⚠️ 2026-10-11（CHG-0114）：从"两个角色各一条常量"改成**按 [AiSuggestWho] 查表**——
+ * 批发商是与普通货主不同的第三类（他账本里多一段"我的货主欠我多少"、能核销），
+ * 给他看"帮我加一个常用地址"没错，但那是普通货主最该看的那条，不是他最该看的。
  */
-private const val HINT_DISPATCHER = "例如：哪些商品库存到红线了？"
-private const val HINT_SHIPPER = "例如：帮我加一个常用地址"
+private val HINT_BY_WHO = mapOf(
+    AiSuggestWho.DISPATCHER to "例如：哪些商品库存到红线了？",
+    AiSuggestWho.SHIPPER to "例如：帮我加一个常用地址",
+    AiSuggestWho.MEMBER to "例如：我的货主欠我多少？",
+)
+
+/** 认不出角色时的提示语（fail-closed：不举任何角色专属的例子）。 */
+private const val HINT_FALLBACK = "用大白话说要做什么就行"
 
 /**
  * 底部那张白色卡片**上面两个角**的圆角半径。
@@ -375,6 +372,38 @@ fun AiChatScreen(
 
     val leadCount = if (!vm.configured) 1 else 0
     val showGuide = vm.configured && vm.messages.isEmpty()
+
+    // ---------------- 推荐问题（CHG-0114） ----------------
+    // 「他是不是批发商」由容器持有（`memberShipper`），而它是**每次提问前**才刷新的；
+    // 空状态的标题与问题在进页面那一刻就得对，所以这里先刷一次（只对货主发请求）。
+    // ⚠️ 刷完必须碰一下 [suggestRev]：容器的那个值**不是 Compose state**，不碰就不会重组。
+    var suggestRev by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        ai.refreshMembership()
+        suggestRev++
+    }
+    val suggestWho = AiSuggests.whoOf(ai.currentActor)
+    val suggestPinned = remember(suggestWho, suggestRev) { suggestWho?.let { ai.suggests.pinned(it) }.orEmpty() }
+    val suggestTaps = remember(suggestWho, suggestRev) { suggestWho?.let { ai.suggests.taps(it) }.orEmpty() }
+    val suggestCustomFirst = remember(suggestWho, suggestRev) { suggestWho?.let { ai.suggests.customFirst(it) } }
+    // 「第一次来」的判据是**他还没在这页问过任何东西**（习惯记录里的对话轮数）。
+    // ⛔ 不去查"他有没有订单/地址"：那要发网络请求，而空状态是进页面第一帧就要画的。
+    val suggestFirstTimer = remember(suggestRev) { ai.habits.load().runs <= 0 }
+    val suggestHome = remember(suggestWho, suggestRev, suggestFirstTimer) {
+        suggestWho?.let {
+            AiSuggests.home(it, suggestFirstTimer, suggestCustomFirst, suggestPinned, suggestTaps)
+        }.orEmpty()
+    }
+    val suggestPack = remember(suggestWho) { suggestWho?.let { AiSuggests.packFor(it) } }
+    var showLibrary by remember { mutableStateOf(false) }
+
+    /** 点一条推荐问题：先记一次（喂「常用」排序），再**直接发出去**——不填进输入框让他再按一次。 */
+    fun pickSuggestion(q: String) {
+        suggestWho?.let { ai.suggests.recordTap(it, q) }
+        suggestRev++
+        vm.input = q
+        vm.send(onOpenSettings)
+    }
     val branchCount = if (vm.activeIsBranch) 1 else 0
     val itemCount = leadCount + (if (showGuide) 1 else 0) + branchCount + vm.messages.size +
         (if (vm.totalTokens > 0) 1 else 0)
@@ -516,13 +545,18 @@ fun AiChatScreen(
                             onRemove = { vm.removeAttachment(it) },
                         )
                     }
+                    // 「典型问题」入口（CHG-0114）：用户要的是"不用每次自己组织句子"。
+                    // 它在**任何时候**都在（不只在空状态）——聊到一半想换个话题是最常见的用法。
+                    if (suggestPack != null) {
+                        SuggestEntryRow(onOpen = { showLibrary = true })
+                    }
                     InputBar(
                         value = vm.input,
                         onValueChange = { vm.input = it },
                         sending = vm.sending,
                         attaching = vm.attaching,
                         canSend = vm.input.isNotBlank() || vm.attachments.isNotEmpty(),
-                        hint = if (ai.currentRole == AiRole.SHIPPER) HINT_SHIPPER else HINT_DISPATCHER,
+                        hint = suggestWho?.let { HINT_BY_WHO[it] } ?: HINT_FALLBACK,
                         panelOpen = showAttachPanel,
                         onTogglePanel = {
                             val open = !showAttachPanel
@@ -584,16 +618,28 @@ fun AiChatScreen(
                         BranchBar()
                     }
                 }
-                // 角色决定空状态的文案与示例问题（货主看到的不能是"哪个司机跑得最多"）
-                val isDispatcher = ai.currentRole == AiRole.DISPATCHER
-                val sampleQuestions = if (isDispatcher) SAMPLE_QUESTIONS_DISPATCHER else SAMPLE_QUESTIONS_SHIPPER
+                // 角色决定空状态的标题与示例问题（货主看到的不能是"哪个司机跑得最多"）。
+                // 2026-10-11（CHG-0114）：标题与问题都改由 `AiSuggests` 按**三类角色**给，
+                // 并且分「第一次来」与「用过」两档；固定与常用由 `ai.suggests` 的 prefs 决定。
                 if (showGuide) {
                     item(key = "guide") {
                         Box(Modifier.fillParentMaxSize()) {
-                            EmptyGuide(questions = sampleQuestions, isDispatcher = isDispatcher, onPick = { q ->
-                                vm.input = q
-                                vm.send(onOpenSettings)
-                            })
+                            EmptyGuide(
+                                who = suggestWho,
+                                questions = suggestHome,
+                                pinned = suggestPinned,
+                                hasLibrary = suggestPack != null,
+                                onPick = { q -> pickSuggestion(q) },
+                                onTogglePin = { q ->
+                                    val who = suggestWho ?: return@EmptyGuide
+                                    val nowPinned = ai.suggests.togglePin(who, q)
+                                    suggestRev++
+                                    scope.launch {
+                                        snackbar.showSnackbar(if (nowPinned) "已固定，它会一直排在最前" else "已取消固定")
+                                    }
+                                },
+                                onOpenLibrary = { showLibrary = true },
+                            )
                         }
                     }
                 }
@@ -676,6 +722,34 @@ fun AiChatScreen(
 
     previewAttachment?.let { att ->
         AttachmentPreviewSheet(att = att, onDismiss = { previewAttachment = null })
+    }
+
+    // 「典型问题」面板（CHG-0114）：按类别列全套问题，点一条**直接发**。
+    if (showLibrary) {
+        val pack = suggestPack
+        val who = suggestWho
+        if (pack == null || who == null) {
+            showLibrary = false
+        } else {
+            SuggestLibrarySheet(
+                who = who,
+                pack = pack,
+                pinned = suggestPinned,
+                taps = suggestTaps,
+                onPick = { q ->
+                    showLibrary = false
+                    pickSuggestion(q)
+                },
+                onTogglePin = { q ->
+                    val nowPinned = ai.suggests.togglePin(who, q)
+                    suggestRev++
+                    scope.launch {
+                        snackbar.showSnackbar(if (nowPinned) "已固定，它会一直排在最前" else "已取消固定")
+                    }
+                },
+                onDismiss = { showLibrary = false },
+            )
+        }
     }
 }
 
@@ -1972,7 +2046,15 @@ private fun ReasoningSection(reasoning: String) {
 // ==================== 空状态引导 ====================
 
 @Composable
-private fun EmptyGuide(questions: List<String>, isDispatcher: Boolean, onPick: (String) -> Unit) {
+private fun EmptyGuide(
+    who: AiSuggestWho?,
+    questions: List<String>,
+    pinned: List<String>,
+    hasLibrary: Boolean,
+    onPick: (String) -> Unit,
+    onTogglePin: (String) -> Unit,
+    onOpenLibrary: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1997,17 +2079,24 @@ private fun EmptyGuide(questions: List<String>, isDispatcher: Boolean, onPick: (
             )
         }
         Spacer(Modifier.height(12.dp))
-        // 标题与示例都按角色给：空状态是第一印象，写错等于说"这东西不是给你的"。
-        // 货主端原先是"我是你的助手"——太虚，等于没说清它是谁的助手；改成"我是货主助手"
-        // 与派单端的"我是派单助手"对称（用户 2026-09-15 指出标签要改）。
-        Text(if (isDispatcher) "我是派单助手" else "我是货主助手", style = MaterialTheme.typography.titleLarge)
+        // 标题按**三类角色**给（2026-10-11 CHG-0114）：空状态是第一印象，写错等于说"这东西不是给你的"。
+        // 货主端原先是"我是你的助手"——太虚；派单端/货主端在 2026-09-15 改成对称的两句；
+        // 这一轮把批发商从"货主"里拆出来——他要问的东西（我的货主欠我多少、核销一笔）
+        // 和普通货主（下单、加地址）不是一回事，标题上就得看得出来。
+        Text(who?.title ?: "我是你的助手", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(6.dp))
         Hint(
-            if (isDispatcher) {
-                "用大白话问我：某个数是多少、谁跑得最多、哪些货要补、账单导成表格。\n点下面的问题可以直接试。"
-            } else {
-                "用大白话跟我说要做什么：下单、加地址、记常用联系人、查订单和账本。\n" +
-                    "要动数据的事我都会先给你一张确认卡，你点了才会生效。\n点下面的问题可以直接试。"
+            when (who) {
+                AiSuggestWho.DISPATCHER ->
+                    "用大白话问我：某个数是多少、谁跑得最多、哪些货要补、账单导成表格。\n点下面的问题可以直接试。"
+
+                AiSuggestWho.MEMBER ->
+                    "用大白话跟我说要做什么：下单、查货主欠款、核销一笔、看这个月的账。\n" +
+                        "要动数据的事我都会先给你一张确认卡，你点了才会生效。\n点下面的问题可以直接试。"
+
+                else ->
+                    "用大白话跟我说要做什么：下单、加地址、记常用联系人、查订单和账本。\n" +
+                        "要动数据的事我都会先给你一张确认卡，你点了才会生效。\n点下面的问题可以直接试。"
             },
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2023,6 +2112,7 @@ private fun EmptyGuide(questions: List<String>, isDispatcher: Boolean, onPick: (
         Spacer(Modifier.height(18.dp))
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             questions.forEach { q ->
+                val isPinned = q in pinned
                 Surface(
                     onClick = { onPick(q) },
                     modifier = Modifier.fillMaxWidth().heightIn(min = TapTarget),
@@ -2031,7 +2121,7 @@ private fun EmptyGuide(questions: List<String>, isDispatcher: Boolean, onPick: (
                     shadowElevation = 1.dp,
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 12.dp, bottom = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -2040,6 +2130,17 @@ private fun EmptyGuide(questions: List<String>, isDispatcher: Boolean, onPick: (
                             modifier = Modifier.weight(1f),
                         )
                         Spacer(Modifier.width(8.dp))
+                        // 图钉：用户说"我这个问题就固定在这里，这也是可以的"。
+                        // 钉住之后它排在最前（排序在 `AiSuggests.rank` 里，不是在这里），
+                        // 所以这颗钉子只是**显示状态 + 一个开关**，不做排序。
+                        IconButton(onClick = { onTogglePin(q) }, modifier = Modifier.size(TapTarget)) {
+                            Icon(
+                                Icons.Default.PushPin,
+                                contentDescription = if (isPinned) "取消固定" else "固定这条问题",
+                                tint = if (isPinned) AiAccent else MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
                         Icon(
                             Icons.Default.NorthEast,
                             contentDescription = null,
@@ -2049,6 +2150,166 @@ private fun EmptyGuide(questions: List<String>, isDispatcher: Boolean, onPick: (
                     }
                 }
             }
+        }
+        if (hasLibrary) {
+            Spacer(Modifier.height(12.dp))
+            // 用户要的是"不用每次自己组织句子"——空状态只放得下 4 条，
+            // 剩下的按类别收在面板里，入口和输入框上方那颗按钮是同一个。
+            TextButton(onClick = onOpenLibrary) {
+                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("按类别挑问题")
+            }
+        }
+    }
+}
+
+// ==================== 典型问题面板（CHG-0114） ====================
+
+/**
+ * 输入框上方那一行「典型问题」入口。
+ *
+ * 用户的原话是"省得它每次都要那样子搞"——他要的是**不用每次自己组织句子**。
+ * 所以这个入口**任何时候都在**（不只在空状态）：聊到一半想换个话题，
+ * 恰恰是最需要它的时候；只在空状态给，等于聊起来之后就再也找不到了。
+ */
+@Composable
+private fun SuggestEntryRow(onOpen: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            onClick = onOpen,
+            shape = RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 1.dp,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = AiAccent,
+                    modifier = Modifier.size(15.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("典型问题", style = MaterialTheme.typography.labelLarge, color = AiAccent)
+            }
+        }
+    }
+}
+
+/**
+ * 「典型问题」面板：按类别把整套问题摊开，点一条**直接发**。
+ *
+ * 分类不按"功能模块"分（订单/地址/账本），按**用户当下想干什么**分
+ * ——他嘴里说的是"我这个月的账结了吗"，不是"我要查账本模块"。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SuggestLibrarySheet(
+    who: AiSuggestWho,
+    pack: AiSuggestPack,
+    pinned: List<String>,
+    taps: Map<String, Int>,
+    onPick: (String) -> Unit,
+    onTogglePin: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // "我常问的"：点过两次以上的才配进这一段。点一次的很可能只是好奇点错了，
+    // 把它顶上来等于用一次误触改掉了他最顺手的那几条。
+    val used = remember(taps, pack) { AiSuggests.usedQuestions(taps, pack.flat, AiSuggests.USED_LIMIT) }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
+        ) {
+            Text(who.title, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Hint(
+                "点一下就直接发出去；右边的图钉按一下，这条会固定到最前面。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (used.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                SuggestGroup("我常问的", used, pinned, onPick, onTogglePin)
+            }
+            pack.categories.forEach { cat ->
+                Spacer(Modifier.height(16.dp))
+                SuggestGroup(cat.cn, cat.questions, pinned, onPick, onTogglePin)
+            }
+            if (used.isEmpty() && taps.isNotEmpty()) {
+                Spacer(Modifier.height(14.dp))
+                Hint(
+                    "常问的问题会在你多问几次之后自己冒到最前面。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
+        }
+    }
+}
+
+/** 面板里的一组问题：一个小标题 ＋ 若干行。 */
+@Composable
+private fun SuggestGroup(
+    title: String,
+    questions: List<String>,
+    pinned: List<String>,
+    onPick: (String) -> Unit,
+    onTogglePin: (String) -> Unit,
+) {
+    Text(title, style = MaterialTheme.typography.labelLarge, color = AiAccent)
+    Spacer(Modifier.height(6.dp))
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        questions.forEach { q -> SuggestRow(q, q in pinned, onPick, onTogglePin) }
+    }
+}
+
+/** 面板里的一行问题：整行可点（直接发）＋ 一颗只管"固定"的图钉。 */
+@Composable
+private fun SuggestRow(
+    question: String,
+    isPinned: Boolean,
+    onPick: (String) -> Unit,
+    onTogglePin: (String) -> Unit,
+) {
+    Surface(
+        onClick = { onPick(question) },
+        modifier = Modifier.fillMaxWidth().heightIn(min = TapTarget),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 1.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(question, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(6.dp))
+            IconButton(onClick = { onTogglePin(question) }, modifier = Modifier.size(TapTarget)) {
+                Icon(
+                    Icons.Default.PushPin,
+                    contentDescription = if (isPinned) "取消固定" else "固定这条问题",
+                    tint = if (isPinned) AiAccent else MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+            Icon(
+                Icons.Default.NorthEast,
+                contentDescription = null,
+                tint = AiAccent,
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }
