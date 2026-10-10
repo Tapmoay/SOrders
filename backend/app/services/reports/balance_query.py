@@ -13,8 +13,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.business_time import business_date
-from app.models import ArrearsUnit, Customer, Ledger, Order, User
-from app.models.enums import LedgerSource, OrderStatus
+from app.models import ArrearsUnit, Customer, Ledger, Order, ShipperReceipt, User
+from app.models.enums import LedgerSource, OrderStatus, ReceiptSettleMode
 from app.services.money_contract import money_map
 from app.services.reports.loader import delivered_span_sql
 
@@ -42,6 +42,7 @@ _NOTES = [
     "⚠️ 把报表日往前调（选过去的窗口）读法是：「那些天**之前送达**的单，到今天还欠着多少」。"
     "收款流水没有历史快照（一笔单收了几次、什么时候收的，账上只留总额），所以这不是「当时那一刻的账」。"
     "要对那一天的账，只能看当天的营业纵览/账本 —— 这一页回答的是「现在该向谁要钱、这笔钱欠多久了」。",
+    "**未指定订单的收款（滚动收款）会冲减这里的欠款**，冲掉的部分进「预收」那一列（2026-10-10，BUG-0036 / 台账 TB-14）：不冲的话，客户明明付过钱，催收名单上还是全款。⛔「挂账汇总」那一页仍是**按单**的（它回答「哪些单还没收」），不受此影响。",
 ]
 
 
@@ -116,6 +117,44 @@ def _q2(v: Decimal) -> Decimal:
     """
     return v.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
+
+def _rolling_credit_map(db: Session, as_of: date) -> dict[tuple[str, str], Decimal]:
+    """**未指定订单的收款**（滚动收款）按债务人归集：截止 as_of、未撤销的那几笔。
+
+    为什么要有它（2026-10-10，BUG-0036 / 测试台账 TB-14）：滚动收款只写现金流水，欠款表一分不冲
+    —— 客户已经付过钱，催收名单上还是全款，会被**重复催收**。设计文档
+    docs/ACCOUNTING_V2_DESIGN.md 里「rolling：冲抵该客户应收余额」说的就是这件事。
+
+    ⛔ 归集口径必须与 _debtor_of 一致（认挂账单位 → 认货主账号），否则同一笔钱会在两张表上落到
+       两个名字下：收款单只有 customer_id，所以走 customers 的 arrears_unit_id / user_id 映射过去；
+       认不出来的（散客、既没单位也没账号）**不猜**，那笔预收就留在现金流水里。
+    """
+    rows = db.execute(
+        select(ShipperReceipt.customer_id, func.sum(ShipperReceipt.amount))
+        .where(
+            ShipperReceipt.settle_mode == ReceiptSettleMode.ROLLING,
+            ShipperReceipt.is_deleted.is_(False),
+            ShipperReceipt.received_at <= as_of,
+        )
+        .group_by(ShipperReceipt.customer_id)
+    ).all()
+    ids = [int(cid) for cid, _amt in rows if cid is not None]
+    if not ids:
+        return {}
+    customers = {c.id: c for c in db.scalars(select(Customer).where(Customer.id.in_(ids)))}
+    out: dict[tuple[str, str], Decimal] = {}
+    for cid, amount in rows:
+        c = customers.get(int(cid)) if cid is not None else None
+        if c is None or amount is None:
+            continue
+        if c.arrears_unit_id is not None:
+            key = ("unit", str(c.arrears_unit_id))
+        elif c.user_id is not None:
+            key = ("shipper", str(c.user_id))
+        else:
+            continue  # 散客：认不出债务人，宁可让这笔预收留在现金流水里
+        out[key] = out.get(key, ZERO) + Decimal(amount)
+    return out
 
 def build_customer_balances(db: Session, as_of: date, *, include_orders: bool = False) -> dict:
     """逐债务人的时点余额与账龄（截止 as_of），供报表页、导出与 AI 复用。
@@ -204,6 +243,15 @@ def build_customer_balances(db: Session, as_of: date, *, include_orders: bool = 
                 }
             )
 
+    # 未指定订单的收款（滚动收款）冲减这里欠款，冲掉的部分进「预收」列（BUG-0036 / TB-14）。
+    # ⛔ 只冲**已经有欠款行**的债务人：已经收清的人不在这里凭空多一行出来（那笔钱在现金流水与
+    #    收款记录里查得到）；恒等式 balance == Σ buckets − prepaid 保持不变。
+    for key, credit in _rolling_credit_map(db, as_of).items():
+        g = groups.get(key)
+        if g is None:
+            continue
+        g["prepaid"] += credit
+        g["balance"] -= credit
     out_rows = [_finish_group(g) for g in groups.values()]
     # 欠得多的在前；一样多按名字排（两次跑出来的顺序必须一样，导出与页面才对得上）。
     out_rows.sort(key=lambda r: (-r["balance"], r["name"]))
