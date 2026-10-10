@@ -26,12 +26,12 @@
 | **运行时代码指纹**（⛔ 这条比 SHA 本身更要紧） | 发布点之后还可能推**只改文档/工具**的提交 ⇒ 真正要核的是「运行时代码没变」：`git diff --stat <Git SHA>..<发布点> -- backend/` **必须为空** | `git diff --stat <Git SHA>..HEAD -- backend/` |
 | 提交时刻 | 2026-10-10T16:35:37+08:00 | `git log -1 --format=%cI` |
 | **DB migration version** | **29**（⛔ 这是**仓库头**：0.2.8 发布时生产的迁移作业已跑到 **29**，`_release.py --step verify` 实测「当前版本 == 仓库迁移头、待跑 0 / 漂移 0」） | `ls backend/app/migrations/0*.py | tail -1` |
-| **Android 版本** | 产品 **0.2.8**（唯一来源＝仓库根 `VERSION`）＋构建号 **2026101001**（日期式 `yyyyMMdd * 100 + 当日序号`；这就是本次包的 `versionCode`） | `Get-Content VERSION` ＋ `android/app/build/outputs/apk/phone/release/output-metadata.json` |
+| **Android 版本** | 产品 **0.2.9**（唯一来源＝仓库根 `VERSION`）＋构建号 **2026101005**（日期式 `yyyyMMdd * 100 + 当日序号`；这就是本次包的 `versionCode`） | `Get-Content VERSION` ＋ `android/app/build/outputs/apk/phone/release/output-metadata.json` |
 | **Backend 版本** | `app_version` = **0.2.8**（`config._repo_version()` 现读同一个 `VERSION`；发布后 `/health` 实测） | `python -c "from app.config import settings; print(settings.app_version)"` |
 | **Frontend 版本** | ⛔ **没有**：`frontend/`（Vue3 旧 H5）已不在工作区，本轮不发布前端 | `git ls-files frontend`（0 个文件） |
 | **requirements lock** | ⛔ **没有 lock** —— R3-07d 决策②「本轮不锁」（保持开区间）；改用**生产真实 freeze 指纹**当基准 | `ssh … '.venv/bin/pip freeze | sha256sum'` |
 | **config checksum** | systemd unit `sorders-api*.service` 的 sha256 前 16 位（发布后现取；本轮 unit 未改，与 0.2.7 同值） | `ssh … 'systemctl cat <enabled 的 sorders-api*.service> | sha256sum'` |
-| **artifact checksum** | `app-phone-release.apk` → 线上 `sorders-0.2.8-2026101003.apk`：**45,440,957 字节 / `7B195985DB486D35`**（sha256 前 16 位；`publish_apk.py` 回读 `version=0.2.8 versionCode=2026101003 OK`，短链 `http://8.145.40.22/apk` → `sorders-latest.apk`） | `python _tools/deploy/publish_apk.py --apk … --version-code … --note …` |
+| **artifact checksum** | `app-phone-release.apk` → 线上 `sorders-0.2.9-2026101005.apk`：**45,457,345 字节 / `0DF6A4C9E9F6A073`**（sha256 前 16 位；`publish_apk.py` 回读 `version=0.2.9 versionCode=2026101005 OK`，短链 `http://8.145.40.22/apk` → `sorders-latest.apk`） | `python _tools/deploy/publish_apk.py --apk … --version-code … --note …` |
 
 ---
 
@@ -64,6 +64,18 @@ version.json 回读 version=0.2.8 versionCode=2026101003，短链 http://8.145.4
 **之前**就编好了；图标那笔提交（9a879b67，16:52）落地后必须重编，否则用户升级到的 0.2.8 桌面图标还是旧的蓝色 ——
 正是用户当天点出来的那个毛病。1002 那次因为「线上已有同号包」被 publish_apk 判成无需上传（上传的是旧字节），
 所以用 1003 重发；最终线上是 1003（含图标修复）。
+
+### 0.2.9 这一次（2026-10-10 深夜）—— 只发 Android（后端零变更）
+
+**商品管理-批量操作新增「固价（不参与打折）」/「恢复打折」**（CHG-0109）＋ **AI 也能设固价**（FEAT-0016）：
+
+- 后端**一个字节没改**（走既有 `PATCH /products/{id}`），所以本次不走八步发布脚本、只发 APK；
+- 打通上下载：`sorders-0.2.9-2026101005.apk`（45,457,345 字节，签名与线上一致 ⇒ 存量用户直接升级），
+  `version.json` 回读 `version=0.2.9 versionCode=2026101005`；
+- ⚠️ **踩过的坑（记下来免得再犯）**：第一次用 `publish_apk.py --version-code 2026101004`（**没给 --apk**）发布时，
+  它**复用了工作区里那个 0.2.8 的旧包**（日志里明明写着 `versionName=0.2.8`），上传的是一个不含新功能的二进制；
+  正确姿势是**先用 gradle 明确重编**（`-PappVersionName=0.2.9 -PappVersionCode=…`），核对 `output-metadata.json`
+  与**文件字节数确实变了**，再 `publish_apk.py --apk <路径> --version-code <新号>`。1004 那个包已被 1005 顶掉。
 
 ## 二、CI 证据（这份候选被机器验过）
 
