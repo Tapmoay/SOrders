@@ -76,31 +76,59 @@
 
 ## 五、点进去到哪（深链）
 
-能查的消息要给入口（用户原话：「像是个入口一样」）。目标**从 `payload` 取**，权威是
-`backend/app/services/message_center.py` 里各 `type` 分支写了什么键：
+能查的消息要给入口（用户原话：「像是个入口一样」）。
 
-| 消息 | payload 里放什么 | 点进去 |
+⚠️ **2026-10-11（FEAT-0021）订正**：这一节原来写「目标从 `payload` 取」——**实现不是这样**。
+真实口径：**客户端按 `type` 的「族」跳页**，不看具体是哪条记录（权威：
+`android/app/src/main/java/com/tapmoay/sorders/ui/messages/MessageGrading.kt` 的
+`noticeRoute(roleKey, type, payload)`）。真读 payload 决定"落到哪一条"的**只有两处**：
+`order_id`（订单 / 系统兜底）与 `product_id`（库存 / 定价）。
+
+| 消息族（type） | payload 里放什么 | 点进去（**真实行为**） |
 |---|---|---|
-| 订单类 | `order_id` / `order_no` | 订单详情（撤销原因、送达信息都在那） |
-| 库存类 | `product_id` | 库存管理，并**定位到那个商品**、显示当前库存 |
-| 收款 | `receipt_id` / `customer_id` | 账本 · 客户收款（那一笔） |
-| 应付 | `payable_id` / `supplier_id` | 供应商应付款 |
-| 发票 | `invoice_id` | 发票台账（那张票） |
-| 账号 / 设备 | `user_id` | 账户管理（看绑定设备、解冻） |
+| 订单（`order.*`） | `order_id` / `order_no` | 订单详情（`order_id` **真决定**落哪一条） |
+| 库存（`stock.*`） | `product_id` | 库存管理**并定位到那个商品**（`product_id` **真决定**落哪一条） |
+| 价格（`price_change` / `price.changed`） | `product_id` | 派单员 → 该商品的定价页；货主 → 价格页 |
+| 收款（`receipt.*`） | `receipt_id` / `customer_id` | 派单员 → 客户收款入口页（**不看键**，落到列表） |
+| 欠款（`arrears.*`） | `customer_id` / `unit_id` | 派单员 → 客户欠款报表；货主 → 账本（**不看键**） |
+| 应付（`payable.*`） | `payable_id` / `supplier_id` | 派单员 → 供应商应付款入口页（**不看键**） |
+| 发票（`invoice.*`） | `invoice_id` | 派单员 → 发票台账入口页（**不看键**） |
+| 账号 / 设备（`account.*`） | `user_id` | 派单员 → 账户管理；**货主本人 → 没有入口**（这一族只对派单员给路由） |
+| 车辆（`vehicle.*`） | 无 | **永远不跳**（`noticeRoute` 该支返回 `null`，界面上也还没有年检录入处） |
 | 纯公告、提醒 | 无 | **不给入口**（⛔ 不要给一个点了没用的箭头） |
+
+⇒ 两条实操结论：
+
+1. **该放的键照放**（`payable_id` / `supplier_id` / `invoice_id` / `user_id` / `unit_id` …）：
+   它们现在不决定路由，但是**列表定位、报表、排查、判据**唯一的线索 ——
+   「缺键就别给」这条不因为客户端暂时不读而放宽；
+2. 想知道"点了到底跳不跳、跳到哪"，**只能看 `noticeRoute`**，⛔ 不要从本表反推实现
+   （本节就是这么错过一次的）。
 
 ⛔ `payload` 里没有对应键时**不许瞎跳**（宁可不给入口）；判据会钉这条。
 
 ## 六、加一类新消息：照这个清单走
 
 ```text
-1. 定类型名：`<域>.<动作>`（如 inventory.low、payable.overdue），写进发消息那一处；
+1. 定类型名：`<域>.<动作>`（如 stock.low、payable.overdue），写进 SEVERITY_BY_TYPE 与
+   EMPHASIS_BY_TYPE —— 客户端也要认得（MessageGrading.kt 的类型集合），否则卡片落回"系统公告"；
 2. 选竖条色：按 §二 借工作台那一格的色（找不到就用消息中心色并写理由）；
-3. 定风险档：按 §三 问一句"不改会不会出事" —— 会=danger、要做但没出事=warn、只是告知=info；
-4. 点重点词：按 §四 在 payload 里写 emphasis（结论词 + 数字，最多 2+2）；
-5. 给深链：按 §五 在 payload 里放目标 id（没有就不给入口）；
-6. 补证据：单测（类型→色、severity→色、payload→路由）+ 判据（`_check_message_card_grading.py`）能覆盖到；
-7. 真机看一眼：`python _tools/qa/_install_all.py --only 5554`（或真机 `adb install -r`）后打开消息中心，
+3. 定风险档：按 §三 问一句"不改会不会出事" —— 会=danger、要做但没出事=warn、只是告知=info。
+   ⛔ 只写进 message_center.SEVERITY_BY_TYPE，调用点一个 severity= 都不许写；
+4. **写生产者**：谁、在哪个时刻把这条消息写下来 —— 放在 backend/app/services/message_producers.py，
+   文案与"点名哪个片段"只此一处。挂到真实的写路径上（与业务同一个事务，⛔ 不额外 commit），
+   再加一个每日兜底扫描（防"钩子被绕过 ⇒ 消息永远不出现"，而"没发"与"没出事"在界面上长得一样）。
+   ⛔ 去重靠幂等键（notifications.idem_key 唯一索引），同一件事不许反复刷屏；
+   ⛔ 投递走事务发件箱（outbox.enqueue 的 notifications.created）；
+   ⛔ 数据源不存在的类型**别硬做**（没字段就没有那一档）：在 message_producers.NOT_PRODUCED 里
+     写清"缺哪个字段"、保留档位登记，比编一个阈值诚实（本仓库 stock.near_low 就是这么处理的）；
+5. 点重点词：按 §四 在 payload 里写 emphasis（结论词 + 数字，最多 2+2），
+   而且**片段所在的字符串必须同时拼进正文**（各写一遍 ⇒ emphasis_for 会安静地丢掉它，
+   消息照发、只是少一个落点）；
+6. 给深链：按 §五 在 payload 里放目标 id（没有就不给入口）；
+7. 补证据：单测（阈值上下 / 去重 / 分档 ＋ 类型→色、severity→色、payload→路由）+ 判据
+   （`_check_message_card_grading.py`、`_check_notification_severity.py`、`_check_message_producers.py`）能覆盖到；
+8. 真机看一眼：`python _tools/qa/_install_all.py --only 5554`（或真机 `adb install -r`）后打开消息中心，
    确认三件事 —— 竖条颜色对、只有点名的字上色、点进去落到正确页面。
 ```
 
@@ -119,11 +147,13 @@
 | 事 | 在哪 |
 |---|---|
 | 发消息（类型 / 风险 / payload.emphasis） | `backend/app/services/message_center.py`（**判定只有这一处**） |
+| **发什么消息、什么时候发**（生产者 / 文案 / 幂等键） | `backend/app/services/message_producers.py`（判据：`_check_message_producers.py`） |
+| 每日兜底扫描（防钩子被绕过） | 同上 `run_daily_scan`，循环挂在 `backend/app/main.py` 的 `_message_scan_loop` |
 | 出参带 `severity` | `backend/app/schemas/…` 的 `NotificationOut` |
 | 卡片渲染（竖条 / 类型色 / 上色） | `android/app/src/main/java/com/tapmoay/sorders/ui/messages/` |
 | 类型 → 颜色映射 | 同上目录下（**唯一一处**，判据钉"只有一处"） |
 | payload → 路由 | 同上目录（缺键返回 null，不跳） |
-| 判据 / 反验 | `_tools/qa/_check_message_card_grading.py` + `_reverse_verify_message_card_grading.py`（后端侧另有 `_check_notification_severity.py`） |
+| 判据 / 反验 | `_tools/qa/_check_message_card_grading.py` + `_reverse_verify_message_card_grading.py`（后端侧另有 `_check_notification_severity.py`、`_check_message_producers.py`） |
 | 可视化样本（改样式前先在这里给用户看） | `_tmp/palette_demo/messages_all.html`（各类总表）、`messages.html`（单类细节） |
 
 ## 九、跟其它规范的关系
