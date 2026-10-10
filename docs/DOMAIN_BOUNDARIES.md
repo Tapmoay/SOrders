@@ -173,7 +173,7 @@ name: order
 owns: orders, order_products, order_templates, order_template_categories
 commands: commands.order:create_order, commands.order:update_order, services.order_flow:assign_driver, services.order_flow:accept_order, services.order_flow:complete_delivery, services.order_flow:cancel_pending, services.order_flow:recall_dispatch, services.order_flow:release_dispatch, services.order_flow:mark_returned, services.order_flow:split_order, commands.order:transfer_lines
 reads: users@identity, products@catalogue, shipper_addresses@party, driver_billing_rules@settlement
-events: orders.assigned, orders.created, orders.delivered, orders.cancelled, orders.recalled, orders.revoked, orders.edited, orders.driver_acked, orders.freight_updated, orders.pending_pool_changed, orders.navigation_filled
+events: orders.assigned, orders.created, orders.delivered, orders.cancelled, orders.recalled, orders.revoked, orders.edited, orders.driver_acked, orders.freight_updated, orders.pending_pool_changed, orders.navigation_filled, orders.deleted, orders.restored
 pure_consumer: no
 ```
 

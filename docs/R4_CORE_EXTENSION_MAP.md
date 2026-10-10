@@ -770,6 +770,8 @@ pending: no
 | `orders.freight_updated` | `order.lifecycle` | 运费被改过 | 同上 | ❌ 不会 |
 | `orders.pending_pool_changed` | `order.lifecycle` | 待派池的构成变了 | 同上 → 派单员列表刷新 | ❌ 不会 |
 | `orders.navigation_filled` | `order.lifecycle` | 导航地址已经补上了 | 同上 | ❌ 不会 |
+| `orders.deleted` | `order.lifecycle` | 一张单被软删了（进回收站，随时能恢复） | 同上 → 两个当事人各收一条推送 | ❌ 不会（软删只是**回收站里的一个标记位**，单还在库里） |
+| `orders.restored` | `order.lifecycle` | 软删的那张单被恢复了 | 同上 → 两个当事人各收一条推送 | ❌ 不会（同上：恢复也只是把那个标记位翻回来） |
 | `returns.requested` | `order.return` | 有人提了退货申请 | 同上 → 派单员消息 | ❌ 不会（申请行已在库里） |
 | `returns.rejected` | `order.return` | 退货申请被驳回 | 同上 | ❌ 不会 |
 | `returns.request_closed` | `order.return` | 那张申请被直连退货自动关掉了 | 同上 | ❌ 不会 |
@@ -779,7 +781,7 @@ pending: no
 | `notifications.created` | `notification.data` | 有一条新的站内信 | 同上 → 收件人红点 | ❌ 不会（站内信是**数据**，已经在库里） |
 | `notifications.unread_changed` | `notification.data` | 未读数变了 | 同上 | ❌ 不会 |
 
-> ⚠️ **最后一列全是 ❌ 是本页最想钉住的一件事**：它意味着 **19 个事件没有一个在偷偷承担业务流程**。
+> ⚠️ **最后一列全是 ❌ 是本页最想钉住的一件事**：它意味着 **21 个事件没有一个在偷偷承担业务流程**。
 > 若将来有人把"送达之后要生成账单"改成"监听 `orders.delivered` 再生成账单"，
 > 这一列会变成 ✅，那时它就该被改回 **Command**（指南 §28 的原话）。
 

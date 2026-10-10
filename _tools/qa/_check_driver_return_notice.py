@@ -455,9 +455,9 @@ def main() -> int:
     r4 = read(R4_MAP)
     dom = read(DOMAINS)
     c.ok(
-        "docs/R4_CORE_EXTENSION_MAP.md 登记了第 19 个事件",
-        EVENT in r4 and "19 个事件" in r4,
-        "文档里没有这个事件 / 事件数没改成 19",
+        "docs/R4_CORE_EXTENSION_MAP.md 登记了退货事件（事件总数 21）",
+        EVENT in r4 and "21 个事件" in r4,
+        "文档里没有这个事件 / 事件数没改成 21",
     )
     # ⚠️ 不能用「源码里有这个子串」判：在事件名后面接个后缀（returns.order_returned_GONE）
     #    子串照样在，登记其实已经废了 —— 必须看**退货域 events 那一行以它结尾**。
