@@ -66,6 +66,56 @@ data class AiSuggestPack(val first: List<String>, val categories: List<AiSuggest
     val flat: List<String> get() = categories.flatMap { it.questions }
 }
 
+/**
+ * 「典型问题」面板右栏里的**一条操作** —— 让 AI 去干活，不是问它问题。
+ *
+ * ### 文案为什么不在这里写死
+ * [title] 直接取动作自己的 [AiWriteAction.title]。抄一份到自己表里的下场很具体：
+ * AI 加了个动作 ⇒ 面板里没有；AI 改了个名字 ⇒ 面板里还是旧的。
+ * **这两件事都不会报错**，只会让用户点了按钮之后 AI 说「我不太明白」。
+ * 所以这一整张表由 [AiSuggests.opsSections] 从注册表现算。
+ */
+data class AiSuggestOp(val id: String, val title: String, val risk: AiWriteRisk) {
+    /**
+     * 点一下**替用户说出去**的那句话。
+     *
+     * ⚠️ 它只是把话说出来，**没有执行任何东西**：AI 照旧要缺参数就问、动手前弹确认卡，
+     * 用户不点确认卡，什么都不会发生（[AiPendingWrite] 的三条不变量）。
+     * 高风险动作因此可以放心摆出来 —— 摆上去和点得动是两回事。
+     */
+    val say: String get() = if (title.startsWith("帮")) title else "帮我$title"
+}
+
+/** 面板左栏的一格。 */
+enum class AiSuggestKind {
+    /** 我常问的（点过两次以上才进来）。 */
+    USED,
+
+    /** 问 AI 一个问题。 */
+    ASK,
+
+    /** 让 AI 去干一件事。 */
+    DO,
+
+    /** 一格两面：上面是能问的，下面是能让他干的（名字撞了就并成一格）。 */
+    MIXED,
+}
+
+/**
+ * 面板左栏的一格：一个类别，底下一批问题 / 一批操作。
+ *
+ * 分开列而不是混在一起：用户点进「订单」这一格时，**问一句**和**干一件**
+ * 是两种完全不同的预期（一个马上有答案，一个会反过来问他问题）。
+ */
+data class AiSuggestSection(
+    val cn: String,
+    val kind: AiSuggestKind,
+    val questions: List<String> = emptyList(),
+    val ops: List<AiSuggestOp> = emptyList(),
+) {
+    val size: Int get() = questions.size + ops.size
+}
+
 object AiSuggests {
 
     /** 空状态上最多摆几条（多了要滚动，第一印象反而散）。 */
@@ -160,6 +210,73 @@ object AiSuggests {
      * 只有这里要改。
      */
     fun defaultFirst(who: AiSuggestWho): List<String> = packFor(who).first
+
+    // ------------------------------------------------------------ 操作（DO）
+
+    /**
+     * [whoOf] 的反函数：三类身份 → 一个能喂给 [AiWrites.forModel] 的 actor。
+     *
+     * ⛔ 批发商**仍然是 `AiRole.SHIPPER`**，靠 `memberShipper = true` 分叉 ——
+     * 后端只有两个角色，为界面造第三个枚举值会连带把权限与写操作闸门一起改坏。
+     */
+    fun actorOf(who: AiSuggestWho): AiActor? = when (who) {
+        AiSuggestWho.DISPATCHER -> AiActor.of(AiRole.DISPATCHER, false)
+        AiSuggestWho.SHIPPER -> AiActor.of(AiRole.SHIPPER, false)
+        AiSuggestWho.MEMBER -> AiActor.of(AiRole.SHIPPER, true)
+    }
+
+    /** 这个角色能叫 AI 干的活（注册表现算，⛔ 不另抄一份）。 */
+    fun opsFor(who: AiSuggestWho): List<AiWriteAction> = AiWrites.forModel(actorOf(who))
+
+
+    /**
+     * 把 AI 真正能干的活按**它自己的域**分组，供面板左栏用。
+     *
+     * @param actions 传 [AiWrites.forModel] 的结果。⛔ **不要另抄一份动作清单** ——
+     *   抄一份的那天起，注册表加了动作而面板不知道，而这件事不会报错。
+     *
+     * 域的顺序用注册表自己的声明顺序（`groupBy` 保序），不按条数排：
+     * 注册表是按业务顺序写的（订单 → 账目 → 账号 → 地址…），那个顺序就是用户翻的时候的顺序。
+     */
+    fun opsSections(actions: List<AiWriteAction>): List<AiSuggestSection> =
+        actions.groupBy { it.group }.map { (cn, list) ->
+            AiSuggestSection(
+                cn = cn,
+                kind = AiSuggestKind.DO,
+                ops = list.map { AiSuggestOp(it.id, it.title, it.risk) },
+            )
+        }
+
+    /**
+     * 面板左栏的完整一格一格：我常问的 → 问题分类 → 操作分类。
+     *
+     * 一个入口（输入框上方那颗按钮）弹出左抽屉，用户按类别挑 —— 这样"预设"才铺得下：
+     * 光问题就有三四十条，加上操作是**两百多条**，摊平了没法看；
+     * 分类之后每一格都只有几条，翻两下就到。
+     */
+    fun shelf(
+        pack: AiSuggestPack,
+        taps: Map<String, Int>,
+        actions: List<AiWriteAction>,
+    ): List<AiSuggestSection> {
+        val out = LinkedHashMap<String, AiSuggestSection>()
+        val used = usedQuestions(taps, pack.flat)
+        if (used.isNotEmpty()) {
+            out["我常问的"] = AiSuggestSection("我常问的", AiSuggestKind.USED, questions = used)
+        }
+        pack.categories.forEach {
+            out[it.cn] = AiSuggestSection(it.cn, AiSuggestKind.ASK, questions = it.questions)
+        }
+        // ⛔ 问题分类与操作域的**名字必然撞**（「订单」「账目」「地址与联系人」两边都这么叫）——
+        //    左栏是按名字排的，撞了就是两格一模一样、点进去一个只有问、一个只有活。
+        //    同名并成一格：上面列能问的，下面列能让他干的。
+        opsSections(actions).forEach { s ->
+            val had = out[s.cn]
+            out[s.cn] = if (had == null) s
+            else had.copy(kind = AiSuggestKind.MIXED, ops = s.ops)
+        }
+        return out.values.toList()
+    }
 
     // ---------------------------------------------------------------- 问题库
 

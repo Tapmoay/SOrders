@@ -106,8 +106,9 @@ MUTATIONS = [
     (
         "货主端提示语举例「库存」（货主没有这个能力）",
         CHAT,
-        'private const val HINT_SHIPPER = "例如：帮我加一个常用地址"',
-        'private const val HINT_SHIPPER = "例如：哪些商品库存到红线了？"',
+        # CHG-0114：提示语从「一个常量」改成「按身份查表」，注入点跟着换成货主那一档。
+        'AiSuggestWho.SHIPPER to "例如：帮我加一个常用地址"',
+        'AiSuggestWho.SHIPPER to "例如：哪些商品库存到红线了？"',
         "货主端的提示语不许举例货主没有的能力",
     ),
 ]

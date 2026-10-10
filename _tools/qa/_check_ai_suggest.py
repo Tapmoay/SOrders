@@ -166,20 +166,44 @@ def main() -> int:
     ok(hint is not None and hint.group(1).count("AiSuggestWho.") == 3,
        "提示语三档齐全（派单员/货主/批发商各一条）")
 
-    # ---------- 7. 「典型问题」入口随时可用 ----------
-    # ⛔ 关键：它必须挂在 **bottomBar** 里、InputBar 之前 —— 不能只在空状态里。
-    # 用户要的是"不用每次自己组织句子"，而聊到一半想换个话题恰恰是最需要它的时候。
-    ok("SuggestEntryRow(onOpen = {" in chat_code, "有「典型问题」入口")
-    ok(chat_code.count("SuggestEntryRow(onOpen = {") == 1, "入口只画一处（重复画会叠两个按钮）")
-    bar_at = chat_code.find("bottomBar = {")
-    back = chat_code.find("SuggestEntryRow(onOpen = {")
-    input_at = chat_code.find("InputBar(")
-    ok(0 < bar_at < back < input_at, "入口在 bottomBar 里、就在输入框上方（不是只在空状态）")
-    # 空状态自己也要能进面板（两条路都通：输入框上方那颗按钮 ＋ 空状态底部的「按类别挑问题」）。
+    # ---------- 7. 入口＝右边的悬浮球（不是输入框上方那行胶囊） ----------
+    # ⛔ 用户 2026-10-11 明确否掉了胶囊那一版（逐字）：「不要做成这样子的按钮形式啊……
+    # 就像我们桌面常用的那种悬浮的按钮，点击它它会完全显示，然后不用它的时候，它就是在右边，
+    # 而且透明度比较低，就是那种隐藏的一种」。所以它挂在 Scaffold 的 floatingActionButton 槽、
+    # 贴右边缘、且**闲着的时候是半透明的**。
+    ok("SuggestFab(onOpen = {" in chat_code, "有「预设」悬浮球")
+    ok(chat_code.count("SuggestFab(onOpen = {") == 1, "悬浮球只画一处（重复画会叠两个）")
+    fab_at = chat_code.find("floatingActionButton = {")
+    back = chat_code.find("SuggestFab(onOpen = {")
+    ok(0 < fab_at < back, "悬浮球挂在 floatingActionButton 槽里（按角色有预设时才画）")
+    ok("floatingActionButtonPosition = FabPosition.End" in chat_code,
+       "悬浮球贴在右边缘（用户画的就是右边那一条）")
+    fab_body = chat_code.split("fun SuggestFab(", 1)[-1].split("\nprivate fun ", 1)[0]
+    ok(".alpha(0." in fab_body, "闲着的时候是半透明的（α < 1 —— 用户：透明度比较低，那种隐藏的一种）")
+    ok("SuggestEntryRow" not in chat_code, "旧的输入框上方胶囊已经拆干净（两套入口会让人以为有两个功能）")
+    # 空状态自己也要能进面板（两条路都通：悬浮球 ＋ 空状态底部的「按类别挑问题」）。
     ok("onOpenLibrary = { showLibrary = true }" in chat_code,
        "空状态里也能打开面板")
-    ok("SuggestLibrarySheet(" in chat_code, "面板本身画了")
-    ok("AiSuggests.usedQuestions(" in chat_code, "面板顶部有「我常问的」区")
+    ok("SuggestLibraryDrawer(" in chat_code, "面板本身画了（左抽屉）")
+    ok('AiSuggestSection("我常问的", AiSuggestKind.USED' in sug,
+       "面板顶部有「我常问的」区（shelf 排在最前的那一格）")
+
+    # ---------- 7b. 二次确认 ＋ 置顶看得见 ----------
+    drawer_body = chat_code.split("fun SuggestLibraryDrawer(", 1)[-1].split("\nprivate fun ", 1)[0]
+    ok("CardAlertDialog(" in drawer_body and '"就发这一句？"' in drawer_body
+       and "onPick(ask)" in drawer_body,
+       "点预设卡片先弹二次确认，确认之后才发（用户：每个预设的卡片有一个二次确认，防止误触）")
+    # ⛔ 二次确认卡不许自己画一层裸 `AlertDialog(` —— 全库只剩 `CardAlertDialog` 定义体里那一处，
+    #    由 `_check_dialog_language.py` 钉着（一张卡一个图标、颜色就是这件事的性质）。这里再钉一遍，
+    #    是为了让本单的改动**自己**带上这条约束：改坏了不必等全量静检才发现。
+    ok("AlertDialog(" not in chat_code.replace("CardAlertDialog(", ""),
+       "⛔ 二次确认走零件（`CardAlertDialog`），不是自己画一层裸弹窗")
+    # 两条点选入口（问题 / 操作）**都要**只挂起、不直接发 —— 用 and 不用 or：
+    # 只挂住一条，另一条点一下就直接发出去了，误触照样发生。
+    ok("pending = it" in drawer_body and "pending = op.say" in drawer_body,
+       "点选入口只是把话挂起，不直接发（问题和操作两条路都挂住）")
+    ok('"置顶"' in chat_code and '"已置顶"' in chat_code,
+       "图钉旁边写着「置顶」/「已置顶」（用户：想置顶该怎么搞，我并没有看到该如何去操作）")
 
     # ---------- 8. 设置页能改 ----------
     ok("setCustomFirst(" in settings_code, "设置页能保存首次预设")
@@ -207,6 +231,39 @@ def main() -> int:
         for who in ("DISPATCHER", "SHIPPER", "MEMBER"):
             ok(f"AiSuggestWho.{who}" in t or f"AiRole.{who if who != 'MEMBER' else 'SHIPPER'}" in t,
                f"单测覆盖 {who}")
+
+    # ---------- 12. 左抽屉：按类别挑，操作从注册表现算 ----------
+    #
+    # 用户 2026-10-11 的定调（逐字）：「我们点个按钮弹一个左边侧边栏然后呢，它就是有做好的分类
+    # 然后我们直接去按照分类来选就可以了……那个按钮是一个入口……按你推荐的来搞」。
+    # 为什么非得分类型不可：光问题三四十条，加上操作是**两百多条**，摊平了没人翻得到底。
+    # ⛔ 不能只查「文件里有没有 ModalNavigationDrawer」——这个界面本来就有别的抽屉，
+    #    那样写等于永远绿。要查的是**这个面板自己的身体**。
+    _drawer = chat_code.split("fun SuggestLibraryDrawer(")[-1].split("\nprivate fun ")[0]
+    ok("ModalNavigationDrawer(" in _drawer and "ModalDrawerSheet(" in _drawer,
+       "面板是左抽屉（不是从底下升上来的那张）")
+    ok("SuggestLibrarySheet" not in chat_code and "SuggestGroup(" not in chat_code,
+       "旧的底部弹层已经拆干净（两套面板并存 = 迟早只改一边）")
+    ok("LazyColumn" in chat_code and "width(108.dp)" in chat_code,
+       "左栏是独立的分类栏")
+    ok("itemsIndexed(shelf)" in chat_code, "左栏按类别画")
+    ok("AiSuggests.shelf(" in chat_code and "AiSuggests.opsFor(who)" in chat_code,
+       "右栏内容来自 AiSuggests.shelf（操作那一半现算）")
+
+    # ⛔ 这一段是**反抄袭**判据：谁把动作清单抄进界面或建议表里，这里立刻红。
+    # 抄一份的下场很具体：AI 加了动作 ⇒ 面板里没有；改了名字 ⇒ 面板里还是旧的。
+    # 这两件事都不会报错，只会让用户点了按钮之后 AI 说「我不太明白」。
+    for name, src in (("AiChatScreen.kt", chat_code), ("AiSuggest.kt", code_only(sug))):
+        ok(not re.search(r'"(orders|address|contact|products|users|ledger)\.[a-z_]+"', src),
+           f"{name} 里没有抄死的动作 id")
+    ok("actions.groupBy { it.group }" in sug, "操作按注册表自己的 group 分组")
+    ok("AiWrites.forModel(" in sug, "操作清单取自 AiWrites.forModel")
+    ok("filter { !it.undoOnly }" not in sug,
+       "撤回专用的动作由 forModel 自己滤掉，这里不重复写一遍过滤")
+    ok("memberShipper = true" in sug and "AiRole.SHIPPER" in sug,
+       "批发商仍然是货主 + memberShipper（⛔ 不为界面造第三个枚举值）")
+    ok('if (title.startsWith("帮")) title else "帮我$title"' in sug,
+       "点一条 = 把这句替用户说出来（动作名本身就是句子的不重复套「帮我」）")
 
     print()
     if _bad:

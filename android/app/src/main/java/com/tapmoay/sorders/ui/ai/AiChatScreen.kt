@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -59,6 +60,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -86,7 +88,8 @@ import com.tapmoay.sorders.ai.AiContext
 import com.tapmoay.sorders.ai.AiConversations
 import com.tapmoay.sorders.ai.AiPendingWrite
 import com.tapmoay.sorders.ai.AiRecentPhotos
-import com.tapmoay.sorders.ai.AiRole
+import com.tapmoay.sorders.ai.AiSuggestKind
+import com.tapmoay.sorders.ai.AiSuggestOp
 import com.tapmoay.sorders.ai.AiSuggestPack
 import com.tapmoay.sorders.ai.AiSuggestWho
 import com.tapmoay.sorders.ai.AiSuggests
@@ -99,6 +102,7 @@ import com.tapmoay.sorders.ai.exportCardSubtitle
 import com.tapmoay.sorders.ai.exportDownloadLabel
 import com.tapmoay.sorders.ai.exportStatusLine
 import com.tapmoay.sorders.ui.common.AppTopBar
+import com.tapmoay.sorders.ui.common.CardAlertDialog
 import com.tapmoay.sorders.ui.common.DangerConfirmDialog
 import com.tapmoay.sorders.ui.common.OneShotSnackbar
 import com.tapmoay.sorders.ui.common.SegmentedPicker
@@ -545,11 +549,6 @@ fun AiChatScreen(
                             onRemove = { vm.removeAttachment(it) },
                         )
                     }
-                    // 「典型问题」入口（CHG-0114）：用户要的是"不用每次自己组织句子"。
-                    // 它在**任何时候**都在（不只在空状态）——聊到一半想换个话题是最常见的用法。
-                    if (suggestPack != null) {
-                        SuggestEntryRow(onOpen = { showLibrary = true })
-                    }
                     InputBar(
                         value = vm.input,
                         onValueChange = { vm.input = it },
@@ -597,6 +596,13 @@ fun AiChatScreen(
                 }
                 }
             },
+            // 悬浮球（CHG-0114）：不用它的时候半透明贴着右边，点一下把整套预设摊开。
+            // 用户 2026-10-11：「不要做成这样子的按钮形式啊……就像我们桌面常用的那种悬浮的按钮，
+            // 点击它它会完全显示，然后不用它的时候，它就是在右边，而且透明度比较低」。
+            floatingActionButton = {
+                if (suggestPack != null) SuggestFab(onOpen = { showLibrary = true })
+            },
+            floatingActionButtonPosition = FabPosition.End,
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
                 LazyColumn(
@@ -731,7 +737,7 @@ fun AiChatScreen(
         if (pack == null || who == null) {
             showLibrary = false
         } else {
-            SuggestLibrarySheet(
+            SuggestLibraryDrawer(
                 who = who,
                 pack = pack,
                 pinned = suggestPinned,
@@ -2167,52 +2173,51 @@ private fun EmptyGuide(
 // ==================== 典型问题面板（CHG-0114） ====================
 
 /**
- * 输入框上方那一行「典型问题」入口。
+ * 右边的**悬浮球**：闲着的时候半透明贴在右边缘，点一下把整套预设摊开。
  *
- * 用户的原话是"省得它每次都要那样子搞"——他要的是**不用每次自己组织句子**。
- * 所以这个入口**任何时候都在**（不只在空状态）：聊到一半想换个话题，
- * 恰恰是最需要它的时候；只在空状态给，等于聊起来之后就再也找不到了。
+ * 用户 2026-10-11 的要求（逐字）：「不要做成这样子的按钮形式啊……就像我们桌面常用的那种
+ * 悬浮的按钮，点击它它会完全显示，然后不用它的时候，它就是在右边，而且透明度比较低，
+ * 就是那种隐藏的一种」——所以它不再是输入框上方那一行胶囊，改成贴右边的一条，
+ * 由 `Scaffold(floatingActionButtonPosition = FabPosition.End)` 摆在右侧中间。
  */
 @Composable
-private fun SuggestEntryRow(onOpen: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun SuggestFab(onOpen: () -> Unit) {
+    Surface(
+        onClick = onOpen,
+        shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 3.dp,
+        modifier = Modifier.alpha(0.55f).widthIn(min = 48.dp).heightIn(min = 64.dp),
     ) {
-        Surface(
-            onClick = onOpen,
-            shape = RoundedCornerShape(50),
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 1.dp,
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.Default.AutoAwesome,
-                    contentDescription = null,
-                    tint = AiAccent,
-                    modifier = Modifier.size(15.dp),
-                )
-                Spacer(Modifier.width(6.dp))
-                Text("典型问题", style = MaterialTheme.typography.labelLarge, color = AiAccent)
-            }
+            Icon(
+                Icons.Default.AutoAwesome,
+                contentDescription = null,
+                tint = AiAccent,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.height(4.dp))
+            Text("预设", style = MaterialTheme.typography.labelSmall, color = AiAccent)
         }
     }
 }
 
 /**
- * 「典型问题」面板：按类别把整套问题摊开，点一条**直接发**。
+ * 「预设」面板（左侧抽屉）：按类别把整套问题与操作摊开。
+ *
+ * 点一条**不直接发** —— 先把这句话挂进 `pending`，末尾弹一次二次确认
+ * （用户 2026-10-11：「每个预设的卡片有一个二次确认啊，就是防止误触」）。
  *
  * 分类不按"功能模块"分（订单/地址/账本），按**用户当下想干什么**分
  * ——他嘴里说的是"我这个月的账结了吗"，不是"我要查账本模块"。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SuggestLibrarySheet(
+private fun SuggestLibraryDrawer(
     who: AiSuggestWho,
     pack: AiSuggestPack,
     pinned: List<String>,
@@ -2221,57 +2226,168 @@ private fun SuggestLibrarySheet(
     onTogglePin: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    // "我常问的"：点过两次以上的才配进这一段。点一次的很可能只是好奇点错了，
-    // 把它顶上来等于用一次误触改掉了他最顺手的那几条。
-    val used = remember(taps, pack) { AiSuggests.usedQuestions(taps, pack.flat, AiSuggests.USED_LIMIT) }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
+    // 左栏一格一格：我常问的 → 问题分类 → 操作分类。
+    // 操作那半张表由注册表现算（`AiWrites.forModel`），所以 AI 加了动作这里就自动多一条，
+    // 不需要谁记得回来补 —— 这是"铺得下两百多条"的前提。
+    val shelf = remember(pack, taps, who) { AiSuggests.shelf(pack, taps, AiSuggests.opsFor(who)) }
+    var picked by remember { mutableIntStateOf(0) }
+    // 二次确认：预设卡片点一下**不直接发**（用户 2026-10-11：「每个预设的卡片有一个二次确认，
+    // 就是防止误触」）——尤其下面那六十条高风险操作，点错了虽然还能撤，但话说出去就来不及了。
+    var pending by remember { mutableStateOf<String?>(null) }
+    val drawerState = rememberDrawerState(DrawerValue.Open)
+    LaunchedEffect(drawerState.currentValue) {
+        if (drawerState.currentValue == DrawerValue.Closed) onDismiss()
+    }
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(modifier = Modifier.fillMaxWidth(0.96f)) {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    // ---- 左：类别 ----
+                    LazyColumn(
+                        modifier = Modifier
+                            .width(108.dp)
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                    ) {
+                        item {
+                            Column(modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 18.dp, bottom = 10.dp)) {
+                                Text(
+                                    who.cn,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = AiAccent,
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Hint(
+                                    "左边按类别挑；右边点哪条都先弹确认，确认之后才替你把它说出去。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        itemsIndexed(shelf) { i, sec ->
+                            val on = i == picked
+                            Surface(
+                                onClick = { picked = i },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = TapTarget),
+                                color = if (on) MaterialTheme.colorScheme.surface else Color.Transparent,
+                                shape = RoundedCornerShape(10.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        sec.cn,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = if (on) AiAccent else MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Text(
+                                        sec.size.toString(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline,
+                                    )
+                                }
+                            }
+                        }
+                        item { Spacer(Modifier.height(24.dp)) }
+                    }
+                    // ---- 右：这一格里的问题与操作 ----
+                    val sec = shelf.getOrNull(picked)
+                    LazyColumn(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        item {
+                            Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp)) {
+                                Text(sec?.cn ?: "", style = MaterialTheme.typography.titleMedium)
+                                Spacer(Modifier.height(2.dp))
+                                Hint(
+                                    when (sec?.kind) {
+                                        AiSuggestKind.DO -> "点哪条都先弹确认；确认之后 AI 替你把这句说出来，缺的信息它还会问，动手前还要你点确认卡。"
+                                        AiSuggestKind.MIXED -> "上面几条是能问的、下面几条是能做的；点哪条都先弹确认，不会一点就发。"
+                                        AiSuggestKind.USED -> "你问过两遍以上的；右边的「置顶」按一下，它就固定到最前面。"
+                                        else -> "点哪条都先弹确认再发；右边的「置顶」按一下，这条就固定到最前面。"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        items(sec?.questions.orEmpty()) { q ->
+                            SuggestRow(q, q in pinned, { pending = it }, onTogglePin)
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        items(sec?.ops.orEmpty()) { op ->
+                            SuggestOpRow(op, { pending = op.say })
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        item { Spacer(Modifier.height(28.dp)) }
+                    }
+                }
+            }
+        },
+    ) {
+        // 抽屉背后那片：点一下关掉。视觉上的压暗由 ModalNavigationDrawer 自己画。
+        Box(modifier = Modifier.fillMaxSize().clickable { onDismiss() })
+    }
+    val ask = pending
+    if (ask != null) {
+        // ⛔ 全库只剩 `CardAlertDialog` 定义体里那一处裸 `AlertDialog(`（`_check_dialog_language.py` 钉着）——
+        //    这里必须走零件；这一句只是「把它说出去」，不改数据，所以用默认的 INFO 档。
+        CardAlertDialog(
+            onDismissRequest = { pending = null },
+            title = { Text("就发这一句？") },
+            text = { Text(ask) },
+            confirmButton = {
+                TextButton(onClick = { pending = null; onPick(ask) }) { Text("发出去") }
+            },
+            dismissButton = { TextButton(onClick = { pending = null }) { Text("再想想") } },
+        )
+    }
+}
+
+/** 面板里的一行**操作**（不是问题）：文案就是动作自己的 title，右边标风险。 */
+@Composable
+private fun SuggestOpRow(op: AiSuggestOp, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).heightIn(min = TapTarget),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 1.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 14.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(who.title, style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(4.dp))
-            Hint(
-                "点一下就直接发出去；右边的图钉按一下，这条会固定到最前面。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Icon(
+                Icons.Default.AutoAwesome,
+                contentDescription = null,
+                tint = AiAccent,
+                modifier = Modifier.size(16.dp),
             )
-            if (used.isNotEmpty()) {
-                Spacer(Modifier.height(16.dp))
-                SuggestGroup("我常问的", used, pinned, onPick, onTogglePin)
-            }
-            pack.categories.forEach { cat ->
-                Spacer(Modifier.height(16.dp))
-                SuggestGroup(cat.cn, cat.questions, pinned, onPick, onTogglePin)
-            }
-            if (used.isEmpty() && taps.isNotEmpty()) {
-                Spacer(Modifier.height(14.dp))
-                Hint(
-                    "常问的问题会在你多问几次之后自己冒到最前面。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-            }
+            Spacer(Modifier.width(10.dp))
+            Text(op.title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(6.dp))
+            RiskChip(op.risk)
         }
     }
 }
 
-/** 面板里的一组问题：一个小标题 ＋ 若干行。 */
+/** 风险标签。低 = 点了就生效；中/高 = 动手前还会弹一次确认卡。 */
 @Composable
-private fun SuggestGroup(
-    title: String,
-    questions: List<String>,
-    pinned: List<String>,
-    onPick: (String) -> Unit,
-    onTogglePin: (String) -> Unit,
-) {
-    Text(title, style = MaterialTheme.typography.labelLarge, color = AiAccent)
-    Spacer(Modifier.height(6.dp))
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        questions.forEach { q -> SuggestRow(q, q in pinned, onPick, onTogglePin) }
+private fun RiskChip(risk: AiWriteRisk) {
+    val (text, tone) = when (risk) {
+        AiWriteRisk.LOW -> "直接生效" to MaterialTheme.colorScheme.outline
+        AiWriteRisk.MEDIUM -> "要确认" to MaterialTheme.colorScheme.tertiary
+        AiWriteRisk.HIGH -> "高风险" to MaterialTheme.colorScheme.error
+    }
+    Surface(color = tone.copy(alpha = 0.14f), shape = RoundedCornerShape(8.dp)) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            color = tone,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+        )
     }
 }
 
@@ -2296,13 +2412,32 @@ private fun SuggestRow(
         ) {
             Text(question, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
             Spacer(Modifier.width(6.dp))
-            IconButton(onClick = { onTogglePin(question) }, modifier = Modifier.size(TapTarget)) {
-                Icon(
-                    Icons.Default.PushPin,
-                    contentDescription = if (isPinned) "取消固定" else "固定这条问题",
-                    tint = if (isPinned) AiAccent else MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.size(16.dp),
-                )
+            // ⚠️ 这里原本只有一颗 16dp 的裸图钉 —— 用户 2026-10-11 的原话是「假如想给这个搞成置顶
+            // 该怎么搞，这个我并没有看到该如何去操作」：图标太素，没人认得出它可点。写成带字的小按钮。
+            Surface(
+                onClick = { onTogglePin(question) },
+                shape = RoundedCornerShape(8.dp),
+                color = if (isPinned) AiAccent.copy(alpha = 0.14f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.heightIn(min = 34.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Default.PushPin,
+                        contentDescription = if (isPinned) "取消置顶" else "置顶这条问题",
+                        tint = if (isPinned) AiAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        if (isPinned) "已置顶" else "置顶",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isPinned) AiAccent else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             Icon(
                 Icons.Default.NorthEast,

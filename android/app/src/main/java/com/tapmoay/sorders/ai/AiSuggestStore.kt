@@ -55,9 +55,14 @@ object AiSuggestCodec {
      * 空串 ⇒ 返回 `null`，调用方据此**丢弃**（一条空的预设摆在那儿，点了什么都不发生）。
      */
     fun clean(raw: String?): String? {
-        val s = raw?.trim()?.replace('\n', ' ')?.replace('\r', ' ')?.trim().orEmpty()
+        // 换行 / 制表 / 全角空格一律压成一个半角空格：预设是一行一颗按钮，
+        // 换行会把按钮撑高、连着的空白会撑出一条缝。⚠️ `\s` 在 Java 里只认 ASCII，
+        // 全角空格 `\u3000` 要自己列进去。
+        val s = raw?.replace(WHITESPACE, " ")?.trim().orEmpty()
         return s.take(MAX_QUESTION_CHARS).ifEmpty { null }
     }
+
+    private val WHITESPACE = Regex("[\\s\\u3000]+")
 
     /** 洗一整张列表：逐条 [clean]、去重、限量。 */
     fun cleanList(raw: List<String>?, limit: Int): List<String> =

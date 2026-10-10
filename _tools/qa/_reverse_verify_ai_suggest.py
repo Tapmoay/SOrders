@@ -13,8 +13,8 @@
 
 ## R4-BOUNDARY-JUSTIFICATION: 为什么代码边界解决不了这件事
 病不在类型系统里：把标题写回 `if (isDispatcher) … else …`、把某条问题塞回界面文件、
-把「典型问题」入口从 bottomBar 挪进空状态分支 —— 这些都能编译、都能过单测
-（单测跑的是 `AiSuggests` 这些纯函数，界面里少一个按钮它不知道）。
+把「预设」悬浮球的透明度改成 1.0、把点选入口改成直接发（不弹二次确认）—— 这些都能编译、
+都能过单测（单测跑的是 `AiSuggests` 这些纯函数，界面里少一个按钮、少一次确认它不知道）。
 「批发商被当成货主」这种错在真机上只表现为**一句文案不对**，没有异常、没有崩溃。
 所以只能靠静态判据钉住源码里的这些形状，再用反向验证证明判据真的会红。
 """
@@ -53,12 +53,27 @@ CASES: list[tuple[str, Path, str, str, int, str]] = [
     ("写死的问题表又塞回界面文件",
      CHAT, 'Text(who?.title ?: "我是你的助手",',
      'listOf("哪个司机这个月跑得最多").size\n    Text(who?.title ?: "我是你的助手",', 1, "不在界面文件里"),
-    ("「典型问题」入口被摘掉（回到只能空状态点问题）",
-     CHAT, 'SuggestEntryRow(onOpen = { showLibrary = true })',
-     'Spacer(Modifier.height(0.dp))', 1, "有「典型问题」入口"),
-    ("入口挪出 bottomBar（画到别处去了）",
-     CHAT, 'bottomBar = {',
-     'topBar = {', 1, "入口在 bottomBar 里"),
+    ("「预设」悬浮球被摘掉（又回到只有空状态才点得到问题）",
+     CHAT, 'SuggestFab(onOpen = { showLibrary = true })',
+     'Unit', 1, "有「预设」悬浮球"),
+    ("悬浮球挪到屏幕正中（不再是右边缘那一条）",
+     CHAT, 'floatingActionButtonPosition = FabPosition.End',
+     'floatingActionButtonPosition = FabPosition.Center', 1, "悬浮球贴在右边缘"),
+    ("悬浮球不再半透明（一直亮着挡视线）",
+     CHAT, 'modifier = Modifier.alpha(0.55f).widthIn(min = 48.dp)',
+     'modifier = Modifier.alpha(1.0f).widthIn(min = 48.dp)', 1, "闲着的时候是半透明的"),
+    ("点操作卡片直接发出去（防误触的挂起没了）",
+     CHAT, 'SuggestOpRow(op, { pending = op.say })',
+     'SuggestOpRow(op, { onPick(op.say) })', 1, "点选入口只是把话挂起"),
+    ("二次确认弹窗被换成别的（认不出是它了）",
+     CHAT, 'title = { Text("就发这一句？") },',
+     'title = { Text("确认") },', 1, "点预设卡片先弹二次确认"),
+    ("二次确认自己画了一层裸弹窗（不走零件，也没有那张卡的性格）",
+     CHAT, 'CardAlertDialog(', 'AlertDialog(', 1,
+     "二次确认走零件（`CardAlertDialog`）"),
+    ("置顶后看不出已经置顶（「已置顶」没了）",
+     CHAT, 'if (isPinned) "已置顶" else "置顶",',
+     'if (isPinned) "置顶" else "置顶",', 1, "图钉旁边写着「置顶」"),
     ("空状态进不去面板了",
      CHAT, 'onOpenLibrary = { showLibrary = true },',
      'onOpenLibrary = {},', 1, "空状态里也能打开面板"),
@@ -77,6 +92,19 @@ CASES: list[tuple[str, Path, str, str, int, str]] = [
     ("设置页不再保存首次预设",
      SETTINGS, 'ai.suggests.setCustomFirst(',
      'ai.suggests.clear(', 1, "设置页能保存首次预设"),
+    # ---- 左抽屉 ＋ 操作清单（两百多条铺得下的前提） ----
+    ("左抽屉被换回底部弹层（两百多条又摊成一长条）",
+     CHAT, 'ModalNavigationDrawer(',
+     'ModalBottomSheet(', 2, "面板是左抽屉"),
+    ("把一条动作 id 抄死进界面文件（AI 加了新动作这里就瞎了）",
+     SUG, 'AiSuggestSection("我常问的"',
+     'AiSuggestSection("orders.assign"', 1, "没有抄死的动作 id"),
+    ("类别不按注册表的域排，改成按动作 id 排",
+     SUG, 'actions.groupBy { it.group }',
+     'actions.sortedByDescending { it.id }.groupBy { it.group }', 1, "操作按注册表自己的 group 分组"),
+    ("批发商又被当成普通货主（会员标记丢了）",
+     SUG, 'memberShipper = true',
+     'memberShipper = false', 1, "批发商仍然是货主 + memberShipper"),
 ]
 
 

@@ -170,7 +170,9 @@ class AiSuggestTest {
 
     @Test
     fun `换行被压成空格、首尾空白去掉`() {
-        assertEquals("帮我\n下单", AiSuggestCodec.clean("帮我\n下单"))
+        // 预设是一行一颗按钮，换行会把按钮撑高、还可能被当成两条 —— 一律压成空格。
+        assertEquals("帮我 下单", AiSuggestCodec.clean("帮我\n下单"))
+        assertEquals("帮我 下单", AiSuggestCodec.clean("帮我\r\n下单"))
         assertEquals("帮我下单", AiSuggestCodec.clean("  帮我下单  "))
     }
 
@@ -248,5 +250,94 @@ class AiSuggestTest {
         val shipperQ = AiSuggests.packFor(AiSuggestWho.SHIPPER).flat.joinToString()
         assertTrue(memberQ.contains("欠"))
         assertFalse(shipperQ.contains("欠我"))
+    }
+
+    // ---------------- 操作（DO）：面板左抽屉的右半张表 ----------------
+
+    @Test
+    fun `三类身份换算回去还是原来那个 actor`() {
+        assertEquals(dispatcher, AiSuggests.actorOf(AiSuggestWho.DISPATCHER))
+        assertEquals(shipper, AiSuggests.actorOf(AiSuggestWho.SHIPPER))
+        // ⛔ 批发商在**后端仍然是货主**，靠 memberShipper 分叉；多造一个角色等于多开一扇门。
+        assertEquals(AiRole.SHIPPER, AiSuggests.actorOf(AiSuggestWho.MEMBER)?.role)
+        assertEquals(true, AiSuggests.actorOf(AiSuggestWho.MEMBER)?.memberShipper)
+    }
+
+    @Test
+    fun `操作不是另抄一份表，而是注册表现算`() {
+        // 这条是这一段的核心约束：谁把 action 清单抄进 AiSuggest 里，这里立刻红。
+        AiSuggestWho.entries.forEach { who ->
+            assertEquals(AiWrites.forModel(AiSuggests.actorOf(who)), AiSuggests.opsFor(who))
+        }
+    }
+
+    @Test
+    fun `每种角色的操作一条都不少、也没有多出来的`() {
+        val d = AiSuggests.opsFor(AiSuggestWho.DISPATCHER)
+        val s = AiSuggests.opsFor(AiSuggestWho.SHIPPER)
+        val m = AiSuggests.opsFor(AiSuggestWho.MEMBER)
+        assertEquals(AiWrites.forModel(dispatcher).size, d.size)
+        assertTrue("派单员能干的活应该远多于货主", d.size > s.size)
+        assertEquals(s.size + 4, m.size)
+    }
+
+    @Test
+    fun `撤回专用的动作不该出现在面板里`() {
+        AiSuggestWho.entries.forEach { who ->
+            assertTrue(AiSuggests.opsFor(who).none { it.undoOnly })
+        }
+    }
+
+    @Test
+    fun `操作按域分组、域名就是注册表自己的 group`() {
+        val secs = AiSuggests.opsSections(AiSuggests.opsFor(AiSuggestWho.DISPATCHER))
+        assertTrue(secs.isNotEmpty())
+        assertTrue(secs.all { it.kind == AiSuggestKind.DO })
+        assertTrue(secs.all { it.ops.isNotEmpty() && it.questions.isEmpty() })
+        // 分完组要一条不丢：这是"铺得下两百多条"的前提。
+        assertEquals(AiSuggests.opsFor(AiSuggestWho.DISPATCHER).size, secs.sumOf { it.ops.size })
+        assertEquals(AiWrites.forModel(dispatcher).groupBy { it.group }.keys.toList(), secs.map { it.cn })
+    }
+
+    @Test
+    fun `点一下就是把这句话说出去，不改写任何东西`() {
+        val op = AiSuggestOp("orders.assign", "派单", AiWriteRisk.HIGH)
+        assertEquals("帮我派单", op.say)
+        // 动作名本身就是一句话的（"消息全部标为已读"）不要再套"帮我"，否则读起来像病句。
+        assertEquals("帮我把这单派出去", AiSuggestOp("x", "帮我把这单派出去", AiWriteRisk.MEDIUM).say)
+        assertEquals("orders.assign", op.id)
+        assertEquals(AiWriteRisk.HIGH, op.risk)
+    }
+
+    @Test
+    fun `高风险动作照样摆得出来——它只是替用户说话，不执行`() {
+        val high = AiSuggests.opsSections(AiSuggests.opsFor(AiSuggestWho.DISPATCHER))
+            .flatMap { it.ops }.filter { it.risk == AiWriteRisk.HIGH }
+        assertTrue("高风险动作占了大半张表，全藏起来用户就不知道 AI 能帮忙", high.size > 50)
+        // 摆出来 ≠ 点得动：真要执行还得用户在确认卡上再点一次（AiPendingWrite 的三条不变量）。
+        assertTrue(high.map { it.say }.all { it.startsWith("帮我") })
+    }
+
+    @Test
+    fun `左抽屉的格子：我常问的 → 问题分类 → 操作分类`() {
+        val pack = AiSuggests.packFor(AiSuggestWho.SHIPPER)
+        val taps = mapOf(pack.flat.first() to 3, pack.flat[1] to 1)
+        val shelf = AiSuggests.shelf(pack, taps, AiSuggests.opsFor(AiSuggestWho.SHIPPER))
+        assertEquals(AiSuggestKind.USED, shelf.first().kind)
+        assertEquals(listOf(pack.flat.first()), shelf.first().questions)
+        // 左栏是按类别名排的：两格同名 = 用户看到两个一模一样的入口，点进去一个有问一个有活。
+        // 问题分类与操作域的名字必然撞（都叫「订单」「账目」「地址与联系人」），所以必须并。
+        assertEquals(shelf.size, shelf.map { it.cn }.distinct().size)
+        assertEquals(pack.categories.size, shelf.count { it.questions.isNotEmpty() } - 1)
+        assertTrue("操作那一半要铺得出来", shelf.any { it.ops.isNotEmpty() })
+        assertTrue("并过的那格两面都有", shelf.any { it.kind == AiSuggestKind.MIXED } ||
+            shelf.none { it.ops.isNotEmpty() && it.questions.isNotEmpty() })
+    }
+
+    @Test
+    fun `一次都没点过就不摆我常问的`() {
+        val pack = AiSuggests.packFor(AiSuggestWho.SHIPPER)
+        val shelf = AiSuggests.shelf(pack, emptyMap(), AiSuggests.opsFor(AiSuggestWho.SHIPPER))
+        assertTrue(shelf.none { it.kind == AiSuggestKind.USED })
     }
 }

@@ -42,7 +42,6 @@ import com.tapmoay.sorders.ai.AiReads
 import com.tapmoay.sorders.ai.AiRole
 import com.tapmoay.sorders.ai.AiRolePrompt
 import com.tapmoay.sorders.ai.AiSuggestCodec
-import com.tapmoay.sorders.ai.AiSuggestWho
 import com.tapmoay.sorders.ai.AiSuggests
 import com.tapmoay.sorders.ai.AiTools
 import com.tapmoay.sorders.ai.LlmClient
@@ -684,8 +683,7 @@ fun AiSettingsScreen(
                     )
                     Spacer(Modifier.height(4.dp))
                     Hint(
-                        "还没问过任何东西的时候，下面这 ${current.size} 条就是他看到的全部。" +
-                            "改掉之后以你写的为准；" +
+                        "还没问过任何东西的时候，下面这几条就是他看到的全部；改掉之后以你写的为准；" +
                             (if (customFirst == null) "现在还是默认那几条。" else "现在用的是你自己改过的。"),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
