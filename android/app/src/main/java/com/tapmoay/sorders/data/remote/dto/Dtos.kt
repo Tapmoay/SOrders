@@ -2801,6 +2801,13 @@ data class VehicleCreateRequest(
      * ⚠️ **留空 = 0%** —— 四格里唯一「留空有意义」的一格（界面上必须这么写）。
      */
     @SerialName("residual_rate") val residualRate: String? = null,
+    // ===== 年检两格（FEAT-0022）=====
+    //: ⚠️ 与折旧四格一样是**可空**的：老车没填过很正常 —— 没填 = 不传（或空串），
+    //: 后端两个都空 ⇒ 不给年检提醒（不是报错，也不是拿今天当上牌日）。
+    /** 上牌日期（`2020-03-01`）—— 没有上次年检日期时，下次年检按它 + 1 年算。 */
+    @SerialName("registration_date") val registrationDate: String? = null,
+    /** 上一次年检日期（`2024-03-01`）—— 有它就优先按它 + 1 年算。 */
+    @SerialName("last_inspection_date") val lastInspectionDate: String? = null,
 )
 
 /**
@@ -2841,6 +2848,15 @@ data class VehicleUpdateRequest(
      * 残值率（`0.05` = 5%）。没传 = 不改；**空串 = 清空**（清空之后按 0% 计提，不是"未覆盖"）。
      */
     @SerialName("residual_rate") val residualRate: String? = null,
+    // ===== 年检两格（FEAT-0022）=====
+    //: ⚠️ 语义与折旧四格一致：**没传 = 不改；传空串 = 清空这一格**。
+    //: ⛔ 但界面**不许"原样发"**：用户没动过的日期必须**整个键不发** ——
+    //: 老车这两格本来就是空的，原样发出去等于替用户说了一句"清空"（
+    //: 见 `ui/dispatcher/VehicleInspection.kt::changedDateOrNull`）。
+    /** 上牌日期（`2020-03-01`）。没传 = 不改；空串 = 清空。 */
+    @SerialName("registration_date") val registrationDate: String? = null,
+    /** 上一次年检日期（`2024-03-01`）。没传 = 不改；空串 = 清空。 */
+    @SerialName("last_inspection_date") val lastInspectionDate: String? = null,
 )
 
 /**
@@ -2898,6 +2914,18 @@ data class VehicleDto(
      */
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("depreciation_monthly")
     val depreciationMonthly: String? = null,
+    // ===== 年检（FEAT-0022）=====
+    /** 上牌日期（`2020-03-01`）；没填 = null。 */
+    @SerialName("registration_date") val registrationDate: String? = null,
+    /** 上一次年检日期（`2024-03-01`）；没填 = null。 */
+    @SerialName("last_inspection_date") val lastInspectionDate: String? = null,
+    /**
+     * 下次年检日期（`2027-03-01`）—— **后端算好的**，两个日期都空时是 null。
+     *
+     * ⚠️ 后端给了就用它：客户端那份 `nextInspectionDue` 只是"后端还没上线这一格"时的兜底
+     * （同一条规则，见 `ui/dispatcher/VehicleInspection.kt::inspectionBadgeOf`）。
+     */
+    @SerialName("next_inspection_date") val nextInspectionDate: String? = null,
 )
 
 // ===== 计费规则「按分类定价」的一行（2026-09-21）=====

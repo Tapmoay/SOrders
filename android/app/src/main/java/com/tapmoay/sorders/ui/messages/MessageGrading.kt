@@ -128,8 +128,15 @@ private val INVOICE_TYPES = setOf("invoice.issued", "invoice.voided")
 /** 价格：后端既有的 price_change（`backend/app/api/v1/notifications.py`）。 */
 private val PRICE_TYPES = setOf("price_change", "price.changed")
 
-/** 车辆：年检提醒。 */
-private val VEHICLE_TYPES = setOf("vehicle.inspection_due")
+/**
+ * 车辆：年检提醒（FEAT-0022）。
+ *
+ * `vehicle.inspection_due` = 距到期 ≤30 天（后端给 severity=warn）；
+ * `vehicle.inspection_overdue` = **已经过期**（severity=danger，2026-10-11 新增的那一条）。
+ * 两条都归车辆族（竖条 `MSG_COLOR_VEHICLE` #00AAAE）；⛔ 认新类型只改这一行 ——
+ * 上色档走 [riskOf] / [emphasisColor]，渲染逻辑一个字都不用动。
+ */
+private val VEHICLE_TYPES = setOf("vehicle.inspection_due", "vehicle.inspection_overdue")
 
 /**
  * 账号：新设备登录（`account.new_device_login`，danger）/ 设备解冻（`account.device_unfrozen`，info）/ 冻结。

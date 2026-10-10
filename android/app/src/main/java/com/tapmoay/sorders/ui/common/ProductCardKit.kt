@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.tapmoay.sorders.ui.messages.MSG_TEXT_WARN
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.Success
 import com.tapmoay.sorders.util.resolveStaticUrl
@@ -217,11 +218,18 @@ private val ReservedOrange = Color(0xFFCE5C2C)
 fun productStockBadgeText(stock: Int, lowStockAlert: Int): String? = when {
     stock <= 0 -> "缺货"
     lowStockAlert > 0 && stock <= lowStockAlert -> "低库存"
+    // 第三档「偏低」（2026-10-11 · FEAT-0022）：还没到报警线，但已经进到它的 1.2 倍以内。
+    // 用户原话：「库存偏低…按百分比来算 —— 在报警的那个水平宽松一点，就显示『库存偏低』」。
+    // 判据与后端 `stock.near_low` 那条消息**同一条**：`库存 ≤ 阈值 × 1.2 且 ≥ 阈值`
+    // （这里 ≥ 那一半被上一行"低库存"吃掉了，所以只剩"严格大于阈值"）。
+    // ⚠️ 写成 `stock * 5 <= lowStockAlert * 6` 而不是 `stock <= lowStockAlert * 1.2`：
+    //    整数直接比，不引入浮点（1.2 在二进制里没有精确表示，边界上会差一件）。
+    lowStockAlert > 0 && stock * 5 <= lowStockAlert * 6 -> "偏低"
     else -> null
 }
 
 /**
- * 库存状态角标（缺货 / 低库存）—— 正常时不占位置。
+ * 库存状态角标（缺货 / 低库存 / 偏低）—— 正常时不占位置。
  *
  * ⚠️ 「低库存」的**字**用的是更深的琥珀 `#8A6100`，不是那个黄色本身：
  * 黄字压在浅黄底上（11sp）几乎读不出来，"角标看不见"比"没有角标"更糟。
@@ -233,7 +241,10 @@ fun ProductStockBadge(stock: Int, lowStockAlert: Int) {
     val text = productStockBadgeText(stock, lowStockAlert) ?: return
     val (fg, bg) = when {
         stock <= 0 -> StockOutRed to Color(0xFFFFE6E6)
-        else -> LowStockInk to Color(0xFFFFF3C0)
+        lowStockAlert > 0 && stock <= lowStockAlert -> LowStockInk to Color(0xFFFFF3C0)
+        // 「偏低」用 **warn 橙**（`MSG_TEXT_WARN` #E07B00，与消息中心那条 warn 同一个色源），
+        // 底色比"低库存"再浅一档 —— 两枚角标摆在一起时，一眼能分出"到线了"和"快到了"。
+        else -> NearLowInk to Color(0xFFFFEAD1)
     }
     Surface(color = bg, shape = MaterialTheme.shapes.small) {
         Text(
@@ -247,6 +258,14 @@ fun ProductStockBadge(stock: Int, lowStockAlert: Int) {
 
 /** 「低库存」角标的字色（深一档的琥珀，见 [ProductStockBadge] 的说明）。 */
 private val LowStockInk = Color(0xFF925E00)
+
+/**
+ * 「偏低」角标的字色 = **warn 橙**。
+ *
+ * ⛔ 不在这里另写一遍 `0xFFE07B00`：warn 色的唯一出处是
+ * `ui/messages/MessageGrading.kt` 的 `MSG_TEXT_WARN`（消息中心那条「库存偏低」也是它）。
+ */
+private val NearLowInk = Color(MSG_TEXT_WARN)
 
 /**
  * **一件商品上要显示的那两条事实** —— 顺序钉在这里：**售价在前、库存在后**。

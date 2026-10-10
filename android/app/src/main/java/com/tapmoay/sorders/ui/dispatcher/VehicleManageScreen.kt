@@ -29,6 +29,7 @@ import com.tapmoay.sorders.data.remote.dto.VehicleUpdateRequest
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.util.formatMoney
 import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.messages.emphasisColor
 import com.tapmoay.sorders.ui.theme.DriverLime
 import com.tapmoay.sorders.ui.theme.MessageRed
 import com.tapmoay.sorders.ui.theme.NavBlue
@@ -169,6 +170,15 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
     var draftLifeYears by mutableStateOf("")
     /** 残值率原文（`"0.05"` = 5%）。**留空 = 0%**。 */
     var draftResidualRate by mutableStateOf("")
+    // ---- 年检两格（2026-10-11 · FEAT-0022）----
+    //
+    // 两格都是**可空**的（老车没填过很正常），一律存 ISO 串（`2020-03-01`）或空串，
+    // 由日期选择器写入 —— ⛔ 界面不解析、不算"下次年检"：
+    // 算法与分档全在 `VehicleInspection.kt`（唯一一处），后端还另有一份同规则的实现。
+    /** 上牌日期（`2020-03-01`）；没填 = 空串。 */
+    var draftRegistrationDate by mutableStateOf("")
+    /** 上一次年检日期（`2024-03-01`）；没填 = 空串。 */
+    var draftLastInspectionDate by mutableStateOf("")
     /** 换车身型式时"哪几项被去掉了"——⛔ 静默丢掉用户填过的数是最不该发生的一种。 */
     var bodyNote by mutableStateOf<String?>(null)
     var driverQuery by mutableStateOf("")
@@ -190,6 +200,15 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
         get() = vehicles.firstOrNull { it.id == editingId }?.let {
             depreciationLine(it.depreciationCovered, it.depreciationMonthly, it.depreciationMissing)
         }
+
+    /**
+     * 弹层里"按你填的两个日期算出来"的那一行（算不出来 = null ⇒ 整行不出现）。
+     *
+     * 拿的是**草稿**（用户改到一半也能先看见结果），算法仍在 [inspectionBadgeOf] 那一处；
+     * 卡片上那一行则优先用后端回的 `next_inspection_date`（见 [VehicleCard]）。
+     */
+    val draftInspection: InspectionBadge?
+        get() = inspectionBadgeOf(null, draftRegistrationDate, draftLastInspectionDate)
 
     fun load() {
         loading = vehicles.isEmpty()
@@ -275,6 +294,10 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
         draftPurchaseDate = ""
         draftLifeYears = ""
         draftResidualRate = ""
+        // 年检两格：新车同样一律空着（⛔ 不拿今天当上牌日 —— 那会让每台新车的年检提醒
+        //    从建档那天起算，一年后突然齐刷刷地弹出来）。
+        draftRegistrationDate = ""
+        draftLastInspectionDate = ""
         bodyNote = null
         driverQuery = ""
         sheetError = null
@@ -299,6 +322,10 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
         draftPurchaseDate = v.purchaseDate.orEmpty()
         draftLifeYears = v.usefulLifeYears.orEmpty()
         draftResidualRate = v.residualRate.orEmpty()
+        // 年检两格也原样带上（空就是空）。保存时**只发改过的**那一格：用户没碰过的日期
+        // 整个键都不进请求体（见 changedDateOrNull），所以"打开看一眼再保存"不会动后端的数。
+        draftRegistrationDate = v.registrationDate.orEmpty()
+        draftLastInspectionDate = v.lastInspectionDate.orEmpty()
         bodyNote = null
         driverQuery = ""
         sheetError = null
@@ -370,6 +397,9 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
                             purchaseDate = draftPurchaseDate.trim().ifEmpty { null },
                             usefulLifeYears = draftLifeYears.trim().ifEmpty { null },
                             residualRate = draftResidualRate.trim().ifEmpty { null },
+                            // 年检两格：填了才发，没填 = 这个键不出现（见 newDateOrNull）。
+                            registrationDate = newDateOrNull(draftRegistrationDate),
+                            lastInspectionDate = newDateOrNull(draftLastInspectionDate),
                         ),
                     )
                     val who = driverNameOf(v.driverId)
@@ -392,6 +422,11 @@ class VehicleManageViewModel(private val container: AppContainer) : ViewModel() 
                             purchaseDate = draftPurchaseDate.trim(),
                             usefulLifeYears = draftLifeYears.trim(),
                             residualRate = draftResidualRate.trim(),
+                            // 年检两格与上面四格**相反**：只发**用户真的改过**的那一格，
+                            // 没动过 = null = 键不进请求体（⛔ 别改成原样发：老车那两格本来就是空的，
+                            // 原样发等于替用户说了一句"清空"）。点了日期选择器里的「清除」= 发空串。
+                            registrationDate = changedDateOrNull(before?.registrationDate, draftRegistrationDate),
+                            lastInspectionDate = changedDateOrNull(before?.lastInspectionDate, draftLastInspectionDate),
                         ),
                     )
                     var note = "已保存 " + plate
@@ -696,6 +731,18 @@ private fun VehicleCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // 「这车什么时候该年检」（2026-10-11 · FEAT-0022）。
+                // 优先用**后端算好的** next_inspection_date，后端还没给就按同一条规则本地兜底
+                // （客户端唯一一处在 VehicleInspection.kt，⛔ 这里一个字都不许自己算）。
+                // 两格日期都空 ⇒ 后端不给提醒、这里也**整行不出现**（⛔ 不写「下次年检：--」）。
+                val inspection = inspectionBadgeOf(v.nextInspectionDate, v.registrationDate, v.lastInspectionDate)
+                if (inspection != null) {
+                    Text(
+                        inspectionLine(inspection).orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = inspectionInk(inspection),
+                    )
+                }
             }
         }
         Spacer(Modifier.height(10.dp))
@@ -772,6 +819,17 @@ private fun VehicleCard(
     }
 }
 
+/**
+ * 年检那一行/那一句该上的色：常规档 = 与别的说明行同一个灰（[emphasisColor] 回 null）。
+ *
+ * ⛔ 这里不写色值字面量：warn 橙 / danger 红 的唯一出处是
+ * `ui/messages/MessageGrading.kt` 的 `MSG_TEXT_WARN` / `MSG_TEXT_DANGER`（同一条
+ * 「风险 → 颜色」表）；界面里再写一遍 `0xFFE07B00` 就是第二个出处。
+ */
+@Composable
+internal fun inspectionInk(badge: InspectionBadge): Color =
+    emphasisColor(badge.risk)?.let { Color(it) } ?: MaterialTheme.colorScheme.onSurfaceVariant
+
 @Composable
 internal fun MiniChip(text: String, color: Color) {
     Surface(
@@ -802,6 +860,9 @@ private fun VehicleEditSheet(
     // `OutlinedTextField`：描边输入框会把白卡分组又变回"一堆矩形框浮在灰底上"（那正是这条规范要治的）。
     var typeMenu by remember { mutableStateOf(false) }
     var bodyMenu by remember { mutableStateOf(false) }
+    // 两个日期选择器的展开态（年检两格）：谁被点开就是谁。日期本身写回 vm 的草稿。
+    var pickingRegistration by remember { mutableStateOf(false) }
+    var pickingInspection by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = { vm.closeSheet() }, sheetState = sheetState) {
         Column(
             Modifier
@@ -1054,6 +1115,47 @@ private fun VehicleEditSheet(
                 )
             }
 
+            // ⑥ 年检两格（2026-10-11 · FEAT-0022）
+            //
+            // 用户 2026-10-11：「到我给那个车子建档案的时候会填一下就是这车子的上牌日期，
+            // 或者说是上一个年检日期啊方便我们去做一个提醒」。
+            // 两格都**可空**（老车没有这两个日期很正常）：填了哪一格就用哪一格算，两格都空 ⇒ 不提醒。
+            // 用日期选择器（FormPickRow + DatePickerDialog，与「进货日期」同一个做法），
+            // ⛔ 不用手打日期的文本框 —— 打错一位就是一个错的提醒，而且看不出来。
+            FormGroup(icon = Icons.Default.Event, title = "年检（到期提醒）", tint = Color(DriverLime)) {
+                FormPickRow(
+                    label = "上牌日期",
+                    value = vm.draftRegistrationDate,
+                    onClick = { pickingRegistration = true },
+                    placeholder = "没填就不提醒",
+                    icon = Icons.Default.Event,
+                    iconTint = Color(DriverLime),
+                )
+                FormPickRow(
+                    label = "上次年检日期",
+                    value = vm.draftLastInspectionDate,
+                    onClick = { pickingInspection = true },
+                    placeholder = "没填就不提醒",
+                    icon = Icons.Default.Event,
+                    iconTint = Color(DriverLime),
+                )
+                // 改到一半也先看见结果（"我填这个日期到底会提醒成哪天"）——
+                // 算不出来（两格都空）时这一行同样不出现。
+                vm.draftInspection?.let { badge ->
+                    Hint(
+                        inspectionLine(badge).orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = inspectionInk(badge),
+                    )
+                }
+                Hint(
+                    "下次年检 = 上次年检日期（没填就用上牌日期）+ 1 年；两格都空 ⇒ 这台车不提醒。" +
+                        "到期前 30 天提醒一次，过期之后按「已过期」再提醒。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             // 表单的错画在**表单里**（规范 §4.8 / FormErrorLine）：写成页面级错误的话，
             // "保存被拦下"会变成"整页列表全没了"（这一页的列表在抽屉底下）。
             FormErrorLine(vm.sheetError)
@@ -1079,6 +1181,62 @@ private fun VehicleEditSheet(
             }
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    // 日期选择器：给年检那两格用（与 `InvoiceFormScreen` 同一个版式）。
+    // `initialSelectedDateMillis` 让"已经填过的那天"先停在那儿，改一个已有的日期不用从头翻月份。
+    // 「清除」只在**这一格本来有值**时才给 —— 年检两格是可空的，清空是正常操作（清完 = 不提醒）。
+    VehicleDatePicker(
+        open = pickingRegistration,
+        current = vm.draftRegistrationDate,
+        onPick = { vm.draftRegistrationDate = it },
+        onClear = { vm.draftRegistrationDate = "" },
+        onClose = { pickingRegistration = false },
+    )
+    VehicleDatePicker(
+        open = pickingInspection,
+        current = vm.draftLastInspectionDate,
+        onPick = { vm.draftLastInspectionDate = it },
+        onClear = { vm.draftLastInspectionDate = "" },
+        onClose = { pickingInspection = false },
+    )
+}
+
+/**
+ * 一个日期选择器（年检两格共用）：`就用这天` / `清除`（有值才给）/ `取消`。
+ *
+ * ⚠️ 毫秒 ↔ ISO 串的换算在 `VehicleInspection.kt`（`isoDateOfMillis` / `isoDateToMillis`）——
+ * 这一页不碰 `java.time`：日期格式只许有一处，免得界面写进去的串和后端要的串不是同一个。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VehicleDatePicker(
+    open: Boolean,
+    current: String,
+    onPick: (String) -> Unit,
+    onClear: () -> Unit,
+    onClose: () -> Unit,
+) {
+    if (!open) return
+    val dpState = rememberDatePickerState(initialSelectedDateMillis = isoDateToMillis(current))
+    DatePickerDialog(
+        onDismissRequest = onClose,
+        confirmButton = {
+            TextButton(onClick = {
+                dpState.selectedDateMillis?.let { onPick(isoDateOfMillis(it)) }
+                onClose()
+            }) { Text("就用这天") }
+        },
+        dismissButton = {
+            Row {
+                if (current.isNotBlank()) {
+                    TextButton(onClick = { onClear(); onClose() }) { Text("清除") }
+                }
+                TextButton(onClick = onClose) { Text("取消") }
+            }
+        },
+    ) {
+        DatePicker(state = dpState)
     }
 }
 

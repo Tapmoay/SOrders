@@ -62,6 +62,30 @@ class MessageGradingTest {
     }
 
     @Test
+    fun `年检过期那条也归车辆族（FEAT-0022），竖条色与到期那条同一个`() {
+        // 车辆族本来就有一格（0xFF00AAAE），新加的"已过期"只是**多一个类型名**，
+        // ⛔ 不新开一族、也不换色 —— 用户看到的是"这条是关于车的"，红不红由 severity 决定。
+        assertEquals(MessageFamily.VEHICLE, familyOf("vehicle.inspection_overdue"))
+        assertEquals(0xFF00AAAEL, familyOf("vehicle.inspection_overdue").color)
+        assertEquals("车辆提醒", familyOf("vehicle.inspection_overdue").label)
+        // 车辆类不跳页、也没有按钮（与 due 那条同一个口径）
+        assertNull(noticeRoute(Role.DISPATCHER.key, "vehicle.inspection_overdue", null))
+        assertNull(noticeActionLabel("vehicle.inspection_overdue"))
+    }
+
+    @Test
+    fun `车辆两条消息的上色档：到期是 warn、过期是 danger`() {
+        assertEquals(MessageFamily.VEHICLE, familyOf("vehicle.inspection_due"))
+        assertEquals(0xFF00AAAEL, familyOf("vehicle.inspection_due").color)
+        // severity 由后端给（message_center 的类型→档位表）：两档各是一种颜色
+        assertEquals(MessageRisk.WARN, riskOf("warn"))
+        assertEquals(MessageRisk.DANGER, riskOf("danger"))
+        assertEquals(0xFFE07B00L, emphasisColor(riskOf("warn")))
+        assertEquals(0xFFD93025L, emphasisColor(riskOf("danger")))
+        assertNull(emphasisColor(MessageRisk.INFO))
+    }
+
+    @Test
     fun `订单一族按结果分三种色`() {
         assertEquals(MessageFamily.ORDER, familyOf("order.assigned"))
         assertEquals(0xFF1E6FFFL, familyOf("order.return_request").color)

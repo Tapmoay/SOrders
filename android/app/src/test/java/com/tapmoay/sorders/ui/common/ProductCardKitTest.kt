@@ -88,6 +88,20 @@ class ProductCardKitTest {
     }
 
     @Test
+    fun `没到报警线但进了它的 1_2 倍之内说偏低（橙色，与低库存的红色分开）`() {
+        // 用户 2026-10-11 的口径：「库存偏低……按百分比来算 —— 在报警的那个水平宽松一点，
+        // 就显示『库存偏低』」。报警线 10 → 12 及以内算偏低，13 就回到正常。
+        assertEquals("偏低", productStockBadgeText(stock = 12, lowStockAlert = 10))
+        assertEquals("偏低", productStockBadgeText(stock = 11, lowStockAlert = 10))
+        assertEquals(null, productStockBadgeText(stock = 13, lowStockAlert = 10))
+        // 到报警线仍是原来那一档（偏低不许把它盖掉）
+        assertEquals("低库存", productStockBadgeText(stock = 10, lowStockAlert = 10))
+        assertEquals("缺货", productStockBadgeText(stock = 0, lowStockAlert = 10))
+        // 没设报警线 = 不报警，也就没有"偏低"这回事
+        assertEquals(null, productStockBadgeText(stock = 11, lowStockAlert = 0))
+    }
+
+    @Test
     fun `名称色碰到坏值不抛异常`() {
         // ⚠️ 这个用例**证明不了颜色对不对**，只证明"不抛" —— 本工程开了
         //    `unitTests.isReturnDefaultValues = true`，于是 `android.graphics.Color.parseColor`
