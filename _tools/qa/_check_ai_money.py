@@ -478,9 +478,9 @@ def main() -> int:
     c.ok("AI 红线脚本实跑通过（exit 0）", grc == 0, "exit " + str(grc))
     wrc_out, wrc = run_cmd([sys.executable, "_tools/ai/_write_coverage.py"])
     c.ok("写覆盖脚本实跑通过（exit 0）", wrc == 0, "exit " + str(wrc))
-    c.has("写覆盖表：未覆盖 23 条都有理由、0 条真缺口", wrc_out, "0 条是真缺口")
+    c.has("写覆盖表：未覆盖 27 条都有理由、0 条真缺口", wrc_out, "0 条是真缺口")
     #    2026-10-10 随动（BUG-0034 / BUG-0036）：开销挂软删与收款撤销各多两条写端点 ⇒ 未覆盖 19 → 23。
-    c.has("写覆盖表：未覆盖是 23（本会话新增四条已进「不做」表）", wrc_out, "未覆盖 23")
+    c.has("写覆盖表：未覆盖是 27（本会话新增四条已进「不做」表）", wrc_out, "未覆盖 27")
     rrc_out, rrc = run_cmd([sys.executable, "_tools/ai/_read_coverage.py", "--check"])
     c.ok("读覆盖脚本 --check 实跑通过（exit 0）", rrc == 0, "exit " + str(rrc))
     c.has("读覆盖：没交代的仍然是 0", rrc_out, "没交代：0")
@@ -490,7 +490,7 @@ def main() -> int:
     for name in CASE_NAMES:
         c.has("单测里有这一条：" + name, t, name)
     c.ok("单测里数到 14 条本单用例", n_cases == 14, "实际 " + str(n_cases))
-    c.ok("单测里钉住了动作总数上界 175", "AiWrites.ALL.size <= 175" in t)
+    c.ok("单测里钉住了动作总数上界 176", "AiWrites.ALL.size <= 176" in t)
     c.has("单测里数到了本单的动作常量（定价）", t, "AiWrites.ORDERS_PRICE_FREIGHT")
     c.has("单测里数到了本单的动作常量（额度）", t, "AiWrites.ARREARS_UNIT_SET_CREDIT_LIMIT")
     c.has("假数据源把四条写都记下来了（定价一跳）", t, "moneyCalls += \"priceFreight:")

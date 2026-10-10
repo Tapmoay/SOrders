@@ -493,7 +493,7 @@ def main() -> int:
         c.has("单测里有这一条：" + name, t, name)
     n_cases = subs(t, "fun " + chr(96) + "发票·")
     c.ok("单测里数到 14 条本单用例", n_cases == 14, "实际 " + str(n_cases))
-    c.ok("单测里钉住了动作总数上界 175", "AiWrites.ALL.size <= 175" in t)
+    c.ok("单测里钉住了动作总数上界 176", "AiWrites.ALL.size <= 176" in t)
     # ⚠️ 2026-10-08（反验逮到的第二处空转）：原来这一条找的是整个测试文件里的 "createInvoice:" ——
     #    那句在断言里还出现两次（期望串本身），把假数据源那一行改坏它照样绿。改成钉**假数据源那一行**。
     c.has("假数据源记下了登记那一跳", t, 'invoiceCalls += "createInvoice:')

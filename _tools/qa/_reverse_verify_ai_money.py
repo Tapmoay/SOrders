@@ -189,9 +189,9 @@ MUTATIONS: list[tuple[str, str, str, str, str]] = [
     (
         "单测里的动作总数上界缩回 165（下一批加动作时会先撞到这堵墙）",
         T,
-        "AiWrites.ALL.size <= 175",
+        "AiWrites.ALL.size <= 176",
         "AiWrites.ALL.size <= 165",
-        "单测里钉住了动作总数上界 175",
+        "单测里钉住了动作总数上界 176",
     ),
     (
         "假数据源不再记录「读回单条额度」那一跳",
