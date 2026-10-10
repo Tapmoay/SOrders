@@ -9,6 +9,16 @@
   3. 冲减只落在**已经有欠款行**的债务人身上，且 prepaid += credit / balance -= credit 成对出现；
   4. 两个单测钉着：收 124 → 欠款少 124、预收多 124；撤销 → 原样回去；别的债务人的行不动。
 
+R4-BOUNDARY-JUSTIFICATION: 这一单改的**不是新功能，是「钱怎么算」的读侧口径** —— 滚动收款（未指定订单的
+收款）过去在报表层被整笔算成预收，客户欠款一分不减。没有加扩展点：不新增端点、不新增列、不动滚动收款
+本身的写入规则。边界解决不了 —— 病灶是「**报表层自己又算了一遍钱**」（func.sum 直接落在 balance_query.py
+里），而这条纪律**类型系统表达不了**：func.sum 出现在哪一层、归集函数在报表层还是 service 层，编译器一无所知，
+所以 _tools/qa/_check_customer_balances.py 只能用「balance_query.py 里 func.sum 出现 0 次」这条**字面量**判据
+钉住它。同类地，「认不出来的散客不猜」是一条**缺省行为**的纪律（跳过 vs 猜一个）：类型只能表达「有个债务人」，
+表达不了「宁可不认也不能认错人」。错法的后果是「收 124，别人少了 124」，两边都不报错 —— 所以必须有一条机器
+判据同时钉住归集口径（service 里的 rolling_receipt_credit_map）、成对冲减（prepaid += credit / balance -= credit）
+与两个单测。
+
 用法：
   python _tools/finance/_check_rolling_receipt_prepaid.py             # 主工作树
   python _tools/finance/_check_rolling_receipt_prepaid.py <另一棵树>   # 跑「改前必红」
