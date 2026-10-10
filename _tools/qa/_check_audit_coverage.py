@@ -110,6 +110,15 @@ REASONS: dict[str, str] = {
     # ⛔ 本模块里因此不该出现 `write_log(`，那条由下面 ②b 的判据盯着。
     "invoices.py": "写逻辑与审计留痕都在服务层（app/services/tax_service.py 的 create/update/issue/void/soft_delete/restore 各自 write_log，六个动作码 TAX_INVOICE_*，与票面同事务），API 层只转调",
     "purchase_orders.py": "写逻辑与审计留痕都在服务层（app/services/purchase_service.py 的 create_order / update_order / soft_delete_order / restore_order 各自 write_log，与库存/成本/应付同事务），API 层只转调",
+    # 2026-10-11 FEAT-0018（账号↔设备绑定）：POST /devices/register 是**客户端身份**那一步 ——
+    # App 首次启动拿 install_id 换一份服务端 HMAC 签名（让 X-Device-Id 不能随手伪造）。
+    # 它**一行库都不写**（不碰 users / orders / money / 账目），所以没有"业务事实"可留痕；
+    # 而这台设备到底绑过谁由下面两处记着：① account_devices 表（绑定事实本身，含解绑后的历史行）、
+    # ② 派单员手工解冻时那条 USER_DEVICE_UNBIND 审计（在 api/v1/users.py 里写）。
+    # ⛔ 也**不该**逐次记：每台手机装一次 App 就调一次（重装/清数据会再来一次），
+    #    把它写进 operation_logs 只会把"谁改了什么"那张权威记录淹掉（与 ai_telemetry 同一种理由）。
+    "devices.py": "客户端身份那一步（install_id 换服务端签名），一行库都不写、没有业务事实可留痕；"
+                  "绑定事实在 account_devices 表里，派单员解冻另有 USER_DEVICE_UNBIND 审计（users.py）",
 }
 
 WRITE_ROUTE = re.compile(r"@router\.(?:post|patch|put|delete)\(")

@@ -59,9 +59,9 @@
 - 「权限点反查」段末尾会列出**声明了却没任何端点引用**的权限点——改那些等于没改。
 - 改代码后本表会过期 → 跑上面的 `--check`，不一致就重新生成。**别手改，改了会被下次生成覆盖。**
 
-<!-- source_hash: sha256:75d276802a8d2d154150ccceb92f78f1ad5e9a9ce14591f500702c6ba36c5c6f -->
+<!-- source_hash: sha256:53050fc96497f9404168984473bf15585bca7da5bbd2eb167d26acf353d03177 -->
 
-## 全量端点（288 个，按文件分组）
+## 全量端点（292 个，按文件分组）
 
 
 ### `backend/app/api/v1/ai_operations.py` — 1 个
@@ -90,10 +90,10 @@
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:104` | 仅登录 |
-| 2 | `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:126` | **公开** |
-| 3 | `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:136` | **公开** |
-| 4 | `POST /api/v1/auth/register` | `register` | `backend/app/api/v1/auth.py:147` | **公开** |
+| 1 | `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:128` | 仅登录 |
+| 2 | `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:150` | **公开** |
+| 3 | `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:160` | **公开** |
+| 4 | `POST /api/v1/auth/register` | `register` | `backend/app/api/v1/auth.py:171` | **公开** |
 
 ### `backend/app/api/v1/cash_flows.py` — 3 个
 
@@ -120,6 +120,12 @@
 | 1 | `GET /api/v1/customers` | `list_customers` | `backend/app/api/v1/customers.py:27` | 仅登录 + 体内仅允许:派单员 |
 | 2 | `POST /api/v1/customers` | `create_customer` | `backend/app/api/v1/customers.py:48` | 仅登录 + 体内仅允许:派单员 |
 | 3 | `POST /api/v1/customers/merge` | `merge_customers` | `backend/app/api/v1/customers.py:89` | 仅登录 + 体内仅允许:派单员 |
+
+### `backend/app/api/v1/devices.py` — 1 个
+
+| # | 方法与路径 | handler | 位置 | 授权 |
+|---|---|---|---|---|
+| 1 | `POST /api/v1/devices/register` | `register_device` | `backend/app/api/v1/devices.py:45` | **公开** |
 
 ### `backend/app/api/v1/diagnostics.py` — 1 个
 
@@ -586,21 +592,24 @@
 | 4 | `POST /api/v1/user-categories/reorder` | `reorder_categories` | `backend/app/api/v1/user_categories.py:224` | 权限:USER_MANAGE |
 | 5 | `DELETE /api/v1/user-categories/{category_id}` | `delete_category` | `backend/app/api/v1/user_categories.py:248` | 权限:USER_MANAGE |
 
-### `backend/app/api/v1/users.py` — 11 个
+### `backend/app/api/v1/users.py` — 14 个
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
-| 1 | `GET /api/v1/users/me` | `read_me` | `backend/app/api/v1/users.py:63` | 仅登录 + 体内含角色判断（需读源码） |
-| 2 | `PATCH /api/v1/users/me/downstream-ledger` | `set_my_downstream_ledger` | `backend/app/api/v1/users.py:76` | 角色:shipper |
-| 3 | `GET /api/v1/users` | `list_users` | `backend/app/api/v1/users.py:128` | 权限:USER_MANAGE |
-| 4 | `POST /api/v1/users` | `create_user` | `backend/app/api/v1/users.py:161` | 权限:USER_MANAGE |
-| 5 | `GET /api/v1/users/{user_id}` | `get_user` | `backend/app/api/v1/users.py:215` | 仅登录 + 体内含角色判断（需读源码） |
-| 6 | `GET /api/v1/users/{user_id}/product-visibility` | `get_product_visibility` | `backend/app/api/v1/users.py:225` | 仅登录 + 体内含角色判断（需读源码） |
-| 7 | `PUT /api/v1/users/{user_id}/product-visibility` | `set_product_visibility` | `backend/app/api/v1/users.py:252` | 权限:USER_MANAGE + 体内含角色判断（需读源码） |
-| 8 | `PATCH /api/v1/users/{user_id}` | `update_user` | `backend/app/api/v1/users.py:338` | 仅登录 + 体内含角色判断（需读源码） |
-| 9 | `POST /api/v1/users/{user_id}/swap-shipper-driver` | `swap_shipper_driver` | `backend/app/api/v1/users.py:459` | 权限:USER_MANAGE + 体内含角色判断（需读源码） |
-| 10 | `DELETE /api/v1/users/{user_id}` | `delete_user` | `backend/app/api/v1/users.py:527` | 权限:USER_MANAGE |
-| 11 | `POST /api/v1/users/{user_id}/restore` | `restore_user` | `backend/app/api/v1/users.py:564` | 权限:USER_MANAGE |
+| 1 | `GET /api/v1/users/me` | `read_me` | `backend/app/api/v1/users.py:64` | 仅登录 + 体内含角色判断（需读源码） |
+| 2 | `PATCH /api/v1/users/me/downstream-ledger` | `set_my_downstream_ledger` | `backend/app/api/v1/users.py:77` | 角色:shipper |
+| 3 | `GET /api/v1/users` | `list_users` | `backend/app/api/v1/users.py:129` | 权限:USER_MANAGE |
+| 4 | `POST /api/v1/users` | `create_user` | `backend/app/api/v1/users.py:162` | 权限:USER_MANAGE |
+| 5 | `GET /api/v1/users/{user_id}` | `get_user` | `backend/app/api/v1/users.py:216` | 仅登录 + 体内含角色判断（需读源码） |
+| 6 | `GET /api/v1/users/{user_id}/product-visibility` | `get_product_visibility` | `backend/app/api/v1/users.py:226` | 仅登录 + 体内含角色判断（需读源码） |
+| 7 | `PUT /api/v1/users/{user_id}/product-visibility` | `set_product_visibility` | `backend/app/api/v1/users.py:253` | 权限:USER_MANAGE + 体内含角色判断（需读源码） |
+| 8 | `PATCH /api/v1/users/{user_id}` | `update_user` | `backend/app/api/v1/users.py:339` | 仅登录 + 体内含角色判断（需读源码） |
+| 9 | `POST /api/v1/users/{user_id}/swap-shipper-driver` | `swap_shipper_driver` | `backend/app/api/v1/users.py:460` | 权限:USER_MANAGE + 体内含角色判断（需读源码） |
+| 10 | `DELETE /api/v1/users/{user_id}` | `delete_user` | `backend/app/api/v1/users.py:528` | 权限:USER_MANAGE |
+| 11 | `POST /api/v1/users/{user_id}/restore` | `restore_user` | `backend/app/api/v1/users.py:565` | 权限:USER_MANAGE |
+| 12 | `GET /api/v1/users/{user_id}/devices` | `list_user_devices` | `backend/app/api/v1/users.py:658` | 权限:USER_MANAGE |
+| 13 | `POST /api/v1/users/{user_id}/devices/{binding_id}/unbind` | `unbind_user_device` | `backend/app/api/v1/users.py:676` | 权限:USER_MANAGE |
+| 14 | `POST /api/v1/users/{user_id}/devices/unbind-all` | `unbind_all_user_devices` | `backend/app/api/v1/users.py:710` | 权限:USER_MANAGE |
 
 ### `backend/app/api/v1/vehicle_categories.py` — 5 个
 
@@ -668,7 +677,7 @@
 | `PRODUCT_MANAGE` | 13 | `GET /api/v1/inventory/movements`<br>`POST /api/v1/inventory/movements`<br>`GET /api/v1/inventory/summary`<br>`POST /api/v1/product-categories`<br>`PATCH /api/v1/product-categories/{category_id}`<br>`POST /api/v1/product-categories/reorder`<br>`DELETE /api/v1/product-categories/{category_id}`<br>`POST /api/v1/products`<br>`GET /api/v1/products/cost-history`<br>`PATCH /api/v1/products/{product_id}`<br>`POST /api/v1/products/{product_id}/image`<br>`DELETE /api/v1/products/{product_id}`<br>`POST /api/v1/products/{product_id}/restore` |
 | `SHIPPER_PRICE_MANAGE` | 5 | `GET /api/v1/shipper-prices/products`<br>`GET /api/v1/shipper-prices`<br>`POST /api/v1/shipper-prices`<br>`DELETE /api/v1/shipper-prices/{price_id}`<br>`POST /api/v1/shipper-prices/{price_id}/restore` |
 | `STATS_READ` | 8 | `POST /api/v1/stats/exception-orders/{order_id}/resolve`<br>`GET /api/v1/stats/shipper-product-chart`<br>`GET /api/v1/stats/shipper-activity`<br>`GET /api/v1/stats/product-drilldown`<br>`GET /api/v1/stats/driver-performance`<br>`GET /api/v1/stats/shipper-performance`<br>`GET /api/v1/stats/exception-orders`<br>`POST /api/v1/stats/export` |
-| `USER_MANAGE` | 15 | `POST /api/v1/driver-billing-rules/attach`<br>`POST /api/v1/user-categories`<br>`PATCH /api/v1/user-categories/{category_id}`<br>`POST /api/v1/user-categories/reorder`<br>`DELETE /api/v1/user-categories/{category_id}`<br>`GET /api/v1/users`<br>`POST /api/v1/users`<br>`PUT /api/v1/users/{user_id}/product-visibility`<br>`POST /api/v1/users/{user_id}/swap-shipper-driver`<br>`DELETE /api/v1/users/{user_id}`<br>`POST /api/v1/users/{user_id}/restore`<br>`POST /api/v1/vehicle-categories`<br>`PATCH /api/v1/vehicle-categories/{category_id}`<br>`POST /api/v1/vehicle-categories/reorder`<br>`DELETE /api/v1/vehicle-categories/{category_id}` |
+| `USER_MANAGE` | 18 | `POST /api/v1/driver-billing-rules/attach`<br>`POST /api/v1/user-categories`<br>`PATCH /api/v1/user-categories/{category_id}`<br>`POST /api/v1/user-categories/reorder`<br>`DELETE /api/v1/user-categories/{category_id}`<br>`GET /api/v1/users`<br>`POST /api/v1/users`<br>`PUT /api/v1/users/{user_id}/product-visibility`<br>`POST /api/v1/users/{user_id}/swap-shipper-driver`<br>`DELETE /api/v1/users/{user_id}`<br>`POST /api/v1/users/{user_id}/restore`<br>`GET /api/v1/users/{user_id}/devices`<br>`POST /api/v1/users/{user_id}/devices/{binding_id}/unbind`<br>`POST /api/v1/users/{user_id}/devices/unbind-all`<br>`POST /api/v1/vehicle-categories`<br>`PATCH /api/v1/vehicle-categories/{category_id}`<br>`POST /api/v1/vehicle-categories/reorder`<br>`DELETE /api/v1/vehicle-categories/{category_id}` |
 
 > **「体内条件判断」** = 该权限点不是在签名里用 `Depends(require_permission(...))` 校验的，而是写在函数体里（通常只对某类角色附加要求）。改这类权限点**不会**被签名层看见，必须点进源码。
 
@@ -701,13 +710,14 @@
 
 _（无重复注册）_
 
-### 2. 完全公开（无鉴权）：19 个
+### 2. 完全公开（无鉴权）：20 个
 
 | 方法与路径 | handler | 位置 |
 |---|---|---|
-| `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:126` |
-| `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:136` |
-| `POST /api/v1/auth/register` | `register` | `backend/app/api/v1/auth.py:147` |
+| `POST /api/v1/auth/login` | `login_json` | `backend/app/api/v1/auth.py:150` |
+| `POST /api/v1/auth/token` | `login_form` | `backend/app/api/v1/auth.py:160` |
+| `POST /api/v1/auth/register` | `register` | `backend/app/api/v1/auth.py:171` |
+| `POST /api/v1/devices/register` | `register_device` | `backend/app/api/v1/devices.py:45` |
 | `GET /api/v1/ledger/entries` | `list_entries` | `backend/app/api/v1/ledger.py:199` |
 | `GET /api/v1/ledger/accounts` | `list_accounts` | `backend/app/api/v1/ledger.py:252` |
 | `GET /api/v1/ledger/temp-shipper-names` | `list_temp_shipper_names` | `backend/app/api/v1/ledger.py:321` |
@@ -733,7 +743,7 @@ _（无重复注册）_
 | 方法与路径 | handler | 位置 | 含 `current.id` |
 |---|---|---|---|
 | `POST /api/v1/ai/telemetry` | `report_ai_calls` | `backend/app/api/v1/ai_telemetry.py:47` | — |
-| `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:104` | — |
+| `POST /api/v1/auth/logout` | `logout` | `backend/app/api/v1/auth.py:128` | — |
 | `GET /api/v1/ledger/export-jobs/{job_id}` | `get_export_job` | `backend/app/api/v1/ledger.py:744` | — |
 | `GET /api/v1/ledger/export-jobs/{job_id}/download` | `download_export_job` | `backend/app/api/v1/ledger.py:762` | — |
 | `POST /api/v1/notifications/read-all` | `mark_all_read` | `backend/app/api/v1/notifications.py:192` | ✅ |
@@ -750,4 +760,4 @@ _（无重复注册）_
 | `GET /api/v1/user-categories` | `list_categories` | `backend/app/api/v1/user_categories.py:135` | — |
 | `GET /api/v1/vehicle-categories` | `list_categories` | `backend/app/api/v1/vehicle_categories.py:78` | — |
 
-> ⚠️ 「含 `current.id`」只是**粗筛**：函数体里出现 `current.id` 既可能是行级过滤（`where(shipper_id == current.id)`），也可能只是审计日志的 `operator_id=current.id`。全表共 **154** 个端点命中（占 53%），**要确认是哪种必须读函数体**。涉及文件：`backend/app/api/v1/contact_categories.py`、`backend/app/api/v1/customers.py`、`backend/app/api/v1/driver_billing_rules.py`、`backend/app/api/v1/driver_bills.py`、`backend/app/api/v1/driver_settlements.py`、`backend/app/api/v1/expense_categories.py`、`backend/app/api/v1/expenses.py`、`backend/app/api/v1/freight_categories.py`、`backend/app/api/v1/freight_settlement.py`、`backend/app/api/v1/freight_templates.py`、`backend/app/api/v1/inventory.py`、`backend/app/api/v1/ledger.py`、`backend/app/api/v1/notifications.py`、`backend/app/api/v1/order_products.py`、`backend/app/api/v1/order_template_categories.py`、`backend/app/api/v1/orders_assignment.py`、`backend/app/api/v1/orders_delivery.py`、`backend/app/api/v1/orders_discount.py`、`backend/app/api/v1/orders_lifecycle.py`、`backend/app/api/v1/orders_media.py`、`backend/app/api/v1/orders_payment.py`、`backend/app/api/v1/orders_query.py`、`backend/app/api/v1/orders_return.py`、`backend/app/api/v1/place_categories.py`、`backend/app/api/v1/places.py`、`backend/app/api/v1/price_rules.py`、`backend/app/api/v1/product_categories.py`、`backend/app/api/v1/products.py`、`backend/app/api/v1/return_requests.py`、`backend/app/api/v1/route_categories.py`、`backend/app/api/v1/shipper.py`、`backend/app/api/v1/shipper_ledger.py`、`backend/app/api/v1/shipper_prices.py`、`backend/app/api/v1/unit_conversions.py`、`backend/app/api/v1/usage.py`、`backend/app/api/v1/user_categories.py`、`backend/app/api/v1/users.py`、`backend/app/api/v1/vehicle_categories.py`。
+> ⚠️ 「含 `current.id`」只是**粗筛**：函数体里出现 `current.id` 既可能是行级过滤（`where(shipper_id == current.id)`），也可能只是审计日志的 `operator_id=current.id`。全表共 **156** 个端点命中（占 53%），**要确认是哪种必须读函数体**。涉及文件：`backend/app/api/v1/contact_categories.py`、`backend/app/api/v1/customers.py`、`backend/app/api/v1/driver_billing_rules.py`、`backend/app/api/v1/driver_bills.py`、`backend/app/api/v1/driver_settlements.py`、`backend/app/api/v1/expense_categories.py`、`backend/app/api/v1/expenses.py`、`backend/app/api/v1/freight_categories.py`、`backend/app/api/v1/freight_settlement.py`、`backend/app/api/v1/freight_templates.py`、`backend/app/api/v1/inventory.py`、`backend/app/api/v1/ledger.py`、`backend/app/api/v1/notifications.py`、`backend/app/api/v1/order_products.py`、`backend/app/api/v1/order_template_categories.py`、`backend/app/api/v1/orders_assignment.py`、`backend/app/api/v1/orders_delivery.py`、`backend/app/api/v1/orders_discount.py`、`backend/app/api/v1/orders_lifecycle.py`、`backend/app/api/v1/orders_media.py`、`backend/app/api/v1/orders_payment.py`、`backend/app/api/v1/orders_query.py`、`backend/app/api/v1/orders_return.py`、`backend/app/api/v1/place_categories.py`、`backend/app/api/v1/places.py`、`backend/app/api/v1/price_rules.py`、`backend/app/api/v1/product_categories.py`、`backend/app/api/v1/products.py`、`backend/app/api/v1/return_requests.py`、`backend/app/api/v1/route_categories.py`、`backend/app/api/v1/shipper.py`、`backend/app/api/v1/shipper_ledger.py`、`backend/app/api/v1/shipper_prices.py`、`backend/app/api/v1/unit_conversions.py`、`backend/app/api/v1/usage.py`、`backend/app/api/v1/user_categories.py`、`backend/app/api/v1/users.py`、`backend/app/api/v1/vehicle_categories.py`。
