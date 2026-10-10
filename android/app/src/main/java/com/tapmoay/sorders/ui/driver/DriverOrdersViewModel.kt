@@ -39,14 +39,14 @@ class DriverOrdersViewModel(
      * 构造它需要真的 `ApiClient`（JVM 里没有真 Context）。同一体例先例：`AiAgentLoopTest`
      * 用构造接缝注入 `FakeTransport`。
      */
-    private val fetchOrders: suspend (wanted: Int, from: String?, to: String?) -> List<OrderDto> = { wanted, from, to ->
+    private val fetchOrders: suspend (wanted: Int, dateFrom: String?, dateTo: String?) -> List<OrderDto> = { wanted, dateFrom, dateTo ->
         // 进行中 = 已派单（还没接）+ 已接单。状态取自 `OrderStatusModel.DRIVER_OPEN`
         // （原来这里硬写两个字面量；只查 ACCEPTED 时新派来的单在司机端**根本不出现**）。
         // 已完成档 = 已送达 + 已退货（[FINISHED_STATUSES]）—— 整单退货的单**不许**从
         // 司机列表里消失（2026-10-03，E2E 走查 P27）。
         val statuses = if (wanted == 0) OrderStatusModel.DRIVER_OPEN else FINISHED_STATUSES
         statuses
-            .flatMap { container.repo.orders(status = it, dateFrom = if (wanted == 1) from else null, dateTo = if (wanted == 1) to else null) }
+            .flatMap { container.repo.orders(status = it, dateFrom = if (wanted == 1) dateFrom else null, dateTo = if (wanted == 1) dateTo else null) }
             .sortedByDescending { it.createdAt }
     },
     /**
