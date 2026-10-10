@@ -1147,6 +1147,14 @@ data class NotificationDto(
     val title: String = "",
     val content: String = "",
     val payload: Map<String, kotlinx.serialization.json.JsonElement>? = null,
+    /**
+     * 风险档：danger / warn / info（后端 FEAT-0019 加的出参）。
+     *
+     * 它**只决定消息里被点名的那些词用什么颜色**（红 / 橙 / 不上风险色），不决定整条消息的颜色 ——
+     * 用户 2026-10-11 的原话：「你全部都用一样的东西导致没有任何的重心点……**全是重点就是没有重点**」。
+     * ⚠️ 默认 null：老后端还没发这个字段时按 info 处理（MessageGrading.riskOf），不会因此崩。
+     */
+    val severity: String? = null,
     @SerialName("read_at") val readAt: String? = null,
     @SerialName("created_at") val createdAt: String = "",
 )

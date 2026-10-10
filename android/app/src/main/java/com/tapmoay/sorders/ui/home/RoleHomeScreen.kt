@@ -295,10 +295,11 @@ fun RoleHomeScreen(
                 "messages" -> MessagesScreen(
                     container = container,
                     onBack = {},
-                    onOpenOrder = { id -> onNavigate(Routes.orderDetail(id)) },
-                    // 消息中心里点退货申请类的通知 → 直达那一页并定位那一条（2026-09-21 用户要求）。
-                    // 路由由消息页一处算好（type + 当前角色），这里只把 onNavigate 交出去。
-                    onOpenReturnRequest = onNavigate,
+                    // 能查的消息点进去**直达那一页**（2026-09-21 用户要求：「到消息中心哦。其实本来
+                    // 就要做到直达的」；2026-10-11 FEAT-0019 扩到库存 / 收款 / 应付 / 发票 / 价格 /
+                    // 账号）。路由由消息页一处算好（type + 当前角色 + payload），这里只把
+                    // onNavigate 交出去；算不出来时消息页不跳。
+                    onOpenRoute = onNavigate,
                     embedded = true,
                 )
                 "driverOpen", "driverDone" -> DriverOrdersScreen(

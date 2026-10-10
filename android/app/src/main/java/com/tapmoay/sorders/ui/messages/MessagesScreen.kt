@@ -2,10 +2,12 @@ package com.tapmoay.sorders.ui.messages
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -13,6 +15,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.NotificationDto
@@ -24,17 +32,20 @@ import com.tapmoay.sorders.util.formatDateTime
 fun MessagesScreen(
     container: AppContainer,
     onBack: () -> Unit,
-    onOpenOrder: (Long) -> Unit,
     /**
-     * 「退货申请」类通知的去处 —— 传的是**整条路由**（`?focus=<申请单号>` 已经拼好）。
+     * 点一条**能查的消息**的去处 —— 传的是**整条路由**（`?focus=<商品号>` 已经拼好）。
      *
-     * 为什么由这一页决定去哪一页：该去派单端还是货主端由 **type + 当前角色**共同决定，
-     * 而这两样都在这一页手里（`noticeReturnRoute`，纯函数、一处判断）。让三个调用方
-     * 各自再写一遍"哪种消息去哪个端"，就是同一套路由的第二、三份实现 —— 改了这边忘了那边
-     * 的那一天，表现是"点了通知去了错误的那一页、或者 403"。
-     * 默认空实现 = 不接这条直达（老调用方/预览不会因此崩），此时点通知退回老行为。
+     * 为什么由这一页决定去哪一页：该去哪一页由 **type + 当前角色 + payload** 三样共同决定，
+     * 而这三样都在这一页手里（`ui/messages/MessageGrading.kt` 的 `noticeRoute`，纯函数、
+     * 一处判断；退货申请那半条线仍在 `NoticeRouting.noticeReturnRoute` 里，`noticeRoute`
+     * 第一句就调它，⛔ 没有第二份实现）。让三个调用方各自再写一遍"哪种消息去哪个端"，
+     * 就是同一套路由的第二、三份实现 —— 改了这边忘了那边的那一天，表现是
+     * "点了通知去了错误的那一页、或者 403"。
+     *
+     * ⛔ 算不出来时（type 不认识 / 角色对不上 / payload 里缺那个键）**不调这个回调** = 不跳，
+     *    绝不瞎跳。默认空实现 = 老调用方/预览不会因此崩。
      */
-    onOpenReturnRequest: (String) -> Unit = {},
+    onOpenRoute: (String) -> Unit = {},
     /** true = 作为底部导航内容内嵌（隐藏返回矢头/双重 inset） */
     embedded: Boolean = false,
 ) {
@@ -127,8 +138,13 @@ fun MessagesScreen(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 items(vm.messages, key = { it.id }) { m ->
+                    // 这一条点进去能去哪一页（整条路由，`?focus=` 已经拼好）。
+                    // null = 认不出来 / 角色对不上 / payload 里缺那个键 ⇒ **不跳**。
+                    // ⚠️ 卡片上那颗「查看… ›」与点击跳转用的是**同一个** route —— 不是各算一遍。
+                    val route = noticeRoute(roleKey, m.type, m.payload)
                     MessageCard(
                         m = m,
+                        route = route,
                         selectionMode = vm.selectionMode,
                         selected = m.id in vm.selectedIds,
                         onClick = {
@@ -136,16 +152,15 @@ fun MessagesScreen(
                                 vm.toggleSelect(m.id)
                             } else {
                                 vm.markRead(m)
-                                // 退货申请类的通知 → **直达那一页并定位那一条**（2026-09-21 用户要求：
-                                // 「到消息中心哦。其实本来就要做到直达的」）。
-                                // 认不出来（别的 type / 角色对不上 / payload 里没有申请单号）时
-                                // 退回老行为：有单号就开订单详情 —— 绝不出现"点了没反应"。
-                                val direct = noticeReturnRoute(roleKey, m.type, m.payload)
-                                if (direct != null) {
-                                    onOpenReturnRequest(direct)
-                                } else {
-                                    m.payload?.get("order_id")?.toString()?.toLongOrNull()?.let { onOpenOrder(it) }
-                                }
+                                // 能查的消息 → **直达那一页**（2026-09-21 用户要求：「到消息中心哦。
+                                // 其实本来就要做到直达的」；2026-10-11 FEAT-0019 把它扩到
+                                // 库存 / 收款 / 应付 / 发票 / 价格 / 账号）。路由整条由
+                                // `MessageGrading.noticeRoute` 一处算好（type + 当前角色 + payload）。
+                                // ⛔ 算不出来时 route 就是 null = **不跳**：以前这里还有一条
+                                //    「有 order_id 就开订单详情」的兜底，于是"库存预警点进去开了一张
+                                //    订单"这种瞎跳；现在那条兜底只留给**认不出的 type**
+                                //    （见 noticeRoute 的 SYSTEM 那一支）。
+                                route?.let { onOpenRoute(it) }
                             }
                         },
                         onLongClick = { if (!vm.selectionMode) vm.enterSelection(m.id) },
@@ -210,10 +225,28 @@ fun MessagesScreen(
     }
 }
 
+// ---------------------------------------------------------------------------
+// 卡片：未读才有的"分级样式"（FEAT-0019，用户 2026-10-11 口径 + 已过目的样本与样式表）
+// ---------------------------------------------------------------------------
+
+/**
+ * 未读卡片最左边那一条的**几何**（照用户已过目的样本 `_tmp/palette_demo/messages.html`）：
+ * 6px 宽、方角（圆角 3px —— 样本原文 `width:6px; border-radius:3px`）、上下各留 10px、左缩进 8px。
+ *
+ * ⛔ **只有未读才画**：用户的铁律是「只有未读才有这个样式，已读所有消息一个样」—— 已读的卡片
+ *    没有竖条、没有彩标、高亮也一并去掉，整条灰调。改这里之前先看那句。
+ */
+private val MESSAGE_BAR_WIDTH = 6.dp
+private val MESSAGE_BAR_SHAPE = RoundedCornerShape(3.dp)
+private val MESSAGE_BAR_INSET_START = 8.dp
+private val MESSAGE_BAR_INSET_VERTICAL = 10.dp
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageCard(
     m: NotificationDto,
+    /** 点这张卡去哪儿（null = 不跳、也不画「查看… ›」）。由列表那一处在 `noticeRoute` 算好。 */
+    route: String?,
     selectionMode: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
@@ -221,6 +254,13 @@ private fun MessageCard(
     onDelete: () -> Unit,
 ) {
     val unread = m.readAt == null
+    val family = familyOf(m.type)
+    val risk = riskOf(m.severity)
+    // 已读：**一个重点色都不上**（连被点名的词也不再加粗）—— 用户：「已读：无竖条、无彩标、
+    // 高亮也一并去掉，整条灰调」。
+    val words = if (unread) emphasisWords(m.payload) else emptyList()
+    val titleColor = if (unread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    val bodyColor = if (unread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -234,37 +274,89 @@ private fun MessageCard(
         tonalElevation = 1.dp,
         border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        // 竖条要与内容**一样高**，所以这一行按内容的最小固有高度排（这样下面 fillMaxHeight 才有意义）
+        Row(
+            Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (unread) {
+                Spacer(
+                    Modifier
+                        .padding(
+                            start = MESSAGE_BAR_INSET_START,
+                            top = MESSAGE_BAR_INSET_VERTICAL,
+                            bottom = MESSAGE_BAR_INSET_VERTICAL,
+                        )
+                        .width(MESSAGE_BAR_WIDTH)
+                        .fillMaxHeight()
+                        .background(Color(family.color), MESSAGE_BAR_SHAPE),
+                )
+            }
             if (selectionMode) {
+                Spacer(Modifier.width(6.dp))
                 Checkbox(checked = selected, onCheckedChange = { onClick() })
                 Spacer(Modifier.width(4.dp))
-            } else if (unread) {
-                Surface(
-                    color = MaterialTheme.colorScheme.primary,
-                    shape = MaterialTheme.shapes.small,
-                ) { Spacer(Modifier.size(8.dp)) }
-                Spacer(Modifier.width(10.dp))
             }
-            Column(Modifier.weight(1f)) {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .padding(
+                        start = if (unread || selectionMode) 13.dp else 14.dp,
+                        end = 13.dp,
+                        top = 11.dp,
+                        bottom = 11.dp,
+                    ),
+            ) {
+                // ① 标签行：未读＝类型小标签（同色浅底深字）+ 右侧时间；已读＝一个灰「已读」
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        m.title.ifBlank { "系统通知" },
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.weight(1f),
-                    )
+                    if (unread) {
+                        MessageFamilyChip(label = messageLabel(m.type, m.payload), color = family.color)
+                    } else {
+                        Text(
+                            "已读",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
                     Text(
                         formatDateTime(m.createdAt),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline,
                     )
                 }
+                Spacer(Modifier.height(6.dp))
+                // ② 标题与正文：只有 `payload["emphasis"]` 里被**业务点名**的词与数字上色，
+                //    其余一律正常深色（用户：「全是重点就是没有重点」）。
+                EmphasisText(
+                    text = m.title.ifBlank { "系统通知" },
+                    words = words,
+                    risk = risk,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = titleColor,
+                    maxLines = 2,
+                    weight = FontWeight.SemiBold,
+                )
                 if (m.content.isNotBlank()) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        m.content,
+                    Spacer(Modifier.height(3.dp))
+                    EmphasisText(
+                        text = m.content,
+                        words = words,
+                        risk = risk,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = bodyColor,
                         maxLines = 3,
+                    )
+                }
+                // ③ 链接：**只有未读、且真的能跳**才画（画了却点了没反应，比不画更糟）。
+                val action = noticeActionLabel(m.type)
+                if (unread && action != null && route != null) {
+                    Spacer(Modifier.height(7.dp))
+                    Text(
+                        action + " ›",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color(family.color),
+                        fontWeight = FontWeight.SemiBold,
                     )
                 }
             }
@@ -280,4 +372,56 @@ private fun MessageCard(
             }
         }
     }
+}
+
+/** 未读卡片上的类型小标签：同色浅底 + 同色深字（样本原文 `background:<色>1f` / `color:<色>`）。 */
+@Composable
+private fun MessageFamilyChip(label: String, color: Long) {
+    Surface(
+        color = Color(color).copy(alpha = 0.12f),
+        shape = RoundedCornerShape(6.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(color),
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+        )
+    }
+}
+
+/**
+ * 只有**被点名的片段**上色加粗的正文；其余文字原样（正常深色）。
+ *
+ * 风险色由 `emphasisColor(risk)` **一处**给：danger = 红、warn = 橙、info = 不上风险色
+ * （只加粗 —— 样本里「收款 320.00 元」的重点数字就是常规深色加粗）。
+ * `words` 为空 / 词在正文里找不到 = 那一段原样，⛔ 绝不退化成整行上色。
+ */
+@Composable
+private fun EmphasisText(
+    text: String,
+    words: List<String>,
+    risk: MessageRisk,
+    style: TextStyle,
+    color: Color,
+    maxLines: Int,
+    weight: FontWeight? = null,
+) {
+    val accent = emphasisColor(risk)
+    val annotated = buildAnnotatedString {
+        splitByEmphasis(text, words).forEach { span ->
+            if (!span.emphasized) {
+                append(span.text)
+            } else {
+                withStyle(
+                    SpanStyle(
+                        color = accent?.let { Color(it) } ?: color,
+                        fontWeight = FontWeight.Bold,
+                    )
+                ) { append(span.text) }
+            }
+        }
+    }
+    Text(annotated, style = style, color = color, maxLines = maxLines, fontWeight = weight)
 }

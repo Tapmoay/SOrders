@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -35,6 +36,14 @@ fun InventoryScreen(
     onOpenPurchaseOrders: () -> Unit,
     /** 进某一张采购单（流水行上那颗「采购单 #N」）。 */
     onOpenPurchaseOrder: (Long) -> Unit,
+    /**
+     * 从消息中心的「库存不足 / 偏低」那条点进来时带的商品号（路由 `?focus=`，0 = 不是从消息来的）。
+     *
+     * 进来时会**滚到那个商品**、并在它卡上打一枚「消息里点进来的这个商品」徽章 —— 与退货申请
+     * 那两页的定位徽章**同形**（`ui/common/ReturnRequestsUi.kt` 的 `ReturnRequestsHeading`）。
+     * ⛔ 默认 0 = 不聚焦：从工作台那一格进来（以及任何既有入口）行为一个字节不变。
+     */
+    focusProductId: Long = 0L,
 ) {
     val vm: InventoryViewModel = appViewModel { InventoryViewModel(container) }
     val snackbar = remember { SnackbarHostState() }
@@ -70,7 +79,7 @@ fun InventoryScreen(
                 vm.loading -> LoadingBox()
                 vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
                 vm.summary.isEmpty() -> EmptyView("暂无商品，请先在商品管理中创建", Modifier.align(Alignment.Center))
-                else -> InventoryBody(vm)
+                else -> InventoryBody(vm, focusProductId)
             }
         }
     }
@@ -200,7 +209,7 @@ fun InventoryScreen(
  * 恰恰是最需要搜索的时候。所以它横跨整页，任何时候都在。
  */
 @Composable
-private fun InventoryBody(vm: InventoryViewModel) {
+private fun InventoryBody(vm: InventoryViewModel, focusProductId: Long = 0L) {
     // 左侧分类：顺序由名册定（与商品管理/选品页同一处实现）
     val cats = remember(vm.summary, vm.categories) {
         categoryTabsOf(vm.summary.map { it.category }, vm.categories.map { it.name })
@@ -217,6 +226,16 @@ private fun InventoryBody(vm: InventoryViewModel) {
             (category == ALL_CATEGORY || categoryNameOf(s.category) == category) &&
                 (keyword.isEmpty() || s.productName.contains(keyword, ignoreCase = true))
         }
+    }
+    // 从消息中心的「库存不足 / 偏低」那条进来时**定位到那个商品**（2026-10-11 FEAT-0019）。
+    // 找得到就滚过去、并在它卡上打徽章；找不到（商品被删了、通知没带商品号）就什么都不做 ——
+    // 页面上仍然是完整的那份库存列表，不是一片空白。
+    val focusIndex = visible.indexOfFirst { it.productId == focusProductId }
+    val listState = rememberLazyListState()
+    // 下标 +1：列表头上还有一行「共 N 个商品」的说明。用下标定位而不是"把那个商品排到第一位"，
+    // 是因为这一页的顺序是**低库存在前**的固定排序 —— 为了定位而重排它会改变库存的优先级。
+    LaunchedEffect(focusIndex, focusProductId, visible.size) {
+        if (focusProductId > 0L && focusIndex >= 0) listState.animateScrollToItem(focusIndex + 1)
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -253,6 +272,7 @@ private fun InventoryBody(vm: InventoryViewModel) {
                 } else {
                     LazyColumn(
                         Modifier.fillMaxSize(),
+                        state = listState,
                         contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 10.dp, bottom = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
@@ -269,6 +289,7 @@ private fun InventoryBody(vm: InventoryViewModel) {
                                 s = s,
                                 onInbound = { vm.openMovement(s, inbound = true) },
                                 onOutbound = { vm.openMovement(s, inbound = false) },
+                                focused = s.productId == focusProductId,
                             )
                         }
                     }
@@ -304,8 +325,24 @@ private fun StockCard(
     s: InventorySummaryItemDto,
     onInbound: () -> Unit,
     onOutbound: () -> Unit,
+    /** true = 这一张就是"从消息中心点进来的那个商品"（滚到它 + 打定位徽章）。 */
+    focused: Boolean = false,
 ) {
     SectionCard {
+        if (focused) {
+            // 定位徽章：与退货申请那两页**同形**（`ui/common/ReturnRequestsUi.kt` 的
+            // `ReturnRequestsHeading`）—— 用户点完通知落进来，一眼要能确认"就是这一个商品"，
+            // 而不是自己在几十行里找。
+            Surface(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(50)) {
+                Text(
+                    "消息里点进来的这个商品",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             // 图标块：颜色跟着**共用判据**走（正常=库存管理蓝青、到报警线=黄、断货=红）
             Surface(

@@ -291,9 +291,25 @@ const val REPORT_FINANCE = "report/finance"
     fun dispatcherReturnRequests(focusRequestId: Long? = null): String =
         withFocus(DISPATCH_RETURN_REQUESTS, focusRequestId)
 
-    /** `focus` 的键名**只有这一处**（`NavGraph.kt` 的 `navArgument("focus")` 认的就是它）。 */
-    private fun withFocus(base: String, focusRequestId: Long?): String =
-        if (focusRequestId != null && focusRequestId > 0L) "$base?focus=$focusRequestId" else base
+    // ---- 库存预警的**定位直达**（FEAT-0019，2026-10-11 用户要求）----
+    //
+    // 用户的话：「库存预警 → 库存管理并显示那个商品与当前库存」。
+    // 消息中心点「库存不足 / 偏低」那条 → 打开库存管理页并**定位到那个商品**（`?focus=<product_id>`）。
+    //
+    // 与上面退货那两条**共用同一个 `withFocus`**（`focus` 这个键名仍然只有一处）、
+    // 同样是**可选**查询串（`defaultValue = 0L`）：工作台那一格进来照旧用 `INVENTORY` 本身
+    // （不聚焦、行为一个字节不变），不要另建路由。
+    fun inventory(focusProductId: Long? = null): String = withFocus(INVENTORY, focusProductId)
+
+    /**
+     * `focus` 的键名**只有这一处**（`NavGraph.kt` 的 `navArgument("focus")` / `navArgument("focusId")` 认的就是它）。
+     *
+     * 参数名故意是泛指的 `focusId`：退货申请传的是申请单号、库存传的是商品号 —— 都是「列表里
+     * **定位到那一条**」的同一个参数，所以键名与拼法只写一遍（写两处就会分叉：改了这边忘了那边 =
+     * 点了通知静默落在列表顶部、定位不到，而界面上完全看不出是路由参数写错了）。
+     */
+    private fun withFocus(base: String, focusId: Long?): String =
+        if (focusId != null && focusId > 0L) "$base?focus=$focusId" else base
 }
 
 enum class Role(val key: String, val label: String) {

@@ -173,12 +173,13 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
             MessagesScreen(
                 container = container,
                 onBack = { navController.popBackStack() },
-                onOpenOrder = { id -> navController.navigate(Routes.orderDetail(id)) },
-                // 退货申请类通知**直达那一页并定位那一条**（2026-09-21 用户要求：
-                // 「到消息中心哦。其实本来就要做到直达的」）。路由由消息页按
-                // 「type + 当前角色」在一处算好（`ui/messages/NoticeRouting.kt`），
+                // 能查的消息**直达那一页**（2026-09-21 用户要求：「到消息中心哦。其实本来就要做到
+                // 直达的」；2026-10-11 FEAT-0019 把它扩到库存 / 收款 / 应付 / 发票 / 价格 / 账号）。
+                // 路由由消息页按「type + 当前角色 + payload」在一处算好
+                // （`ui/messages/NoticeRouting.kt` + `ui/messages/MessageGrading.kt`），
                 // 这里只负责导航 —— 与「账本管理入口页」的 `onOpen` 同一个写法。
-                onOpenReturnRequest = { route -> navController.navigate(route) },
+                // ⛔ 算不出来时消息页**不跳**（不会传一个"猜的"路由进来）。
+                onOpenRoute = { route -> navController.navigate(route) },
             )
         }
         composable(Routes.SHIPPER_ORDERS) {
@@ -376,7 +377,16 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
         composable(Routes.PRODUCT_CATEGORIES) {
             ProductCategoriesScreen(container = container, onBack = { navController.popBackStack() })
         }
-        composable(Routes.INVENTORY) {
+        // `?focus=` 键名与退货申请那两条**同一个**（`Routes.withFocus` 只有一处）：
+        // 从消息中心点「库存不足 / 偏低」→ 库存管理页并**定位到那个商品**（2026-10-11 FEAT-0019）。
+        // 不带这个参数进来（工作台那一格）= 0L = 不聚焦，老行为一个字节不变。
+        composable(
+            route = Routes.INVENTORY + "?focus={focusId}",
+            arguments = listOf(navArgument("focusId") {
+                type = NavType.LongType
+                defaultValue = 0L
+            }),
+        ) { entry ->
             // 采购单的入口在库存管理页顶栏（2026-10-07 CHG-0073）：工作台那一格已经撤掉，采购单从
             // 这里进；点流水行上的「采购单 #N」进那一张单（表单页的编辑档，orderId 由路由参数带）。
             InventoryScreen(
@@ -386,6 +396,7 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 onOpenPurchaseOrder = { id ->
                     navController.navigate(Routes.PURCHASE_ORDER_FORM + "?orderId=" + id)
                 },
+                focusProductId = entry.arguments?.getLong("focusId") ?: 0L,
             )
         }
         composable(Routes.ARREARS_UNITS) {
