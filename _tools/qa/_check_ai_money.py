@@ -478,8 +478,9 @@ def main() -> int:
     c.ok("AI 红线脚本实跑通过（exit 0）", grc == 0, "exit " + str(grc))
     wrc_out, wrc = run_cmd([sys.executable, "_tools/ai/_write_coverage.py"])
     c.ok("写覆盖脚本实跑通过（exit 0）", wrc == 0, "exit " + str(wrc))
-    c.has("写覆盖表：未覆盖 19 条都有理由、0 条真缺口", wrc_out, "0 条是真缺口")
-    c.has("写覆盖表：未覆盖是 19（四条已从「不做」里删掉）", wrc_out, "未覆盖 19")
+    c.has("写覆盖表：未覆盖 23 条都有理由、0 条真缺口", wrc_out, "0 条是真缺口")
+    #    2026-10-10 随动（BUG-0034 / BUG-0036）：开销挂软删与收款撤销各多两条写端点 ⇒ 未覆盖 19 → 23。
+    c.has("写覆盖表：未覆盖是 23（本会话新增四条已进「不做」表）", wrc_out, "未覆盖 23")
     rrc_out, rrc = run_cmd([sys.executable, "_tools/ai/_read_coverage.py", "--check"])
     c.ok("读覆盖脚本 --check 实跑通过（exit 0）", rrc == 0, "exit " + str(rrc))
     c.has("读覆盖：没交代的仍然是 0", rrc_out, "没交代：0")
