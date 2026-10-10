@@ -20,6 +20,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+
 ROOT = Path(__file__).resolve().parents[2]
 CHECK = ROOT / "_tools/qa/_check_product_recycle_bin.py"
 

@@ -36,6 +36,7 @@ TEST = ROOT / "backend/tests/test_product_recycle_bin.py"
 APIS = AND / "data/remote/api/Apis.kt"
 REPO = AND / "data/repo/AppRepository.kt"
 SCREEN = UI / "dispatcher/ProductsScreen.kt"
+KIT = UI / "common/ProductCardKit.kt"
 VM = UI / "dispatcher/ProductsViewModel.kt"
 FORM = UI / "dispatcher/ProductFormScreen.kt"
 BATCH = UI / "dispatcher/ProductBatchScreen.kt"
@@ -258,9 +259,17 @@ def main() -> int:
          "container.repo.deletedProducts()" in vm_code)
     c.ok("ProductsViewModel 的恢复调的是 repo.restoreProduct(（既有端点）",
          "container.repo.restoreProduct(" in vm_code)
-    c.ok("取数回来按页签核对（切档竞态不会把回收站的结果画成在用列表）",
-         count(r"if \(bin == recycleBin\)", vm_code) >= 3,
-         "实际 " + str(count(r"if \(bin == recycleBin\)", vm_code)) + " 处")
+    # ⚠️ 这里必须逐条点名**三处写入各自被挡住**，不能只数 `if (bin == recycleBin)` 出现几次：
+    #    切档那一句 `if (bin == recycleBin) return` 也算一次，数数会让"去掉一处守卫"照样绿
+    #    （反验的 App② 就是这样抓出来的）。
+    guards = [
+        "if (bin == recycleBin) binItems = list",
+        "if (bin == recycleBin) binError = toApiException(e).message",
+        "if (bin == recycleBin) binLoading = false",
+    ]
+    c.ok("取数回来按页签核对（列表 / 错误 / 加载态三处写入各自被挡住）",
+         all(x in vm_code for x in guards),
+         "缺：" + str([x for x in guards if x not in vm_code]))
     c.ok("成功提示写清恢复到哪儿、什么状态",
          "已恢复到商品列表（" in vm and 'if (back.isActive) "上架" else "沽清"' in vm)
 
@@ -291,9 +300,14 @@ def main() -> int:
     c.ok("行内容复用商品零件（ProductLine + productFacts + ProductThumb）",
          all(k in body for k in ("ProductLine(", "productFacts(", "ProductThumb(")))
     c.ok("回收站的角标是已删除，不是已沽清（两件事两个词）",
-         "RecycleBinBadge(" in body and '"已删除"' in code(SCREEN)
-         and "ProductSoldOutBadge(" not in body,
+         "RecycleBinBadge(" in body and "ProductSoldOutBadge(" not in body,
          "在用商品那张卡上仍然该用共用的 ProductSoldOutBadge —— 这里只管回收站那一行")
+    kit = read(KIT)
+    c.ok("那枚角标住在共用件里（ProductCardKit.kt 的 RecycleBinBadge，全库唯一一处）",
+         count(r"fun RecycleBinBadge\(", "".join(read(p) for p in ui_files)) == 1
+         and '"已删除"' in kit)
+    c.ok("⛔ 商品管理页自己没有画第二层灰底（surfaceVariant 只许在共用件里）",
+         "surfaceVariant" not in code(SCREEN), "ProductsScreen.kt 里出现了 surfaceVariant")
     c.ok("顶栏/底栏的动作没被这一轮搬走（单位换算与排序仍在顶栏、底栏三格仍在）",
          'Text("单位换算")' in screen_code and 'Text("排序")' in screen_code
          and "ProductsBottomBar(" in screen_code)

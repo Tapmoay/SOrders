@@ -874,18 +874,3 @@ private fun RecycleBinCard(
     }
 }
 
-/** 「已删除」角标（回收站专用）。全库只有这一处 —— 它说的是"删了"，不是"沽清了"。 */
-@Composable
-private fun RecycleBinBadge() {
-    Surface(
-        shape = MaterialTheme.shapes.small,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-    ) {
-        Text(
-            "已删除",
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-        )
-    }
-}
