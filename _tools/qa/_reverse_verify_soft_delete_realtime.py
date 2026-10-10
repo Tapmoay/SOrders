@@ -49,6 +49,18 @@ DETAIL = "android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailScre
 
 ENQUEUE_BLOCK = re.compile(r"\n[ \t]*outbox\.enqueue\((?:[^()]|\([^()]*\))*\)\n")
 DELETED_BRANCH = re.compile(r'"order\.deleted" -> \{\n(?:[^\n]*\n)*?[ \t]*\}\n')
+#: 「换成一整块注释」那条注入用的**字面**原文 = `RealtimeHub.kt` 里 `order.deleted` 那一支的整块。
+#: ⚠️ 2026-10-11：这条注入原来写成 `DELETED_BRANCH.sub(替换串, src, count=1)`，而
+#:    `_check_reverse_verify_anchors.py` 的 AST 抽取按 `X.sub(原文, 替换成)` 的顺序读两格 ——
+#:    于是它把**替换串**当成了锚点，每次都报「锚点腐烂」（目标文件里根本没有那一行注释）。
+#:    改成字面量 `s.replace(原文, 替换串, 1)` 之后，元检查与这条注入看的是同一段文本；
+#:    注入效果一字不差（正则那次匹配到的本来就是这四行，含行尾换行）。
+DELETED_BLOCK = (
+    '                    "order.deleted" -> {\n'
+    '                        _refreshOrders.tryEmit(Unit)\n'
+    '                        announce(e.type, orderIdOf(e.data), "")\n'
+    "                    }\n"
+)
 DETAIL_BRANCH = re.compile(
     r"\n[ \t]*vm\.order == null && vm\.error != null && OrderDeleted\.isDeletedNotice\(vm\.error\) ->[^\n]*\n"
 )
@@ -209,7 +221,7 @@ CASES: list[tuple[str, str, object, str]] = [
     (
         "实时分支被换成一整块注释（验证判据真的不吃注释 —— 本项目栽过这个坑）",
         HUB,
-        lambda s: DELETED_BRANCH.sub('// "order.deleted" -> { _refreshOrders.tryEmit(Unit) }\n', s, count=1),
+        lambda s: s.replace(DELETED_BLOCK, '// "order.deleted" -> { _refreshOrders.tryEmit(Unit) }\n', 1),
         "check",
     ),
     (

@@ -46,13 +46,16 @@ CASES: list[tuple[str, str, object, str]] = [
         ACCT,
         lambda s: s.replace(
             # ⚠️ 2026-10-03 BUG-0007：这条取数谓词搬进了 `settleable_bills`
-            #    （建单 / 确认核对 / 作废解锁三处同源），缩进随之从 16/20 空格变成 12/16 ——
-            #    锚点跟着搬家，期望仍然一样（撤掉它，软删单的账单就又被收走）。
-            "            .outerjoin(Order, Order.id == DriverBill.order_id)\n",
+            #    （建单 / 确认核对 / 作废解锁三处同源），锚点跟着搬家，期望仍然一样
+            #    （撤掉它，软删单的账单就又被收走）。
+            # ⚠️ 2026-10-11：取数整块又往左挪了一级（`rows = select(DriverBill)` 直接写在函数体里，
+            #    不再是嵌在一层 `if` 里），缩进随之从 12/16 空格变成 **8/12** ——
+            #    锚点第三次跟着搬家（原文一个字没改，只改行首空格）。
+            "        .outerjoin(Order, Order.id == DriverBill.order_id)\n",
             "",
             1,
         ).replace(
-            "                or_(DriverBill.order_id.is_(None), Order.deleted_at.is_(None)),\n",
+            "            or_(DriverBill.order_id.is_(None), Order.deleted_at.is_(None)),\n",
             "",
             1,
         ),

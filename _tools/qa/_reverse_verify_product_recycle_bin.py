@@ -31,10 +31,11 @@ VM = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductsViewMo
 REPO = "android/app/src/main/java/com/tapmoay/sorders/data/repo/AppRepository.kt"
 FORM = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ProductFormScreen.kt"
 
-GATE = (
-    "    if (deleted_only or include_deleted) and not role_has_permission(rk, Permission.PRODUCT_MANAGE):\n"
-    "        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=\"无权查看回收站\")\n"
-)
+#: ⚠️ 2026-10-11：这道门从路由函数体挪进了 `backend/app/deps.py::require_product_recycle_bin_access`
+#:    （`_tools/qa/_check_inline_role_gates.py` 要求已收敛文件的体内角色门槛恒为 0，所以做成**条件式依赖**），
+#:    `products.py` 里只剩下签名上这一行 `Depends(...)` —— 去掉它，回收站就没人管了
+#:    （`_check_product_recycle_bin.py` 判据①的形状之一）。语义未动，锚点跟着门搬家。
+GATE = "    _gate: None = Depends(require_product_recycle_bin_access),\n"
 BIN_WHERE = "            .where(Product.is_deleted.is_(True))\n"
 BIN_ORDER = "            .order_by(Product.deleted_at.desc(), Product.id.desc())\n"
 PICKER = (
