@@ -10,9 +10,10 @@ from app.core.rbac import Permission, user_role_key
 from app.core.security import hash_password
 from app.database import get_db
 from app.deps import CurrentUser, require_permission, require_roles
-from app.models import Product, User
+from app.models import AccountDevice, Product, User
 from app.models.user import normalize_billing_mode, resolve_billing_mode
 from app.models.enums import OperationAction, UserRole
+from app.schemas.device import DeviceBindingOut
 from app.schemas.product_visibility import (
     ProductVisibilityIn,
     ProductVisibilityOut,
@@ -24,7 +25,7 @@ from app.schemas.user import DownstreamLedgerIn, UserCreate, UserOut, UserUpdate
 from app.services.soft_delete import del_suffix, dialable_phone, has_del_suffix
 from app.services.operation_log_service import write_log
 from app.services.auth_service import revoke_tokens_and_sockets
-from app.services import usage_service
+from app.services import device_service, usage_service
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -628,3 +629,107 @@ def restore_user(
     db.commit()
     db.refresh(u)
     return _to_out(u, current)
+
+# ---------------------------------------------------------------- 账号 ↔ 设备（FEAT-0018）
+#
+# 契约（父会话定死，App 那半边照同一份写）：
+#   GET  /api/v1/users/{id}/devices                     → 这个账号绑过哪些设备（含已解冻的）
+#   POST /api/v1/users/{id}/devices/{binding_id}/unbind → 解冻一台
+#   POST /api/v1/users/{id}/devices/unbind-all          → 一键全解冻（"司机换手机"最常用）
+# 三条都只要 `USER_MANAGE`（= 派单员，见 `core/rbac.py` 的 ROLE_PERMISSIONS）——
+# "这个账号绑了哪些设备"是账号这件事的一部分，与"谁能改这个账号"同一个门槛，
+# ⛔ 不新开权限点（多一个权限点就多一处要维护、要解释的东西）。
+
+
+def _binding_out(row: AccountDevice) -> DeviceBindingOut:
+    """一行绑定 → 出参。`active`/`expires_at` 都是**算出来**的（库里只存 bound_at / unbound_at）。"""
+    return DeviceBindingOut(
+        id=row.id,
+        device_id=row.device_id,
+        bound_at=row.bound_at,
+        last_seen_at=row.last_seen_at,
+        source=row.source,
+        active=row.unbound_at is None,
+        expires_at=device_service.binding_expires_at(row.bound_at),
+    )
+
+
+@router.get("/{user_id}/devices", response_model=list[DeviceBindingOut])
+def list_user_devices(
+    user_id: int,
+    current: User = Depends(require_permission(Permission.USER_MANAGE)),
+    db: Session = Depends(get_db),
+) -> list[DeviceBindingOut]:
+    """这个账号绑过哪些设备。**含已经解冻的历史**（`active=false`）。
+
+    派单员的「账号管理 → 编辑」用它回答两个问题：「他现在拿哪台手机在用」、
+    「上一台是什么时候换掉的」。
+
+    ⛔ 账号不存在 / 一台设备都没绑，两种都回**空列表**（不回 404）：这里回答的是
+    "有没有设备"，而"这个账号在不在"查一次名册就知道 —— 回 404 会让"清白的号"
+    与"查无此号"在界面上分不开。
+    """
+    return [_binding_out(row) for row in device_service.list_bindings(db, user_id)]
+
+
+@router.post("/{user_id}/devices/{binding_id}/unbind", status_code=status.HTTP_204_NO_CONTENT)
+def unbind_user_device(
+    user_id: int,
+    binding_id: int,
+    current: User = Depends(require_permission(Permission.USER_MANAGE)),
+    db: Session = Depends(get_db),
+) -> None:
+    """解冻**一台**设备（用户 2026-10-11 拍板：「派单员在账号管理里可以手动解冻（就在编辑当中）」）。
+
+    司机换手机 / 手机摔坏了的正式出路：解冻之后他**立刻**能绑新设备，不必再等那 6 个月。
+
+    - **不删行**：解冻只是把 `unbound_at` 写上（列表里还看得到，`active=false`）——
+      "之前那台是什么时候绑的"是事后唯一查得到的东西，删了就没了。
+    - **幂等**：找不到 / 已经解冻过，两种都回 204，而且**都不写审计**（没有发生新的事情）；
+      写一条"又解冻了一次"只会让审计页上同一件事看起来像两件。
+    """
+    row = device_service.unbind(db, user_id=user_id, binding_id=binding_id)
+    if row is None:
+        return
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.USER_DEVICE_UNBIND,
+        change_payload={
+            "user_id": user_id,
+            "binding_id": binding_id,
+            "device_id": row.device_id,
+            "reason": device_service.UNBIND_REASON_ADMIN,
+        },
+    )
+    db.commit()
+
+
+@router.post("/{user_id}/devices/unbind-all", status_code=status.HTTP_204_NO_CONTENT)
+def unbind_all_user_devices(
+    user_id: int,
+    current: User = Depends(require_permission(Permission.USER_MANAGE)),
+    db: Session = Depends(get_db),
+) -> None:
+    """把这个账号**所有还没解冻**的设备一次解开 —— "司机换手机"最常用的一键。
+
+    审计里记的是 `count`（这一次解开了几台），而不是逐个 `device_id`：派单员点的是"全部"，
+    要一眼看出"这一下动了几台"；逐个列反而看不出规模（而具体是哪几台，
+    `account_devices` 里 `unbind_reason='admin'` 那几行自己说得清）。
+    """
+    rows = device_service.unbind_all(db, user_id=user_id)
+    if not rows:
+        return
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.USER_DEVICE_UNBIND,
+        change_payload={
+            "user_id": user_id,
+            "count": len(rows),
+            "reason": device_service.UNBIND_REASON_ADMIN,
+        },
+    )
+    db.commit()

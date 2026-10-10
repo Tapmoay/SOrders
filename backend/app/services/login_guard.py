@@ -30,6 +30,17 @@
 打错一次手机号被锁 15 分钟）；而防的是"批量刷号"这件事本身。
 ⛔ 键必须留在 `login_fail:` 前缀家族里 —— 既有测试清场代码扫的就是 `login_fail:*`，
 换前缀会让本机 Redis 里的计数跨用例残留，变成"看着像偶发"的假红。
+
+## 两道窗口 + 设备登记（2026-10-11 FEAT-0018 收紧）
+注册原来那条"15 分钟 100 次"等于没有闸：脚本一分钟就能开一百个真账号（每个都能收通知、能下单）。
+现在按**注册专用**的两道窗口判，键与登录失败**完全分开**：
+- 1 小时 `MAX_REGISTRATIONS_PER_IP`（5），键 `reg_ip`；
+- 24 小时 `MAX_REGISTRATIONS_PER_IP_DAY`（20），键 `reg_ip_day`；
+- 设备登记端点 1 小时 `MAX_DEVICE_REGISTRATIONS_PER_IP`（20），键 `dev_reg_ip`。
+⛔ 三个键各记各的：共用桶的后果是"刷设备端点"能把正常用户锁在登录/注册门外。
+
+⚠️ 计数函数新增的 `window` 参数**带默认值**（`WINDOW_SECONDS`），所以登录那三条调用点
+一行都不用改；⛔ 别为了"统一"把默认值删掉去逐个改调用点 —— 多一次改动就多一次改错的机会。
 """
 
 from __future__ import annotations
@@ -47,11 +58,24 @@ logger = logging.getLogger(__name__)
 MAX_FAILS_PER_ID = 5
 #: 同一来源 IP 允许的连续失败次数（对所有登录名合计）
 MAX_FAILS_PER_IP = 20
-#: 同一来源 IP 在窗口内允许的**自助注册成功**次数（FEAT-0017）
-MAX_REGISTRATIONS_PER_IP = 100
-#: 统计窗口与锁定时长（秒）
+#: 同一来源 IP 在**1 小时**内允许的**自助注册成功**次数
+#: （FEAT-0017 加的；2026-10-11 FEAT-0018 从 100 收紧到 5 —— 原来那个阈值等于没有闸）
+MAX_REGISTRATIONS_PER_IP = 5
+#: 自助注册的**第二道**闸（FEAT-0018）：同一来源 IP 在 **24 小时**内允许的成功次数。
+#: 有了它，"每小时 5 个、但连着刷一整天"那条路才被堵上。
+MAX_REGISTRATIONS_PER_IP_DAY = 20
+#: 设备登记端点（`POST /api/v1/devices/register`，FEAT-0018）同一来源 IP 每小时的次数上限。
+#: ⛔ 常量名**故意不含** `MAX_REGISTRATIONS_PER_IP` 子串：那是注册那条的名字，
+#: 两个东西共用一个名字的后果是判据分不清谁是谁（FEAT-0017 的判据按名字找常量）。
+MAX_DEVICE_REGISTRATIONS_PER_IP = 20
+#: 登录失败/锁定的统计窗口与锁定时长（秒）
 WINDOW_SECONDS = 15 * 60
 LOCK_SECONDS = 15 * 60
+#: 自助注册的两道窗口（秒）：1 小时那道 + 24 小时那道（FEAT-0018）
+REGISTRATION_WINDOW_SECONDS = 60 * 60
+REGISTRATION_WINDOW_DAY_SECONDS = 24 * 60 * 60
+#: 设备登记端点的窗口（秒，1 小时）
+DEVICE_REGISTRATION_WINDOW_SECONDS = 60 * 60
 
 _lock = threading.Lock()
 #: key → 失败时间戳队列（进程内兜底）
@@ -94,47 +118,47 @@ def _key(kind: str, value: str) -> str:
     return f"login_fail:{kind}:{value}"
 
 
-def _hits_in_process(key: str) -> int:
+def _hits_in_process(key: str, window: int = WINDOW_SECONDS) -> int:
     q = _fails[key]
-    cutoff = _now() - WINDOW_SECONDS
+    cutoff = _now() - window
     while q and q[0] < cutoff:
         q.popleft()
     return len(q)
 
 
-def _bump_process(key: str) -> int:
+def _bump_process(key: str, window: int = WINDOW_SECONDS) -> int:
     with _lock:
         _fails[key].append(_now())
-        return _hits_in_process(key)
+        return _hits_in_process(key, window)
 
 
-def _bump_redis(key: str) -> int | None:
+def _bump_redis(key: str, window: int = WINDOW_SECONDS) -> int | None:
     client = _redis()
     if client is None:
         return None
     try:
         n = int(client.incr(key))
         if n == 1:
-            client.expire(key, WINDOW_SECONDS)
+            client.expire(key, window)
         return n
     except Exception as e:  # noqa: BLE001
         logger.warning("登录限流：Redis 计数失败（%s），退回进程内计数", type(e).__name__)
         return None
 
 
-def _hits(key: str) -> int:
+def _hits(key: str, window: int = WINDOW_SECONDS) -> int:
     client = _redis()
     if client is None:
-        return _hits_in_process(key)
+        return _hits_in_process(key, window)
     try:
         return int(client.get(key) or 0)
     except Exception:  # noqa: BLE001
-        return _hits_in_process(key)
+        return _hits_in_process(key, window)
 
 
-def _bump(key: str) -> int:
-    n = _bump_redis(key)
-    return _bump_process(key) if n is None else n
+def _bump(key: str, window: int = WINDOW_SECONDS) -> int:
+    n = _bump_redis(key, window)
+    return _bump_process(key, window) if n is None else n
 
 
 def _clear(key: str) -> None:
@@ -180,8 +204,9 @@ def note_success(login_id: str) -> None:
 def registration_block_reason(client_ip: str | None) -> str | None:
     """要不要拒这次**自助注册**。返回中文原因（None = 放行）。
 
-    只按来源 IP 判（注册时还没有账号，没有"登录名"可记）。阈值见
-    `MAX_REGISTRATIONS_PER_IP` —— 正常用户一辈子也用不到它，它拦的是脚本批量刷号。
+    只按来源 IP 判（注册时还没有账号，没有"登录名"可记）。**两道窗口**（2026-10-11 FEAT-0018 收紧）：
+    1 小时内超过 `MAX_REGISTRATIONS_PER_IP`、或 24 小时内超过 `MAX_REGISTRATIONS_PER_IP_DAY` 就拒。
+    正常用户一辈子也用不到它，它拦的是脚本批量刷号。
     """
     if not client_ip:
         return None
@@ -190,13 +215,48 @@ def registration_block_reason(client_ip: str | None) -> str | None:
             f"这个网络地址注册的账号太多了，已被临时限制（约 {LOCK_SECONDS // 60} 分钟）。"
             "请稍后再试；如果是给多人开号，请让派单员在「账号管理」里建。"
         )
+    if (
+        _hits(_key("reg_ip_day", client_ip), REGISTRATION_WINDOW_DAY_SECONDS)
+        >= MAX_REGISTRATIONS_PER_IP_DAY
+    ):
+        return (
+            "这个网络地址今天注册的账号已经到上限了，请明天再试；"
+            "如果是给多人开号，请让派单员在「账号管理」里建。"
+        )
     return None
 
 
 def note_registration(client_ip: str | None) -> None:
-    """记一次**成功**的自助注册（IP）。"""
+    """记一次**成功**的自助注册（IP）。**两道窗口各记一次** —— 少记哪一道，那道闸就是空的。"""
     if client_ip:
-        _bump(_key("reg_ip", client_ip))
+        _bump(_key("reg_ip", client_ip), REGISTRATION_WINDOW_SECONDS)
+        _bump(_key("reg_ip_day", client_ip), REGISTRATION_WINDOW_DAY_SECONDS)
+
+
+def device_registration_block_reason(client_ip: str | None) -> str | None:
+    """要不要拒这次**设备登记**（`POST /api/v1/devices/register`，FEAT-0018）。
+
+    只按来源 IP 判。⛔ 计数键与登录/注册**分开**（`dev_reg_ip`）——
+    共用一个桶的话，刷设备端点的人会把正常用户锁在登录/注册门外，
+    而那正是这类"提高成本"的闸最不该有的副作用。
+    """
+    if not client_ip:
+        return None
+    if (
+        _hits(_key("dev_reg_ip", client_ip), DEVICE_REGISTRATION_WINDOW_SECONDS)
+        >= MAX_DEVICE_REGISTRATIONS_PER_IP
+    ):
+        return (
+            f"这个网络地址登记的设备太多了，已被临时限制（约 {LOCK_SECONDS // 60} 分钟）。"
+            "请稍后再试。"
+        )
+    return None
+
+
+def note_device_registration(client_ip: str | None) -> None:
+    """记一次**成功**的设备登记（IP）。"""
+    if client_ip:
+        _bump(_key("dev_reg_ip", client_ip), DEVICE_REGISTRATION_WINDOW_SECONDS)
 
 
 def reset_for_tests() -> None:

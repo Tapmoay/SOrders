@@ -1,3 +1,4 @@
+from app.models.account_device import AccountDevice
 from app.models.ai_call_daily import AiCallDaily
 from app.models.ai_operation_log import AiOperationLog
 from app.models.arrears import ArrearsUnit
@@ -64,6 +65,7 @@ from app.models.user import User
 from app.models.user_category import UserCategory
 
 __all__ = [
+    "AccountDevice",
     "AiCallDaily",
     "AiOperationLog",
     "ArrearsUnit",

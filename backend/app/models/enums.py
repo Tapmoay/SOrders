@@ -184,6 +184,10 @@ class OperationAction(str, enum.Enum):
     USER_UPDATE = "USER_UPDATE"
     USER_DELETE = "USER_DELETE"
     USER_RESTORE = "USER_RESTORE"
+    # 账号与设备的绑定被解开（FEAT-0018，2026-10-11 用户拍板：司机换手机 / 手机摔坏了，
+    # 派单员在「账户管理 → 编辑」里手动解冻）。**只记解绑、不记绑定** —— 登录每次都绑一次，
+    # 逐次写审计会把审计页淹掉；「什么时候绑上的」在 `account_devices.bound_at` 里可查。
+    USER_DEVICE_UNBIND = "USER_DEVICE_UNBIND"
     # 库存调整（出入库流水）：和改价同一类——动了货/钱的账，月底对不上要能回查。
     # 以前**一条都不写**，审计页上永远看不到"谁把库存改了多少"（v3.29 补上）。
     INVENTORY_ADJUST = "INVENTORY_ADJUST"

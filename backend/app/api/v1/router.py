@@ -9,6 +9,7 @@ from app.api.v1 import (
     vehicles,
     customers,
     diagnostics,
+    devices,
     driver_bills,
     driver_billing_rules,
     driver_settlements,
@@ -67,6 +68,9 @@ api_router.include_router(ai_telemetry.router)
 # AI 操作流水（2026-10-08 CHG-0082）：AI 发起的每一次请求一行（成功/失败都记），见 `api/v1/ai_operations.py`
 api_router.include_router(ai_operations.router)
 api_router.include_router(users.router)
+# 设备登记（2026-10-11 FEAT-0018）：**公开**端点，App 拿 install_id 换一份服务端签名；
+# 契约的另一半（账号侧看设备 / 解冻）在 `api/v1/users.py` 的 `/{id}/devices*` 上。
+api_router.include_router(devices.router)
 api_router.include_router(files.router)
 api_router.include_router(freight_templates.router)
 # 运费分类名册（2026-09-21）：运费模板与计费规则**共用**的一套分类，见 `api/v1/freight_categories.py` 开头

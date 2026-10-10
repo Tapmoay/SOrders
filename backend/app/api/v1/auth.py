@@ -39,6 +39,15 @@ from app.models.enums import OperationAction, UserRole
 from app.schemas.auth import LoginRequest, RegisterRequest, Token
 from app.services import login_guard
 from app.services.auth_service import authenticate_user, is_test_account, revoke_tokens_and_sockets
+from app.services.device_service import (
+    DEVICE_HEADER,
+    SOURCE_LOGIN,
+    SOURCE_REGISTER,
+    DeviceBindingError,
+    bind_device,
+    check_device_registration,
+    device_id_from_header,
+)
 from app.services.operation_log_service import write_log
 from app.services.token_response import build_token_response
 
@@ -85,6 +94,21 @@ def _login(
         # 不区分"用户不存在"与"密码错误"（避免账号枚举），也不提示还能试几次
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
     login_guard.note_success(login_id)
+    # ---- 设备那一侧（2026-10-11 FEAT-0018）：这个账号还能不能再绑一台设备 ----
+    # 位置有讲究：放在**密码已经验证通过之后** —— 没通过的人不该从这里得到任何
+    # "这个号绑了几台设备"的信息（那是一条新的账号枚举路子）。
+    # 被拒时**回滚**：这次登录不留任何痕迹（`last_login_at` 都还没写），也**不撤销**旧会话
+    # （下面那条 revoke 在闸门之后）—— "换了台手机试一下"不该把用户手上那台正常工作的踢下线。
+    try:
+        bind_device(
+            db,
+            user=user,
+            device_id=device_id_from_header(request.headers.get(DEVICE_HEADER)),
+            source=SOURCE_LOGIN,
+        )
+    except DeviceBindingError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=e.detail) from e
     # ⚠️ 2026-10-03（BUG-0006）：记下「这个账号最后一次登录成功是什么时候」。
     #    走查原话：被顶号之后「事后在库里查不到谁顶了谁」—— 有了它，加上撤销原因/时间两列，
     #    一次顶号在库里留得下完整痕迹（谁在什么时候登进来、把谁顶掉了）。
@@ -175,6 +199,16 @@ def register(
     if reason:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=reason)
 
+    # ---- 设备那一侧（2026-10-11 FEAT-0018）：同一台设备 24 小时最多开 1 个新号 ----
+    # ⛔ 放在建号**之前**：被拒时一个号都不该建出来（429 之后连审计都不该有）。
+    # 这是"挡批量刷号"最关键的一道 —— 与登录那条不同，注册连"陆续加 2 个"都不允许。
+    # 没带设备信息（老版本 App / 签名对不上）时整条放行，口径与登录一致。
+    device_id = device_id_from_header(request.headers.get(DEVICE_HEADER))
+    try:
+        check_device_registration(db, device_id=device_id, phone=body.phone)
+    except DeviceBindingError as e:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=e.detail) from e
+
     phone = body.phone
     # 文案与派单员建号那条**逐字一致**（api/v1/users.py:166-167）：用户看到的应是同一件事，
     # 不该因为"从哪个入口建的"而换一种说法。400 而不是 500，也不是 409。
@@ -201,6 +235,15 @@ def register(
     db.add(user)
     db.flush()
     ensure_user_category(db, user.category)
+
+    # 记下"这台设备开了这个号"（FEAT-0018）：注册这条**也**记绑定 —— 否则"刚注册的号 +
+    # 刚登记的设备"这一对在 `account_devices` 里查不到，而它恰恰是批量刷号最典型的形状。
+    # 没带设备信息时 `bind_device` 什么都不做（返回 None）。
+    try:
+        bind_device(db, user=user, device_id=device_id, source=SOURCE_REGISTER)
+    except DeviceBindingError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=e.detail) from e
 
     # 留痕：复用既有的账号动作码 `USER_CREATE`（`models/enums.py:183`，⛔ 不新造码）。
     # `operator_id` 记的是**新账号自己**：自助注册没有别人在操作，"谁建的号"与"谁的号"是同一个。
