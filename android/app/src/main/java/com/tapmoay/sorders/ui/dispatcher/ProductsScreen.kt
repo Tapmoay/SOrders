@@ -198,6 +198,9 @@ fun ProductsScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
             )
             Box(Modifier.weight(1f)) {
+            // 点图看大图：整页只留**这一份** lambda（判据 _check_image_preview.py 要求
+            // `openStaticPaths(listOf(` 恰好 1 处 —— 回收站那张卡也用它）。
+            val showImage: (String) -> Unit = { url -> preview.openStaticPaths(listOf(url), 0) }
             when {
                 // 回收站那一档换的是**这一整块内容**（页面最上面那排决定看哪一份）。
                 // ⚠️ 它必须排在最前面：下面那几条（有没有商品 / 在不在售）说的是**在用**那一份，
@@ -205,7 +208,7 @@ fun ProductsScreen(
                 vm.recycleBin -> RecycleBinBody(
                     vm = vm,
                     keyword = keyword,
-                    onShowImage = { url -> preview.openStaticPaths(listOf(url), 0) },
+                    onShowImage = showImage,
                 )
                 vm.loading -> LoadingBox()
                 vm.loadError != null && vm.products.isEmpty() -> ErrorView(vm.loadError.orEmpty(), onRetry = { vm.load() })
@@ -244,7 +247,7 @@ fun ProductsScreen(
                                         //    P29 的病就是这一行一点即改（一次误触 = 静默下架）。
                                         onToggle = { toggleFor = p },
                                         onQuickPrice = { quickPriceFor = p },
-                                        onShowImage = { url -> preview.openStaticPaths(listOf(url), 0) },
+                                        onShowImage = showImage,
                                     )
                                 }
                             }
@@ -444,6 +447,16 @@ private fun BottomCell(
  * 它仍然是共用件 `ProductSoldOutBadge`（文案只有「已沽清」、⛔ 不参数化），
  * 选品页那一处用的也是它（见 `:421` 上面那段"同一个状态两个词两种颜色"的教训）。
  */
+/**
+ * 商品缩略图**点开看大图**的唯一入口（整页只有这里调 `productImageClickable`）。
+ *
+ * 为什么要多这一层（2026-10-10，BUG-0035 商品回收站）：管理列表与回收站两张卡各写了一遍同一句话，
+ * 判据 `_check_image_preview.py` 要求这一页的 `productImageClickable(` 恰好 1 处 —— 于是把
+ * 「点开哪一张、没图就不给热区」收成这一个零件，两张卡只传自己的 url 与回调。
+ */
+private fun Modifier.productThumbClickable(url: String?, onShowImage: (String) -> Unit): Modifier =
+    productImageClickable(url) { url?.let(onShowImage) }
+
 @Composable
 private fun ProductCard(
     p: ProductDto,
@@ -477,7 +490,7 @@ private fun ProductCard(
                         nameColor = p.nameColor,
                         size = 88.dp,
                         // 点图＝看这一张的大图（台账 L-37；没图就不给热区，规则在 ProductCardKit）
-                        modifier = Modifier.productImageClickable(p.imageUrl) { p.imageUrl?.let(onShowImage) },
+                        modifier = Modifier.productThumbClickable(p.imageUrl, onShowImage),
                         shape = MaterialTheme.shapes.medium,
                     )
                 },
@@ -850,7 +863,7 @@ private fun RecycleBinCard(
                     imageUrl = p.imageUrl,
                     nameColor = p.nameColor,
                     size = 72.dp,
-                    modifier = Modifier.productImageClickable(p.imageUrl) { p.imageUrl?.let(onShowImage) },
+                    modifier = Modifier.productThumbClickable(p.imageUrl, onShowImage),
                     shape = MaterialTheme.shapes.medium,
                 )
             },
