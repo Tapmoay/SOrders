@@ -17,13 +17,20 @@ FEAT-0019 把**渲染**做完了（`notifications.severity` ＋ `payload["emphas
 3. **投递走事务发件箱**（`outbox.enqueue(..., "notifications.created")`）：消息与业务写在
    **同一个事务**里，"库里改了但没发"与"发出去了但库里没有"两种半边状态都不存在。
 
-## 哪几类做了、哪几类没做（如实，判据与变更单对账）
+## 哪几类做了（如实，判据与变更单对账）
 
-做了（7）：`stock.low`、`payable.due_soon`、`payable.overdue`、`arrears.over_limit`、
-`invoice.issued`、`account.new_device_login`、`account.device_unfrozen`。
+**十类全都有生产者了** —— FEAT-0022（2026-10-11）把 FEAT-0021 如实留下的最后两类补齐：
 
-⛔ 没做（2，理由在 `NOT_PRODUCED`，两份理由都是"字段全库不存在"，不是"没来得及"）：
-`stock.near_low`、`vehicle.inspection_due`。两类都只是**登记了档位、不生产**，⛔ 不留半成品。
+FEAT-0021 当时写着"没做"的两类，理由都是"**字段全库不存在**"（不是"没来得及"）。
+2026-10-11 需求方给了口径，两条都不需要新造那份数据：
+
+* **`stock.near_low`**：不新增任何字段，改用**百分比**口径 —— 偏低线 = 报警阈值 ×
+  `(1 + NEAR_LOW_RATIO_PERCENT%)`。用户原话：「在**报警的那个水平宽松一点**，
+  就显示『库存偏低』」。分档的唯一实现 = [stock_band]。
+* **`vehicle.inspection_due` / `vehicle.inspection_overdue`**：车辆台账加了两个**可空**日期
+  （上牌日期 / 上次年检日期，迁移 `033_vehicle_inspection.py`），"下次该检了"是**派生量**
+  （`services/inspection_due.py` 现算，⛔ 不落库）。用户原话：「到我给那个车子建档案的时候
+  会填一下就是这车的**上牌日期**。或者说是**上一个年检日期**啊方便我们去做一个提醒」。
 
 ## 触发时机
 
@@ -31,8 +38,10 @@ FEAT-0019 把**渲染**做完了（`notifications.severity` ＋ `payload["emphas
   `account.new_device_login`（登录时真的新绑了一台）、`account.device_unfrozen`（派单员解冻）、
   `stock.low`（手工出入库 / 送达实扣之后）、`invoice.issued`（开票）。
 - **每日兜底扫描**（`run_daily_scan`，挂在 `main.py` 既有的每日循环旁边）：
-  库存低 / 应付临期 / 应付逾期 / 挂账单位超限。事件驱动的几类也会被它兜到（防漏），
-  幂等键保证不会重复刷屏。
+  库存不足 / 库存偏低 / 应付临期 / 应付逾期 / 挂账单位超限 / 年检临期 / 年检逾期。
+  事件驱动的几类也会被它兜到（防漏），幂等键保证不会重复刷屏。
+  ⚠️ **年检没有别的触发点**：它不跟着任何一次写库走（"今天到没到期"与用户改了什么无关），
+  所以这里是它唯一的入口 —— 每日扫一遍全车队。
 
 ## 收件人是谁
 
@@ -48,7 +57,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -59,6 +68,8 @@ from app.models.notification import Notification
 from app.models.product import Product
 from app.models.supplier import Supplier, SupplierPayable
 from app.models.user import User
+from app.models.vehicle import Vehicle
+from app.services import inspection_due
 from app.services import message_center
 from app.services.message_center import active_dispatchers, create_message
 from app.services.money_text import money_text
@@ -66,11 +77,13 @@ from app.services.money_text import money_text
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "NEAR_LOW_RATIO_PERCENT",
     "NOT_PRODUCED",
     "PAYABLE_DUE_SOON_DAYS",
     "PAYABLE_TERM_DAYS",
     "PRODUCED",
     "notify_device_unfrozen",
+    "notify_inspection",
     "notify_invoice_issued",
     "notify_new_device_login",
     "notify_payable",
@@ -79,43 +92,53 @@ __all__ = [
     "payable_kind",
     "run_daily_scan",
     "scan_arrears_over_limit",
+    "scan_inspection_due",
     "scan_payables",
     "scan_stock_low",
+    "stock_band",
 ]
 
-#: 本轮**真有**生产者的七类（判据拿它跟 `NOT_PRODUCED` 一起对九类做全集核对）。
+#: **真有**生产者的十类（判据拿它跟 `NOT_PRODUCED` 一起对十类做全集核对）。
+#: FEAT-0022（2026-10-11）把 `stock.near_low` 与两类年检补齐后，这里就是全集。
 PRODUCED: tuple[str, ...] = (
     "stock.low",
+    "stock.near_low",
     "payable.due_soon",
     "payable.overdue",
     "arrears.over_limit",
     "invoice.issued",
+    "vehicle.inspection_due",
+    "vehicle.inspection_overdue",
     "account.new_device_login",
     "account.device_unfrozen",
 )
 
-#: 本轮**没有**生产者的两类 ＋ 逐条理由。
-#: ⛔ 不许往里塞"下一单做"这种没信息量的话 —— 理由必须是"数据不存在"，因为那才是事实。
-NOT_PRODUCED: dict[str, str] = {
-    "stock.near_low": (
-        "「建议水位」字段**全库不存在**（FEAT-0019 与 FEAT-0021 两次全库查过：products 只有 "
-        "low_stock_alert 一个阈值）。要分两档就得先加一个可空的建议水位列，并且迁移 / 商品表单 / "
-        "AI 动作三处一起跟上 —— 那是另一单。本轮**只做真实存在的那个阈值**（stock.low），"
-        "stock.near_low 保留档位登记、不生产。"
-    ),
-    "vehicle.inspection_due": (
-        "年检 / 保险日期字段**全库不存在**（grep 年检|inspection 在 backend/app 里只命中 "
-        "message_center 自己的注释），没有到期日就没有「该提醒谁、提醒什么」。"
-        "另外 App 的 MessageFamily.VEHICLE 本来就 → null（不跳），界面上也没有年检录入处。"
-        "要做先得给车辆加年检日期（迁移 ＋ 表单），那是另一单。"
-    ),
-}
+#: **没有**生产者的类型 ＋ 逐条理由。
+#:
+#: FEAT-0022 之后这里是**空的** —— 十类全都有生产者了。⛔ 不要顺手删掉这张表：
+#: 它的用处是"下一单如果又不做某一类，理由必须写在这里"（判据与变更单都拿它对账）。
+#: ⛔ 更不许往里塞"下一单做"这种没信息量的话 —— 理由必须是"**数据不存在**"，因为那才是事实。
+#: ⚠️ 已经做了的类型**必须从这里移走**：同一类既在 `PRODUCED` 又在 `NOT_PRODUCED`，
+#: 等于"告诉下一个人它还缺字段"（判据专门钉着这一条）。
+NOT_PRODUCED: dict[str, str] = {}
 
 #: 应付账期（天）。库里**没有**账期/到期日字段，到期日只能按"单据日期 + 这个数"**推定**。
 PAYABLE_TERM_DAYS = 30
 
 #: 到期前多少天开始提醒（warn 档）。7 天 = 一周，够走一次付款流程。
 PAYABLE_DUE_SOON_DAYS = 7
+
+#: 「库存偏低」比「库存不足」放宽多少**百分比**（用户 2026-10-11：在报警水平上宽松一点按百分比算）。
+#:
+#: 用户口径（逐字）：「**库存偏低**的话，我们**按百分比来算** —— 也就是说，他肯定会设置这个
+#: 库存的报警嘛……然后我们在**报警的那个水平宽松一点**，就显示『库存偏低』，是这样子的。」
+#:
+#: 于是偏低线 = `low_stock_alert × (1 + NEAR_LOW_RATIO_PERCENT / 100)`：
+#: 阈值 10 件的商品，10~11 件报「偏低」（warn）、10 件以下才报「不足」（danger）。
+#: ⚠️ **恰好等于阈值算「偏低」**（等于阈值说明还没有跌破它）—— 判据与单测都钉着这条边界。
+#: ⛔ 比较一律走整数（`stock * 100 < alert * 100 + alert * NEAR_LOW_RATIO_PERCENT`），
+#: 不用浮点：`alert * 1.2` 在大数上会给出"差一件"的边界错，而这是"该不该补货"的判断。
+NEAR_LOW_RATIO_PERCENT = 20
 
 #: 发票方向 → 文案前缀。认不出的方向**不猜**（前缀留空，正文照样发得出去）。
 _INVOICE_DIRECTION_TEXT = {"output": "销项发票", "input": "进项发票"}
@@ -236,10 +259,54 @@ def _to_dispatchers(
 # ---------------------------------------------------------------------------
 # ① 库存：低于报警阈值（danger）
 # ---------------------------------------------------------------------------
+def stock_band(stock: int, alert: int) -> str | None:
+    """库存落在哪一档（**唯一**的分档判据）；还没到线 = `None`。
+
+    | 当前库存 | 返回 | 档位（由 `message_center` 定） | 说的是什么 |
+    | --- | --- | --- | --- |
+    | `< alert` | `"stock.low"` | danger | 已经跌破报警阈值，该补货了 |
+    | `alert <= stock` 且 `< alert ×`(1 + `NEAR_LOW_RATIO_PERCENT`%) | `"stock.near_low"` | warn | 已经到报警阈值，留意别跌破 |
+    | 更高 | `None` | —— | 不发 |
+
+    ⚠️ **恰好等于阈值算「偏低」（warn），不是「危险」**：等于阈值说明还没有跌破它，
+    与"已经跌破"是两件不同的事 —— 而用户 2026-10-11 要的正是"在报警的那个水平**宽松一点**"
+    的这一档。这条边界有单测与判据各自钉着（⛔ 别把它改成 `<`）。
+    ⚠️ `alert <= 0` 是"**不报警**"，不是"阈值是 0"（见 `models/product.py`）——
+    没有阈值就没有偏低线，两档都不发。
+    ⛔ 比较一律走整数（`stock * 100 < alert * (100 + NEAR_LOW_RATIO_PERCENT)`）：
+    `alert * 1.2` 是浮点，大数上会给出"差一件"的边界错，而这是"该不该补货"的判断。
+    """
+    if alert <= 0:
+        return None
+    if stock < alert:
+        return "stock.low"
+    if stock * 100 < alert * (100 + NEAR_LOW_RATIO_PERCENT):
+        return "stock.near_low"
+    return None
+
+
+#: 两档库存提醒**全部的**差异（结论词 / 正文尾句）。判档只有 [stock_band] 一处，
+#: 文案与类型名只有这一张表一处 —— 将来加第三档改这里，⛔ 不是往下面的函数里塞 if。
+#: ⚠️ 键**就是** `notifications.type`，而幂等键前缀也用它拼：类型名与幂等键前缀
+#: 于是在构造上不可能分叉（改一处必然两处一起变）。
+_STOCK_BANDS: dict[str, tuple[str, str]] = {
+    "stock.low": ("库存不足", "，已低于报警阈值 {alert} {unit}，请及时补货。"),
+    "stock.near_low": ("库存偏低", "，已到报警阈值 {alert} {unit}，请留意补货，别跌破阈值。"),
+}
+
+
 def notify_stock_low(
     db: Session, *, product_id: int, stock: int | None = None, day: date | None = None
 ) -> int:
-    """库存低于报警阈值 → 每个在用派单员一条 danger（**同商品同一天只一条**）。
+    """库存到了该提醒的线 → 每个在用派单员一条（**同商品同一天只一条**）。
+
+    一个入口判两档，**两档互斥、只会发一条**（判据钉着"两类同时只发一条"）：
+
+    * 低于报警阈值 → `stock.low`（danger，「库存不足」）；
+    * 到了阈值、但还在 `×(1 + NEAR_LOW_RATIO_PERCENT%)` 以内 → `stock.near_low`（warn，「库存偏低」）。
+
+    ⛔ 档位**不在这里定**（`message_center.SEVERITY_BY_TYPE` 说了算），这里只回答"算哪一档"
+    （[stock_band]）。
 
     `stock` 能传就传**刚写完的那个数**（调用方手上就有，省一次查询）；不传就现读 ——
     但现读走的是 `select(Product.stock)`（只取列值），**不是** `product.stock`：
@@ -255,14 +322,16 @@ def notify_stock_low(
         stock = db.scalar(select(Product.stock).where(Product.id == int(product_id)))
     stock = int(stock or 0)
     alert = int(product.low_stock_alert or 0)
-    if alert <= 0 or int(stock) > alert:
+    band = stock_band(stock, alert)
+    if band is None:
         return 0
     when = day or business_today()
     unit = (product.unit or "件").strip() or "件"
-    title = "库存不足：" + str(product.name)
+    verb, tail = _STOCK_BANDS[band]
+    title = verb + "：" + str(product.name)
     content = (
-        "商品「" + str(product.name) + "」库存不足：当前库存 " + str(int(stock)) + " " + unit
-        + "，已低于报警阈值 " + str(alert) + " " + unit + "，请及时补货。"
+        "商品「" + str(product.name) + "」" + verb + "：当前库存 " + str(int(stock)) + " " + unit
+        + tail.format(alert=alert, unit=unit)
     )
     payload = {
         # §五：库存族的深链键是 product_id（App 拿它开库存管理并定位到这个商品）。
@@ -274,30 +343,44 @@ def notify_stock_low(
     }
     return _to_dispatchers(
         db,
-        type_="stock.low",
+        type_=band,
         category="reminder",
         title=title,
         content=content,
         payload=payload,
-        idem_key="stock.low:" + str(int(product.id)) + ":" + when.isoformat(),
+        idem_key=band + ":" + str(int(product.id)) + ":" + when.isoformat(),
         emphasis=(str(int(stock)) + " " + unit, str(alert) + " " + unit),
     )
 
 
-def scan_stock_low(db: Session, *, day: date) -> int:
-    """每日兜底：把所有"活着、上架、设了阈值、库存已到线"的商品各发一条。"""
+def scan_stock_low(db: Session, *, day: date) -> tuple[int, int]:
+    """每日兜底：把所有"活着、上架、设了阈值、库存已到线"的商品各发一条。
+
+    返回 `(低于报警阈值, 偏低)` 两个计数 —— 与 `scan_payables` 同一个形状（那边是
+    `(临期, 逾期)`），让 `run_daily_scan` 的返回字典能把两档分开报。
+
+    ⚠️ 选行条件用**同一个百分比口径**（`×100` 的整数写法），⛔ 不是另抄一遍
+    `coalesce(stock,0) <= low_stock_alert`：抄一遍的下场是"每日扫描扫不出来、
+    手工出入库却发得出"（两处判断悄悄分家，而两边都不报错）。
+    """
     rows = db.scalars(
         select(Product).where(
             Product.is_deleted.is_(False),
             Product.is_active.is_(True),
             Product.low_stock_alert > 0,
-            func.coalesce(Product.stock, 0) <= Product.low_stock_alert,
+            func.coalesce(Product.stock, 0) * 100
+            < Product.low_stock_alert * (100 + NEAR_LOW_RATIO_PERCENT),
         )
     ).all()
-    sent = 0
+    low = near_low = 0
     for p in rows:
-        sent += notify_stock_low(db, product_id=int(p.id), stock=int(p.stock or 0), day=day)
-    return sent
+        stock = int(p.stock or 0)
+        if notify_stock_low(db, product_id=int(p.id), stock=stock, day=day):
+            if stock_band(stock, int(p.low_stock_alert or 0)) == "stock.near_low":
+                near_low += 1
+            else:
+                low += 1
+    return low, near_low
 
 
 # ---------------------------------------------------------------------------
@@ -455,7 +538,101 @@ def scan_arrears_over_limit(db: Session, *, day: date) -> int:
 
 
 # ---------------------------------------------------------------------------
-# ④ 发票开具（info）
+# ④ 车辆年检：临期（warn）/ 逾期（danger）
+# ---------------------------------------------------------------------------
+def notify_inspection(db: Session, *, vehicle: Vehicle, kind: str, day: date) -> int:
+    """一台车的年检提醒（**临期与逾期只会有一条**）。
+
+    `kind` 必须来自 `inspection_due.inspection_kind()`（**唯一**的分档判据）——
+    ⛔ 这里不自己比日期分档，也不定档位（档位由 `message_center.SEVERITY_BY_TYPE` 定）。
+
+    ⚠️ **两格日期都空的车不发**：`inspection_due.next_due_date()` 返回 None 时直接 0。
+    ⛔ 不许拿"今天"或建档日期凑一个到期日出来 —— 那不是提醒，是系统自己编的事实。
+
+    ⚠️ 正文必须**由 `days_text` 拼出来**：它就是重点词里那个片段。
+    （FEAT-0021 踩过一次：把"还有 N 天"只写进重点词、正文里换了个说法，
+      `emphasis_for` 的 `word not in text` 那道闸会把片段**静默丢掉**，卡片上就少一个落点。）
+    """
+    due = inspection_due.next_due_date(vehicle.registration_date, vehicle.last_inspection_date)
+    if due is None:
+        return 0
+    plate = str(vehicle.plate_no or "").strip()
+    plate_text = plate or "（无车牌）"
+    left = (due - day).days
+    if kind == "vehicle.inspection_overdue":
+        days_text = str(-left) + " 天"
+        title = "车辆年检已逾期：" + plate_text
+        content = (
+            "车辆「" + plate_text + "」的年检已逾期 " + days_text
+            + "（下次年检日期 " + due.isoformat() + "），请尽快安排年检。"
+        )
+    else:
+        days_text = ("还有 " + str(left) + " 天") if left > 0 else "今天到期"
+        title = "车辆年检将到期：" + plate_text
+        content = (
+            "车辆「" + plate_text + "」的下次年检日期是 " + due.isoformat()
+            + "，" + days_text + "，请提前安排年检。"
+        )
+    payload = {
+        # ⚠️ §五：车辆族**永远不跳**（`MessageGrading.noticeRoute` 该支返回 null）。
+        # 这里给 vehicle_id / plate_no 只是让卡片与排障**按车定位**，⛔ 不是深链承诺。
+        "vehicle_id": int(vehicle.id),
+        "plate_no": plate,
+        "due_date": due.isoformat(),
+        "days_left": left,
+    }
+    return _to_dispatchers(
+        db,
+        type_=kind,
+        category="reminder",
+        title=title,
+        content=content,
+        payload=payload,
+        # 「事实 + 到期日」：同一台车的**同一次**年检只发一条；
+        # 明年算出来的 due 变了 → 键变了 → 明年那条照发（这正是要的）。
+        idem_key=kind + ":" + str(int(vehicle.id)) + ":" + due.isoformat(),
+        emphasis=(plate_text, days_text),
+    )
+
+
+def scan_inspection_due(db: Session, *, day: date) -> tuple[int, int]:
+    """每日兜底：把"该年检了"的车各发一条，返回 `(临期, 逾期)` 两个计数。
+
+    **为什么年检只有这一个入口**：它不跟着任何一次写库走 —— "今天到没到期"与用户改了
+    什么无关（改的是车牌、司机、分类）。每日扫一遍全车队是唯一能保证不漏的地方。
+
+    ⚠️ 只挑**在用**的车（`is_active`）：停用 = 卖了 / 封存，再催年检是噪音
+    （车辆没有软删列，`is_active` 就是"这台车还算不算数"的唯一判据）。
+
+    ⚠️ 过滤条件「两格日期至少一个非空」只是"这台车有没有可算的起点"，
+    ⛔ **不是**分档判据：分档仍然只有 `inspection_due.inspection_kind()` 一处。
+    """
+    rows = db.scalars(
+        select(Vehicle).where(
+            Vehicle.is_active.is_(True),
+            or_(
+                Vehicle.registration_date.is_not(None),
+                Vehicle.last_inspection_date.is_not(None),
+            ),
+        )
+    ).all()
+    soon = overdue = 0
+    for v in rows:
+        kind = inspection_due.inspection_kind(
+            v.registration_date, v.last_inspection_date, day=day
+        )
+        if kind is None:
+            continue
+        sent = notify_inspection(db, vehicle=v, kind=kind, day=day)
+        if kind == "vehicle.inspection_overdue":
+            overdue += sent
+        else:
+            soon += sent
+    return soon, overdue
+
+
+# ---------------------------------------------------------------------------
+# ⑤ 发票开具（info）
 # ---------------------------------------------------------------------------
 def notify_invoice_issued(db: Session, *, invoice: Invoice, operator_id: int | None = None) -> int:
     """发票开具成功 → 每个在用派单员一条 info（**同一张票只一条**）。
@@ -499,7 +676,7 @@ def notify_invoice_issued(db: Session, *, invoice: Invoice, operator_id: int | N
 
 
 # ---------------------------------------------------------------------------
-# ⑤ 账号：新设备登录（danger）/ 设备解冻（info）—— 发给**账号本人**
+# ⑥ 账号：新设备登录（danger）/ 设备解冻（info）—— 发给**账号本人**
 # ---------------------------------------------------------------------------
 def notify_new_device_login(
     db: Session,
@@ -588,22 +765,33 @@ def notify_device_unfrozen(db: Session, *, user_id: int, count: int, anchor: str
 # 每日兜底扫描（挂 `main.py` 的每日循环；⛔ 可以随便重跑）
 # ---------------------------------------------------------------------------
 def run_daily_scan(db: Session, *, day: date | None = None) -> dict[str, int]:
-    """每日兜底扫描：库存低 / 应付临期 / 应付逾期 / 挂账单位超限。
+    """每日兜底扫描：库存不足 / 库存偏低 / 应付临期 / 应付逾期 / 挂账单位超限 /
+    年检临期 / 年检逾期。
 
     **为什么要有它**：事件驱动的钩子挂在几条写路径上，任何一条被绕过（脚本直接改库、
     以后新增的写路径、钩子之前进程崩了）消息就永远丢了 —— 而"没发"和"没出事"在界面上
     长得一模一样。扫描按**当前状态**重算一遍，与事件谁先谁后无关。
+    ⚠️ 年检两类**只**靠它（没有任何写路径钩子），所以它是那两类的唯一入口。
 
-    **可以随便重跑**：每一条都带幂等键（同商品同一天 / 同单据同到期日 / 同单位同自然月），
-    第二次跑出来的条数是 0（判据连续跑两次断言"通知条数不增加"）。
+    **可以随便重跑**：每一条都带幂等键（同商品同一天 / 同单据同到期日 / 同单位同自然月 /
+    同车同到期日），第二次跑出来的条数是 0（判据连续跑两次断言"通知条数不增加"）。
+
+    返回七个计数（键名 = 人读的名字，⛔ 不是消息类型名）：`stock_low` / `stock_near_low` /
+    `payable_due_soon` / `payable_overdue` / `arrears_over_limit` / `inspection_due` /
+    `inspection_overdue`。
     """
     when = day or business_today()
     soon, overdue = scan_payables(db, day=when)
+    low, near_low = scan_stock_low(db, day=when)
+    insp_soon, insp_overdue = scan_inspection_due(db, day=when)
     result = {
-        "stock_low": scan_stock_low(db, day=when),
+        "stock_low": low,
+        "stock_near_low": near_low,
         "payable_due_soon": soon,
         "payable_overdue": overdue,
         "arrears_over_limit": scan_arrears_over_limit(db, day=when),
+        "inspection_due": insp_soon,
+        "inspection_overdue": insp_overdue,
     }
     db.commit()
     return result

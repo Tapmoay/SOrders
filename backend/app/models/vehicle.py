@@ -108,3 +108,20 @@ class Vehicle(Base, TimestampMixin):
     useful_life_years: Mapped[Decimal | None] = mapped_column(Numeric(4, 1), nullable=True)
     #: 残值率（0–0.5 即 0%–50%）。**留空 = 0%**（购置价全额计提），不是"未覆盖"
     residual_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 4), nullable=True)
+
+    # ---------------- 年检台账（2026-10-11 · 迁移 033 / FEAT-0022） ----------------
+    #
+    # 用户口径（2026-10-11 逐字）：「到我给那个车子建档案的时候会填一下就是这车的**上牌日期**。
+    # 或者说是**上一个年检日期**啊方便我们去做一个提醒」—— 他只愿意录**已经发生过的事实**，
+    # 「下次该检了」由系统算（唯一一处：`services/inspection_due.py`，⛔ 不落库）。
+    #
+    # ⚠️ NULL 的含义是「**没录**」，⛔ 不是"没上牌"、也不是"从来没检过"：
+    #   · 两列都空 ⇒ 这**一台车**不产生任何年检提醒（⛔ 不许拿建档日期 / 今天当上牌日期去凑一条）；
+    #   · 两列都录了 ⇒ **以「上次年检日期」为准**（它是更近的一次事实，上牌日期只在没有年检记录时兜底）。
+    #
+    # ⛔ 这两列**不进** `services/vehicle_attrs.ATTR_KEYS`（那张表是"这车多大/能装多少"的计量属性，
+    # 与车身型式绑定），也**不进** `vehicle_depreciation.FIELD_KEYS`（那是折旧四格专用的）。
+    #: 上牌日期 —— 没有年检记录时用它推定第一次年检（"上牌满一年"）
+    registration_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    #: 上次年检日期 —— 有它就以它为准推下一次（"这次检完满一年"）
+    last_inspection_date: Mapped[date | None] = mapped_column(Date, nullable=True)

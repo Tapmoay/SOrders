@@ -54,7 +54,24 @@
    型式与属性**一起校验**（型式决定属性），所以改型式时要么同时把属性改对、
    要么先清掉 —— 分开两步写会留下"型式已换、属性还是旧那批"的中间态，
    而它恰恰是最难查的一种（界面上看着正常，读出来全是错的）。
+
+## 年检台账两格（2026-10-11 · 迁移 033 · FEAT-0022）
+
+用户 2026-10-11：
+> 「到我给那个车子建档案的时候会填一下就是这车的**上牌日期**。
+>   或者说是**上一个年检日期**啊方便我们去做一个提醒」
+
+所以这里收的是**已经发生过的事实**两格：`registration_date`（上牌日期）/`last_inspection_date`（上次年检日期）。
+「下次该检了」**不在这里算**、也不落库 —— 唯一一处在 `services/inspection_due.py`
+（API 只做取数与留痕，与折旧「判据在 services、接口只取数」同一种切法）。
+
+* **两格都可以留空**：都空 = 这台车不产生任何年检提醒（⛔ 不许拿今天或建档日期凑一个出来）；
+* **`PATCH` 用 `model_fields_set` 逐格判"传没传"**：⛔ 老客户端根本不带这两格，
+  把"没传"当成"清空"的后果是「改个车牌就把用户录的年检日期抹掉了」；
+* 审计行只在**真的变了**时记（清空记 `→ （清空）`）—— 清空等于这台车从此不再提醒。
 """
+
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -110,6 +127,10 @@ def _out(db: Session, v: Vehicle) -> VehicleOut:
         depreciation_monthly=vdep.monthly_depreciation(
             v.purchase_price, v.useful_life_years, v.residual_rate
         ),
+        # 年检台账两格**原值**（⛔ 不回"下次年检日期"：那是派生量，
+        #   见 services/inspection_due.py —— 回一个算出来的日期，客户端就会自己拿它比今天）
+        registration_date=v.registration_date,
+        last_inspection_date=v.last_inspection_date,
     )
 
 
@@ -151,6 +172,44 @@ def _apply_fields(v: Vehicle, fields: dict) -> None:
     """把校验过的四格写到车上 —— ⛔ `setattr` 这四个字段**只有这一处**。"""
     for key, value in fields.items():
         setattr(v, key, value)
+
+
+def _date_line(label: str, before: date | None, after: date | None) -> str:
+    """一格日期的审计行；**没变就返回空串**（由调用方自己决定要不要 append）。
+
+    与 `_attr_lines` / `vdep.field_lines` 同一条纪律：
+    ① 一点都没变就**不记** —— 审计页上"改了但什么都没变"的记录会把真正的改动淹掉；
+    ② **清空也要记**（`→ （清空）`）：把上牌日期清空等于「这台车从此不会有年检提醒」，
+       而界面上只会少一个日期，看不出后果。
+    """
+    if (before or None) == (after or None):
+        return ""
+    was = before.isoformat() if before else None
+    now = after.isoformat() if after else None
+    if now is None:
+        return f"{label} {was} → （清空）"
+    if was is None:
+        return f"{label} {now}"
+    return f"{label} {was} → {now}"
+
+
+def _inspection_lines(
+    before: tuple[date | None, date | None], after: tuple[date | None, date | None]
+) -> list[str]:
+    """年检两格的审计行（逐格，只记真的变了的那些）—— 形状对齐 `vdep.field_lines`。
+
+    `before` / `after` 都是 `(上牌日期, 上次年检日期)`。⛔ 两格是**互相独立**的：
+    清空"上次年检日期"不该顺手把"上牌日期"也抹掉（那是两件不同的事）。
+    """
+    out: list[str] = []
+    for label, was, now in (
+        ("上牌日期", before[0], after[0]),
+        ("上次年检日期", before[1], after[1]),
+    ):
+        line = _date_line(label, was, now)
+        if line:
+            out.append(line)
+    return out
 
 
 def _attr_lines(body_type: str, before: dict[str, str], after: dict) -> list[str]:
@@ -320,6 +379,10 @@ def create_vehicle(body: VehicleCreate, current: CurrentUser, db: Session = Depe
     )
     vattrs.apply_attrs(v, values)
     _apply_fields(v, fields)
+    # 年检台账两格：**原样收下**，⛔ 不在这里推"下次年检日期"（派生量，
+    #   services/inspection_due.py 现算）。两格都可以留空 —— 都空 = 这台车不产生任何年检提醒。
+    v.registration_date = body.registration_date
+    v.last_inspection_date = body.last_inspection_date
     db.add(v)
     db.flush()
     # 分类是自由文本，名册只决定"左侧那一列有哪些格、按什么顺序"（见
@@ -332,6 +395,8 @@ def create_vehicle(body: VehicleCreate, current: CurrentUser, db: Session = Depe
         lines.append(f"车身型式 {vattrs.body_label(body_type)}")
     lines.extend(_attr_lines(body_type, {}, values))
     lines.extend(vdep.field_lines({}, fields))  # 建车时就填的台账四格，同样要能回查
+    # 建车时就填的年检两格，同样要能回查（清空记「→ （清空）」，这里只会是"填了"）
+    lines.extend(_inspection_lines((None, None), (v.registration_date, v.last_inspection_date)))
     _log_upsert(db, current, v, "create", lines)
     db.commit()
     db.refresh(v)
@@ -412,6 +477,22 @@ def update_vehicle(vehicle_id: int, body: VehicleUpdate, current: CurrentUser, d
         # 审计页上"改了但什么都没变"的记录会把真正的改动淹掉。
         changed.extend(vdep.field_lines(before_fields, want_fields))
         _apply_fields(v, want_fields)
+
+    # ---------------- 年检台账两格（一格一格；没传 = 不动，传空串 = 清空）--------
+    #
+    # ⚠️ 判"要不要改"必须**逐格**看 `model_fields_set`，⛔ **不是** `is not None`：
+    #    安卓端 `explicitNulls = false`，老客户端与"只改车牌"的常规编辑**根本不带这两格**，
+    #    用 `is not None` 就再也表达不出"清空这一格"；反过来若把"没传"当成"清空"，
+    #    一次改车牌就会把用户录的年检日期抹掉（这是本条最坏的一种错法）。
+    #    与 `driver_id` 解绑、折旧四格是同一个坑、同一个修法。
+    before_inspection = (v.registration_date, v.last_inspection_date)
+    if "registration_date" in body.model_fields_set:
+        v.registration_date = body.registration_date
+    if "last_inspection_date" in body.model_fields_set:
+        v.last_inspection_date = body.last_inspection_date
+    changed.extend(
+        _inspection_lines(before_inspection, (v.registration_date, v.last_inspection_date))
+    )
 
     if changed:
         _log_upsert(db, current, v, "update", changed)

@@ -1,4 +1,4 @@
-"""FEAT-0021 消息生产者：九类新消息要**自己出现**，而且不刷屏。
+"""FEAT-0021 / FEAT-0022 消息生产者：新消息要**自己出现**，而且不刷屏。
 
 ## 这条测试在钉什么
 FEAT-0019 把渲染做完了（`notifications.severity` ＋ `payload["emphasis"]` ＋ App 卡片），
@@ -18,6 +18,17 @@ FEAT-0019 把渲染做完了（`notifications.severity` ＋ `payload["emphasis"]
 测试认的是"这条事实出来是哪一档、点了什么、能不能重复发"。
 
 ⚠️ 本文件**不碰** App 侧渲染（那是 FEAT-0019 的交付、已真机验收）。
+
+## FEAT-0022 补的两类（2026-10-11）
+
+* **库存偏低**（`stock.near_low`，warn）：用户口径是**百分比** ——「在**报警的那个水平宽松一点**，
+  就显示『库存偏低』」。判定线 = 报警阈值 × (1 + `NEAR_LOW_RATIO_PERCENT%`)，
+  ⚠️ **恰好等于阈值算「偏低」、不算「不足」**（等于阈值说明还没跌破它），
+  两档**互斥且只会发一条** —— 这两条各有一条用例钉着。
+* **车辆年检**（`vehicle.inspection_due` warn / `vehicle.inspection_overdue` danger）：
+  车辆只录两个**已经发生**的日期（上牌 / 上次年检），"下次该检了"由
+  `services/inspection_due.py` 现算；**两格都空的车一个字都不发**（⛔ 不许拿今天凑一个到期日）。
+  日期算法本身的用例在 `tests/test_inspection_due.py`（含 2/29 那条）。
 """
 
 from __future__ import annotations
@@ -42,9 +53,10 @@ from app.models import (
     Supplier,
     SupplierPayable,
     User,
+    Vehicle,
 )
 from app.models.enums import OrderStatus
-from app.services import device_service, message_center, message_producers
+from app.services import device_service, inspection_due, message_center, message_producers
 from tests.conftest import auth_headers
 
 #: 固定的"今天"：写死一个日期，用例才不会在跨天那一刻跑出两种结果。
@@ -73,6 +85,40 @@ def _product(db: Session, *, stock: int, alert: int, unit: str = "件") -> Produ
     db.commit()
     db.refresh(p)
     return p
+
+
+def _vehicle(
+    db: Session,
+    *,
+    registration_date: date | None = None,
+    last_inspection_date: date | None = None,
+    is_active: bool = True,
+) -> Vehicle:
+    """本用例自己的**一台车**（车牌随机 —— 车牌是全表唯一的）。
+
+    ⚠️ 车辆与商品不同：`scan_inspection_due` 按**全表**扫，所以用例只能按
+    `车辆编号` 去收窄自己那一条消息（`_msgs(..., prefix)`），⛔ 不能断言"库里一共几条"。
+    """
+    v = Vehicle(
+        plate_no="测" + uuid.uuid4().hex[:7].upper(),
+        is_active=is_active,
+        registration_date=registration_date,
+        last_inspection_date=last_inspection_date,
+    )
+    db.add(v)
+    db.commit()
+    db.refresh(v)
+    return v
+
+
+def _inspection_base(days_to_due: int) -> date:
+    """构造一个"上次年检 / 上牌"日期，使**下次年检日期**正好是 `D + days_to_due`。
+
+    用例里因此可以直接写"还有 25 天到期"（`_inspection_base(25)`）——
+    比手算 `D - 1 年 + 25 天` 少一处算术错，也读得出来这条用例在验什么。
+    """
+    due = D + timedelta(days=days_to_due)
+    return due.replace(year=due.year - 1)
 
 
 def _payable(
@@ -130,14 +176,14 @@ def _assert_emphasis_ok(n: Notification) -> None:
 
 # ---------------------------------------------------------------- ① 库存 low
 
-def test_stock_low_fires_at_or_below_the_alert_and_stays_quiet_above(db_session: Session) -> None:
-    """阈值上下：正好到线要报、高一件不许报、阈值 0 = 不报警。"""
+def test_stock_low_fires_only_below_the_alert(db_session: Session) -> None:
+    """**跌破**阈值才是 danger（正好等于阈值走偏低档，见下一条）。"""
     low = _product(db_session, stock=3, alert=10)
     assert message_producers.notify_stock_low(db_session, product_id=int(low.id), day=D) >= 1
     db_session.commit()
 
     rows = _msgs(db_session, "stock.low", "stock.low:" + str(int(low.id)) + ":")
-    assert len(rows) == 1
+    assert len(rows) >= 1
     n = rows[0]
     assert n.severity == "danger"                    # 档位只在 SEVERITY_BY_TYPE 一处定
     assert n.payload["product_id"] == int(low.id)    # §五：库存族的深链键
@@ -145,14 +191,65 @@ def test_stock_low_fires_at_or_below_the_alert_and_stays_quiet_above(db_session:
     assert n.payload["emphasis"] == ["库存不足", "3 件", "10 件"]
     _assert_emphasis_ok(n)
 
-    edge = _product(db_session, stock=10, alert=10)  # 正好到线 = 报警（判据是 <=）
-    assert message_producers.notify_stock_low(db_session, product_id=int(edge.id), day=D) >= 1
+    near = _product(db_session, stock=9, alert=10)   # 差一件，还是危险
+    assert message_producers.notify_stock_low(db_session, product_id=int(near.id), day=D) >= 1
+    db_session.commit()
+    assert _msgs(db_session, "stock.low", "stock.low:" + str(int(near.id)) + ":")[0].severity == "danger"
 
-    above = _product(db_session, stock=11, alert=10)  # 高一件 = 一个字都不发
-    assert message_producers.notify_stock_low(db_session, product_id=int(above.id), day=D) == 0
-
-    off = _product(db_session, stock=1, alert=0)      # 0 = 不报警（不是"阈值是 0"）
+    off = _product(db_session, stock=1, alert=0)     # 0 = 不报警（不是"阈值是 0"）
     assert message_producers.notify_stock_low(db_session, product_id=int(off.id), day=D) == 0
+
+
+def test_stock_is_near_low_exactly_at_the_alert_but_not_past_the_line(db_session: Session) -> None:
+    """**恰好等于阈值算「偏低」（warn），不算「不足」（danger）**—— 这条边界就是用户
+    2026-10-11 要的"在报警的那个水平**宽松一点**"。
+
+    偏低线 = 报警阈值 × (1 + `NEAR_LOW_RATIO_PERCENT%`)：阈值 10 件的商品，
+    10~11 件报偏低、12 件起一个字都不发（⚠️ 是"到线才报"，不是"接近就报"）。
+    """
+    # 判定本身是一句纯函数：边界先在这里钉死，再看消息。
+    assert message_producers.stock_band(9, 10) == "stock.low"
+    assert message_producers.stock_band(10, 10) == "stock.near_low"     # ⚠️ 等于阈值 = 偏低
+    assert message_producers.stock_band(11, 10) == "stock.near_low"
+    assert message_producers.stock_band(12, 10) is None                 # 10 × 1.2 = 12 → 出线
+    assert message_producers.stock_band(1, 0) is None                   # 不报警 = 两档都不发
+
+    edge = _product(db_session, stock=10, alert=10)
+    assert message_producers.notify_stock_low(db_session, product_id=int(edge.id), day=D) >= 1
+    db_session.commit()
+    assert _msgs(db_session, "stock.low", "stock.low:" + str(int(edge.id)) + ":") == []
+    edge_rows = _msgs(db_session, "stock.near_low", "stock.near_low:" + str(int(edge.id)) + ":")
+    assert edge_rows and edge_rows[0].severity == "warn"
+
+    last = _product(db_session, stock=11, alert=10)   # 还在偏低档里（11 < 12）
+    assert message_producers.notify_stock_low(db_session, product_id=int(last.id), day=D) >= 1
+    db_session.commit()
+    mail = _msgs(db_session, "stock.near_low", "stock.near_low:" + str(int(last.id)) + ":")
+    assert mail
+    n = mail[0]
+    assert n.severity == "warn"
+    assert "库存偏低" in n.title
+    assert n.payload["product_id"] == int(last.id)
+    assert n.payload["emphasis"] == ["库存偏低", "11 件", "10 件"]
+    _assert_emphasis_ok(n)
+
+    above = _product(db_session, stock=12, alert=10)  # 出线 = 一个字都不发
+    assert message_producers.notify_stock_low(db_session, product_id=int(above.id), day=D) == 0
+    db_session.commit()
+    assert _msgs(db_session, "stock.near_low", "stock.near_low:" + str(int(above.id)) + ":") == []
+    assert _msgs(db_session, "stock.low", "stock.low:" + str(int(above.id)) + ":") == []
+
+
+def test_stock_never_sends_both_bands_for_one_product(db_session: Session) -> None:
+    """**两档互斥、只会发一条**：偏低与不足是同一件库存事实的两个互斥档位 ——
+    同一商品同一天两条都来，等于让用户看到"既偏低又不足"这种自相矛盾的话。"""
+    p = _product(db_session, stock=10, alert=10)      # 正好在偏低那一档
+    assert message_producers.notify_stock_low(db_session, product_id=int(p.id), day=D) >= 1
+    db_session.commit()
+    low = _msgs(db_session, "stock.low", "stock.low:" + str(int(p.id)) + ":")
+    near = _msgs(db_session, "stock.near_low", "stock.near_low:" + str(int(p.id)) + ":")
+    assert near, "到了阈值就该报「库存偏低」"
+    assert not low, "同一件库存事实不许同时报「库存不足」"
 
 
 def test_stock_low_sends_once_a_day_and_again_the_next_day(db_session: Session) -> None:
@@ -174,17 +271,142 @@ def test_stock_low_sends_once_a_day_and_again_the_next_day(db_session: Session) 
     assert len(_msgs(db_session, "stock.low", prefix)) == 2
 
 
-def test_stock_near_low_is_honestly_absent() -> None:
-    """偏低那档**如实不做**：库里只有报警阈值一个字段，"建议水位"不存在。
+def test_stock_near_low_sends_once_a_day_too(db_session: Session) -> None:
+    """偏低那一档同样**一天只有一条**（幂等键 `stock.near_low:{商品}:{日期}`）——
+    少了它，每日扫描会把"偏低"变成每天一条的刷屏。"""
+    p = _product(db_session, stock=11, alert=10)
+    prefix = "stock.near_low:" + str(int(p.id)) + ":"
+    assert message_producers.notify_stock_low(db_session, product_id=int(p.id), day=D) >= 1
+    db_session.commit()
+    assert message_producers.notify_stock_low(db_session, product_id=int(p.id), day=D) == 0
+    db_session.commit()
+    assert len(_msgs(db_session, "stock.near_low", prefix)) == 1
+    assert message_producers.notify_stock_low(
+        db_session, product_id=int(p.id), day=D + timedelta(days=1)
+    ) >= 1
+    db_session.commit()
+    assert len(_msgs(db_session, "stock.near_low", prefix)) == 2
 
-    ⛔ 不许为了凑齐两档去编一个阈值：那是"看起来实现了"。档位登记保留着，
-    等真有建议水位字段时不用再动 `message_center`。
+
+def test_stock_near_low_is_produced_now() -> None:
+    """FEAT-0022 把「偏低」那一档**真的做了** —— 用百分比口径，不需要新字段。
+
+    FEAT-0021 当时如实写着"不做"（理由是"建议水位"字段全库不存在）；
+    这一单换了口径（在报警阈值上放宽 20%），于是它必须从 `NOT_PRODUCED` 里**移走** ——
+    ⛔ 留在那里等于告诉下一个人"它还缺字段"。
     """
-    assert "stock.low" in message_producers.PRODUCED
-    assert "stock.near_low" in message_producers.NOT_PRODUCED
-    assert "建议水位" in message_producers.NOT_PRODUCED["stock.near_low"]
-    assert not hasattr(message_producers, "notify_stock_near_low")
+    assert "stock.near_low" in message_producers.PRODUCED
+    assert "stock.near_low" not in message_producers.NOT_PRODUCED
+    assert message_producers.NEAR_LOW_RATIO_PERCENT == 20
     assert message_center.SEVERITY_BY_TYPE["stock.near_low"] == "warn"
+    assert message_center.EMPHASIS_BY_TYPE["stock.near_low"] == ("库存偏低",)
+
+
+# ---------------------------------------------------------------- ①' 车辆年检（FEAT-0022）
+
+def test_inspection_reminds_from_registration_date(db_session: Session) -> None:
+    """**只有上牌日期也能提醒** —— 那是"上牌满一年"的第一次年检。"""
+    v = _vehicle(db_session, registration_date=_inspection_base(25))
+    assert message_producers.notify_inspection(
+        db_session, vehicle=v, kind="vehicle.inspection_due", day=D
+    ) >= 1
+    db_session.commit()
+
+    rows = _msgs(db_session, "vehicle.inspection_due",
+                 "vehicle.inspection_due:" + str(int(v.id)) + ":")
+    assert rows
+    n = rows[0]
+    assert n.severity == "warn"
+    assert "还有 25 天" in n.content          # 「还有 N 天」必须写进正文
+    assert str(v.plate_no) in n.content        # 点名：正文里必须有车牌
+    assert n.payload["emphasis"] == ["年检", str(v.plate_no), "还有 25 天"]
+    _assert_emphasis_ok(n)
+
+
+def test_inspection_last_date_wins_over_registration(db_session: Session) -> None:
+    """两格都录了时**以「上次年检日期」为准**（它是更近的一次事实）。
+
+    这台车的上牌日期早就满一年又一年了（按它算会报"已逾期 400 天"）——
+    报出来的必须是"已逾期 3 天"，否则就是拿错了起点。
+    """
+    v = _vehicle(
+        db_session,
+        registration_date=_inspection_base(-400),
+        last_inspection_date=_inspection_base(-3),
+    )
+    assert message_producers.notify_inspection(
+        db_session, vehicle=v, kind="vehicle.inspection_overdue", day=D
+    ) >= 1
+    db_session.commit()
+
+    rows = _msgs(db_session, "vehicle.inspection_overdue",
+                 "vehicle.inspection_overdue:" + str(int(v.id)) + ":")
+    assert rows
+    n = rows[0]
+    assert n.severity == "danger"
+    assert "已逾期 3 天" in n.content
+    assert str(v.plate_no) in n.content
+    assert n.payload["emphasis"] == ["已逾期", str(v.plate_no), "3 天"]
+    assert n.payload["vehicle_id"] == int(v.id)
+    _assert_emphasis_ok(n)
+
+
+def test_inspection_kind_buckets_the_three_bands(db_session: Session) -> None:
+    """三档与两条边界：还有 25 天 = 临期、到期日当天 = 临期、已过 3 天 = 逾期、还有 31 天 = 不发。"""
+    assert inspection_due.inspection_kind(_inspection_base(31), None, day=D) is None
+    assert inspection_due.inspection_kind(_inspection_base(30), None, day=D) == "vehicle.inspection_due"
+    assert inspection_due.inspection_kind(_inspection_base(25), None, day=D) == "vehicle.inspection_due"
+    assert inspection_due.inspection_kind(_inspection_base(0), None, day=D) == "vehicle.inspection_due"
+    assert inspection_due.inspection_kind(_inspection_base(-1), None, day=D) == "vehicle.inspection_overdue"
+    assert inspection_due.inspection_kind(_inspection_base(-3), None, day=D) == "vehicle.inspection_overdue"
+
+
+def test_inspection_without_any_date_is_silent(db_session: Session) -> None:
+    """⛔ **两格都空 ⇒ 一个字都不发**：那是"没录"，不是"没上牌"。
+
+    不许拿"今天"或建档日期凑一个到期日出来 —— 那不是提醒，是系统自己编的事实。
+    """
+    v = _vehicle(db_session)
+    assert inspection_due.next_due_date(None, None) is None
+    assert inspection_due.inspection_kind(None, None, day=D) is None
+    assert message_producers.notify_inspection(
+        db_session, vehicle=v, kind="vehicle.inspection_due", day=D
+    ) == 0
+    assert message_producers.notify_inspection(
+        db_session, vehicle=v, kind="vehicle.inspection_overdue", day=D
+    ) == 0
+    db_session.commit()
+    for t in ("vehicle.inspection_due", "vehicle.inspection_overdue"):
+        assert _msgs(db_session, t, t + ":" + str(int(v.id)) + ":") == []
+
+
+def test_inspection_scan_is_idempotent_and_skips_stopped_vehicles(db_session: Session) -> None:
+    """每日扫描**连跑两次第二次 0 条**；停用的车（卖了 / 封存）不再催年检。
+
+    ⚠️ 扫描是**全表**扫的，而测试库在同一个进程里是**同一份文件**、
+    `db.commit()` 过的车会留给后面的用例 ➜ 这里只用"自己那台车"收窄断言，
+    ⛔ 不断言"库里一共几条消息"。
+    """
+    running = _vehicle(db_session, registration_date=_inspection_base(20))
+    stopped = _vehicle(db_session, registration_date=_inspection_base(20), is_active=False)
+    blank = _vehicle(db_session)
+
+    day = D + timedelta(days=7)          # 用自己的一天，免得和别的用例抢同一天的幂等键
+    first_due, first_overdue = message_producers.scan_inspection_due(db_session, day=day)
+    db_session.commit()
+    assert first_due >= 1
+
+    assert _msgs(db_session, "vehicle.inspection_due",
+                 "vehicle.inspection_due:" + str(int(running.id)) + ":")
+    for v in (stopped, blank):
+        for t in ("vehicle.inspection_due", "vehicle.inspection_overdue"):
+            assert _msgs(db_session, t, t + ":" + str(int(v.id)) + ":") == [], (
+                "不该提醒的车也发了消息：" + t + " / " + str(v.plate_no)
+            )
+
+    assert message_producers.scan_inspection_due(db_session, day=day) == (0, 0), (
+        "第二次扫描又发了一遍 —— 幂等键没起作用"
+    )
 
 
 # ---------------------------------------------------------------- ② 应付 临期 / 逾期
@@ -475,25 +697,39 @@ def test_daily_scan_reruns_without_adding_a_single_row(db_session: Session) -> N
     """**这条就是任务书要的那个判据**：连续跑两次扫描，通知条数不增加。
 
     扫描是"按当前状态重算一遍"，与事件谁先谁后无关 —— 所以它必须可以随便重跑：
-    第二次的四个计数全是 0，而且通知表的行数一个都不涨。
+    第二次的七个计数全是 0，而且通知表的行数一个都不涨。
     """
     term = message_producers.PAYABLE_TERM_DAYS
-    _product(db_session, stock=1, alert=20)
-    _payable(db_session, doc_date=D - timedelta(days=term + 5))
+    _product(db_session, stock=1, alert=20)                                # 低于阈值 = danger
+    _product(db_session, stock=11, alert=10)                               # 到了阈值 = 偏低 warn
+    _payable(db_session, doc_date=D - timedelta(days=term + 5))            # 已逾期 = danger
+    _vehicle(db_session, registration_date=_inspection_base(25))           # 25 天后年检 = warn
 
     first = message_producers.run_daily_scan(db_session, day=D)
-    assert set(first) == {"stock_low", "payable_due_soon", "payable_overdue", "arrears_over_limit"}
+    assert set(first) == {
+        "stock_low", "stock_near_low", "payable_due_soon", "payable_overdue",
+        "arrears_over_limit", "inspection_due", "inspection_overdue",
+    }
     assert first["stock_low"] >= 1
+    assert first["stock_near_low"] >= 1
     assert first["payable_overdue"] >= 1
+    assert first["inspection_due"] >= 1
     total_after_first = db_session.scalar(select(func.count()).select_from(Notification))
 
     second = message_producers.run_daily_scan(db_session, day=D)
-    assert second == {"stock_low": 0, "payable_due_soon": 0, "payable_overdue": 0, "arrears_over_limit": 0}
+    assert second == {
+        "stock_low": 0, "stock_near_low": 0, "payable_due_soon": 0, "payable_overdue": 0,
+        "arrears_over_limit": 0, "inspection_due": 0, "inspection_overdue": 0,
+    }
     assert db_session.scalar(select(func.count()).select_from(Notification)) == total_after_first
 
 
 def test_every_produced_type_has_a_producer_and_a_severity() -> None:
-    """七类都真的有人生产；两类如实不做但理由写清楚了。"""
+    """**十类全都有人生产**（FEAT-0022 补齐最后两类）；`NOT_PRODUCED` 因此是空的。
+
+    ⛔ 已经做了的类型必须从 `NOT_PRODUCED` 里移走 —— 同一类既在 `PRODUCED` 又在
+    `NOT_PRODUCED`，等于"告诉下一个人它还缺字段"，而它其实已经在发了。
+    """
     for t in message_producers.PRODUCED:
         assert t in message_center.SEVERITY_BY_TYPE
     assert set(message_producers.PRODUCED) | set(message_producers.NOT_PRODUCED) == {
@@ -504,8 +740,11 @@ def test_every_produced_type_has_a_producer_and_a_severity() -> None:
         "payable.overdue",
         "invoice.issued",
         "vehicle.inspection_due",
+        "vehicle.inspection_overdue",
         "account.new_device_login",
         "account.device_unfrozen",
     }
-    for t, why in message_producers.NOT_PRODUCED.items():
-        assert len(why) >= 40, t       # 理由必须是"数据不存在"这种有信息量的话
+    assert not message_producers.NOT_PRODUCED, (
+        "十类都做了，NOT_PRODUCED 里不该再有人：" + repr(sorted(message_producers.NOT_PRODUCED))
+    )
+    assert not (set(message_producers.PRODUCED) & set(message_producers.NOT_PRODUCED))

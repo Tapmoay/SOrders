@@ -1562,6 +1562,31 @@ def _bootstrap_impl(engine: Engine) -> None:
                     if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
                         raise
 
+    # ---------- 车辆年检两列（2026-10-11 FEAT-0022） ----------
+    #
+    # 用户口径：「到我给那个车子建档案的时候会填一下就是这车的**上牌日期**。或者说是
+    # **上一个年检日期**啊方便我们去做一个提醒」—— 他只录**已经发生过的事实**，
+    # "下次该检了"由 `services/inspection_due.py` 现算（⛔ 不落库、⛔ 没有"下次年检日期"列）。
+    # ⚠️ 两列全部可空、NULL = 「没录」：老车不回填 —— 给没录过的车编一个上牌日期，
+    #    后果是系统会自己造一条**假的年检提醒**出来（比不提醒更坏）。
+    #    ⚠️ 两列都空 ⇒ 这台车不产生任何年检提醒（那是"没录"，不是"没上牌"）。
+    # ⚠️ 正式搬迁是 `migrations/033_vehicle_inspection.py`，这一段只是自愈副本。
+    if "vehicles" in insp.get_table_names():
+        vcols = {c["name"] for c in insp.get_columns("vehicles")}
+        for _col, _ddl in (
+            ("registration_date", "ALTER TABLE vehicles ADD COLUMN registration_date DATE NULL"),
+            ("last_inspection_date", "ALTER TABLE vehicles ADD COLUMN last_inspection_date DATE NULL"),
+        ):
+            if _col in vcols:
+                continue
+            with engine.begin() as conn:
+                try:
+                    conn.execute(text(_ddl))
+                    logger.warning("vehicles.%s 已补列（默认 NULL：老车没录过年检信息）", _col)
+                except DBAPIError as e:
+                    if "duplicate" not in str(e).lower() and "already exists" not in str(e).lower():
+                        raise
+
     # ---------- 挂账单位信用额度（2026-10-04 FEAT-0015 第五期） ----------
     #
     # 「这家还能赊多少」：额度长在**挂账单位**上（赊账主体自己的名册），不长在客户档案上

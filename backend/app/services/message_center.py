@@ -81,17 +81,19 @@ SEVERITY_BY_TYPE: dict[str, str] = {
     "ledger_export": SEVERITY_INFO,
     "system": SEVERITY_INFO,
     "system.notice": SEVERITY_INFO,
-    # ── 下面这些**今天还没有生产者**（库存预警、应付到期、发票、车辆年检、账号安全）──
-    #    先把名字与档位定下来：样式表（`_tmp/palette_demo/messages_all.html`，用户已过目）
-    #    里那 17 类，App 那一侧照着 `type` 上色、后端这边照着 `type` 定档，两边用同一套名字。
-    #    ⛔ 接生产者时**用这些名字**（别另起一个近义名），否则档位会安静地掉回 info。
-    "stock.low": SEVERITY_DANGER,             # 库存 ≤ 报警阈值（用户原话「库存不足……很危险」）
-    "stock.near_low": SEVERITY_WARN,          # 库存低于建议水位（今天只有 low_stock_alert 一个阈值）
+    # ── 下面这些曾经"只定了名字、没有生产者"（库存预警、应付到期、发票、车辆年检、账号安全）──
+    #    FEAT-0019 按样式表（`_tmp/palette_demo/messages_all.html`，用户已过目）里那 17 类
+    #    先把名字与档位定下来，App 那一侧照着 `type` 上色、后端这边照着 `type` 定档。
+    #    ✅ FEAT-0021（七类）＋ FEAT-0022（`stock.near_low` 与两类年检）之后**十类全都有生产者了**。
+    #    ⛔ 新接生产者时**用这些名字**（别另起一个近义名），否则档位会安静地掉回 info。
+    "stock.low": SEVERITY_DANGER,             # 库存**低于**报警阈值（用户原话「库存不足……很危险」）
+    "stock.near_low": SEVERITY_WARN,          # 库存到了报警阈值但还在 ×(1+20%) 以内（2026-10-11 用户口径）
     "arrears.over_limit": SEVERITY_DANGER,    # 客户欠款超过额度
     "payable.due_soon": SEVERITY_WARN,        # 应付临期（≤7 天）
     "payable.overdue": SEVERITY_DANGER,       # 应付已逾期
     "invoice.issued": SEVERITY_INFO,          # 发票已开具
-    "vehicle.inspection_due": SEVERITY_WARN,  # 车辆年检临期
+    "vehicle.inspection_due": SEVERITY_WARN,  # 车辆年检临期（≤30 天）
+    "vehicle.inspection_overdue": SEVERITY_DANGER,  # 车辆年检已逾期（FEAT-0022 新增）
     "account.new_device_login": SEVERITY_DANGER,  # 异地 / 新设备登录
     "account.device_unfrozen": SEVERITY_INFO,     # 账号已解冻
 }
@@ -116,8 +118,9 @@ EMPHASIS_BY_TYPE: dict[str, tuple[str, ...]] = {
     "order_purge_blocked": ("没有被清理",),
     "driver_bill_cancelled": ("作废",),
     "price_change": ("价格调整",),
-    # 还没有生产者的那几类：写的是**将来那条文案里必须出现的字**，
+    # 上面那批"先定名字"的类型：写的是**它们那条文案里必须出现的字**，
     # 对不上时过滤会把它丢掉（宁可不标，也不标错）。
+    # ⛔ 改文案时要么让这句话原样留在正文里，要么连着这一行一起改。
     "stock.low": ("库存不足",),
     "stock.near_low": ("库存偏低",),
     "arrears.over_limit": ("已超额度",),
@@ -125,6 +128,7 @@ EMPHASIS_BY_TYPE: dict[str, tuple[str, ...]] = {
     "payable.overdue": ("已逾期",),
     "invoice.issued": ("已开具",),
     "vehicle.inspection_due": ("年检",),
+    "vehicle.inspection_overdue": ("已逾期",),
     "account.new_device_login": ("新设备登录",),
     "account.device_unfrozen": ("已解冻",),
     "system.notice": ("系统公告",),

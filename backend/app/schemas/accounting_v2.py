@@ -336,7 +336,18 @@ class VehicleCreate(MoneyInput):
     useful_life_years: Decimal | None = None  # 使用年限（年，0.5–30，一位小数）
     residual_rate: Decimal | None = None  # 残值率（0–0.5；**留空 = 0%**）
 
-    @field_validator("purchase_price", "purchase_date", "useful_life_years", "residual_rate", mode="before")
+    #: ── 年检台账两格（FEAT-0022，2026-10-11）────────────────────────────────────
+    #: 用户口径（逐字）：「到我给那个车子建档案的时候会填一下就是这车的上牌日期。
+    #: 或者说是上一个年检日期啊方便我们去做一个提醒」—— 他只录**已经发生过的事实**，
+    #: 「下次该检了」由系统算（唯一一处：services/inspection_due.py，⛔ 不落库、
+    #: ⛔ 这里没有也不需要「下次年检日期」这个入参）。
+    #: ⚠️ 空串 = 没录（安卓发得出空串、发不出显式 null）；**两格都空 ⇒ 这台车不产生任何年检提醒**
+    #:    （⛔ 不许拿建档日期或今天当上牌日期去凑一条出来）。
+    registration_date: date | None = None  # 上牌日期
+    last_inspection_date: date | None = None  # 上次年检日期
+
+    @field_validator("purchase_price", "purchase_date", "useful_life_years", "residual_rate",
+                     "registration_date", "last_inspection_date", mode="before")
     @classmethod
     def _blank_is_none(cls, value: Any) -> Any:
         """空串 = 没录（安卓 `explicitNulls = false` 发不出显式 null，清空只能靠空串表达）。"""
@@ -381,7 +392,15 @@ class VehicleUpdate(MoneyInput):
     useful_life_years: Decimal | None = None  # 使用年限（年）
     residual_rate: Decimal | None = None  # 残值率（0–0.5）
 
-    @field_validator("purchase_price", "purchase_date", "useful_life_years", "residual_rate", mode="before")
+    #: ── 年检台账两格（FEAT-0022，2026-10-11）────────────────────────────────────
+    #: **没传** = 不改（⛔ 老客户端不带这两格时**不许把它们清空** —— PATCH 语义，判据钉着）；
+    #: **传了空串** = 清空这一格（model_fields_set 判「传没传」，空串归一成 None）。
+    #: ⚠️ 与折旧四格同一套逐格语义：清空一格不影响另一格。
+    registration_date: date | None = None  # 上牌日期
+    last_inspection_date: date | None = None  # 上次年检日期
+
+    @field_validator("purchase_price", "purchase_date", "useful_life_years", "residual_rate",
+                     "registration_date", "last_inspection_date", mode="before")
     @classmethod
     def _blank_is_none(cls, value: Any) -> Any:
         """空串 = 没录（安卓 `explicitNulls = false` 发不出显式 null，清空只能靠空串表达）。"""
@@ -437,3 +456,10 @@ class VehicleOut(BaseModel):
     #: 每月折旧额（元，两位小数）。⛔ 算不出来时是 `null`，**不是 0** ——
     #: 「0」是"已经提足"，「null」是"算不出来"，报表上这是两件事。
     depreciation_monthly: Decimal | None = None
+
+    #: ── 年检台账两格原值（FEAT-0022，2026-10-11）────────────────────────────────
+    #: ⚠️ 回的是**原值**：None = 没录。⛔ 这里**不回**「下次年检日期」——
+    #: 那是派生量（services/inspection_due.next_due_date 现算），
+    #: 回一个算出来的日期会让客户端以为库里存着它、进而自己去比今天。
+    registration_date: date | None = None
+    last_inspection_date: date | None = None
