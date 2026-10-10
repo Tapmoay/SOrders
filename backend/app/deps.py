@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import ExpiredSignatureError, JWTError
 from sqlalchemy.orm import Session
@@ -197,3 +197,22 @@ def parse_date_range(date_from: str | None, date_to: str | None):
     if df and dt and df > dt:
         raise HTTPException(status_code=400, detail='开始日期不能晚于结束日期')
     return df, dt
+
+
+def require_product_recycle_bin_access(
+    current: CurrentUser,
+    deleted_only: bool = Query(False, description="只看回收站（被软删的商品）"),
+    include_deleted: bool = Query(False, description="连回收站一起看"),
+) -> None:
+    """要看商品回收站就得有 product:manage（与恢复端点同一把尺子）——**条件式**。
+
+    ⚠️ 为什么这里而不是路由函数体里（2026-10-10）：`_tools/qa/_check_inline_role_gates.py`
+    对`已收敛`的文件（app/api/v1/products.py 在其中）要求体内角色门槛恒为 0 ——
+    而这条校验**只在要回收站时**才该生效（普通商品列表货主也要读），所以做成依赖：
+    依赖自己的 Query 参数拿得到同样的值，且不算路由函数体里的门槛。
+    ⛔ 不静默降级成「没有已删商品」：那会把「你没权限」说成「回收站是空的」（两句完全不同的结论）。
+    """
+    if not (deleted_only or include_deleted):
+        return
+    if not role_has_permission(user_role_key(current), Permission.PRODUCT_MANAGE):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权查看回收站")

@@ -14,7 +14,7 @@ from app.core.pagination import finish_page
 from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.core.upload_read import MAX_IMAGE_BYTES, read_limited
 from app.database import get_db
-from app.deps import CurrentUser, require_permission
+from app.deps import CurrentUser, require_permission, require_product_recycle_bin_access
 from app.models import OperationLog, Product, ProductCostHistory, User
 from app.models.enums import OperationAction, UserRole
 from app.api.v1.product_categories import ensure_category
@@ -86,6 +86,7 @@ def list_products(
     #    ① 在端点索引的授权列里读得出来；② 不会再被漏抄/漏改；
     #    ③ 403 文案统一成入口那一份（原来这里是「无权访问」，更含糊）。
     current: Annotated[User, Depends(require_permission(Permission.ORDER_CREATE))],
+    _gate: None = Depends(require_product_recycle_bin_access),
     db: Session = Depends(get_db),
     include_inactive: bool = Query(
         False,
@@ -107,10 +108,6 @@ def list_products(
     rk = user_role_key(current)
     if include_inactive and rk not in (UserRole.DISPATCHER.value, UserRole.SHIPPER.value):
         include_inactive = False
-    # 回收站只有**能把它恢复回来的人**能看：恢复端点要 product:manage，这里用同一把尺子。
-    # ⛔ 不静默降级成「没有已删商品」—— 那会把「你没权限」说成「回收站是空的」（两句完全不同的结论）。
-    if (deleted_only or include_deleted) and not role_has_permission(rk, Permission.PRODUCT_MANAGE):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权查看回收站")
     if deleted_only:
         # ⛔ 回收站分支**不许**再套 is_active 过滤：删除那条路会强制 is_active=False
         #    （见 delete_product），套上去的结果是回收站恒为空 ——

@@ -11,7 +11,7 @@ from app.core.business_time import utc_now_naive
 from app.core.pagination import finish_page
 from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.database import get_db
-from app.deps import require_any_permission, CurrentUser, require_permission
+from app.deps import require_any_permission, require_roles, CurrentUser, require_permission
 from app.models import Ledger, LedgerExportJob, Order, User
 from app.models.enums import (
     CashFlowBizType,
@@ -1007,7 +1007,7 @@ def _receipt_push(db: Session, customer_id: int, order_ids: list[int]) -> None:
 @router.delete("/receipts/{receipt_id}", status_code=status.HTTP_204_NO_CONTENT)
 def cancel_receipt_endpoint(
     receipt_id: int,
-    current: CurrentUser,
+    current: User = Depends(require_roles(UserRole.DISPATCHER)),
     db: Session = Depends(get_db),
 ) -> Response:
     """**撤销**一笔客户收款（软删；可 POST /receipts/{id}/restore 原样放回）。
@@ -1026,8 +1026,6 @@ def cancel_receipt_endpoint(
     ⛔ 找不到流水就拒绝（400）：只软删收款单而钱没撤，账上就是"收款记录说没这笔、
        流水里还留着"，比不撤更糟。
     """
-    if user_role_key(current) != UserRole.DISPATCHER.value:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅派单员可操作")
     from app.models import ShipperReceipt
 
     r = db.scalar(select(ShipperReceipt).where(ShipperReceipt.id == receipt_id).with_for_update())
@@ -1120,7 +1118,7 @@ def _cancel_rolled_orders(db: Session, receipt_id: int) -> set[int]:
 @router.post("/receipts/{receipt_id}/restore", response_model=ShipperReceiptOut)
 def restore_receipt_endpoint(
     receipt_id: int,
-    current: CurrentUser,
+    current: User = Depends(require_roles(UserRole.DISPATCHER)),
     db: Session = Depends(get_db),
 ) -> ShipperReceiptOut:
     """**恢复**一笔被撤销的收款（四个落点原样放回）。三道门都在"改数"之前：
@@ -1131,8 +1129,6 @@ def restore_receipt_endpoint(
     ③ 订单进了回收站 / 已撤销 / 已退货 → 400 并说明原因：
        恢复一笔收款会把钱算在一张不算数的单上。
     """
-    if user_role_key(current) != UserRole.DISPATCHER.value:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅派单员可操作")
     from app.models import Customer, ShipperReceipt
 
     r = db.scalar(select(ShipperReceipt).where(ShipperReceipt.id == receipt_id).with_for_update())

@@ -32,6 +32,7 @@ ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).reso
 AND = ROOT / "android/app/src/main/java/com/tapmoay/sorders"
 UI = AND / "ui"
 PRODUCTS_API = ROOT / "backend/app/api/v1/products.py"
+DEPS_API = ROOT / "backend/app/deps.py"
 TEST = ROOT / "backend/tests/test_product_recycle_bin.py"
 APIS = AND / "data/remote/api/Apis.kt"
 REPO = AND / "data/repo/AppRepository.kt"
@@ -171,6 +172,7 @@ def main() -> int:
 
     ui_files = list(UI.rglob("*.kt"))
     api = read(PRODUCTS_API)
+    deps_api = read(DEPS_API)
     api_code = py_code(read(PRODUCTS_API))
     screen = read(SCREEN)
     screen_code = code(SCREEN)
@@ -207,10 +209,18 @@ def main() -> int:
          and count(r"include_deleted: bool = Query\(\s*False,", api_code) == 1)
     c.ok("两个参数都没被写进路由（查询参数 != 新端点）",
          count(r"@router\.(get|post|patch|delete)\([^)]*deleted", api_code) == 0)
+    # ⚠️ 2026-10-10 复核修正：这道门从路由函数体里搬进了依赖
+    #    （`app/deps.py::require_product_recycle_bin_access`）——`_tools/qa/_check_inline_role_gates.py`
+    #    对「已收敛」的 products.py 要求体内角色门槛恒为 0；**语义一字未动**：仍然只在
+    #    deleted_only/include_deleted 时要求 product:manage、仍然 403、仍然不静默降级。
     c.ok("回收站只有能恢复它的人能看（门 = 既有的 product:manage，403 而不是静默降级）",
-         bool(re.search(r"if \(deleted_only or include_deleted\) and not role_has_permission\(rk, Permission\.PRODUCT_MANAGE\):", api_code))
-         and "status.HTTP_403_FORBIDDEN" in api_code
-         and 'detail="无权查看回收站"' in api_code)
+         "require_product_recycle_bin_access" in api_code
+         and bool(re.search(r"_gate: None = Depends\(require_product_recycle_bin_access\)", api_code))
+         and not re.search(r"if \(deleted_only or include_deleted\) and not role_has_permission", api_code)
+         and bool(re.search(r"if not \(deleted_only or include_deleted\):", deps_api))
+         and "role_has_permission(user_role_key(current), Permission.PRODUCT_MANAGE)" in deps_api
+         and "status.HTTP_403_FORBIDDEN" in deps_api
+         and 'detail="无权查看回收站"' in deps_api)
     c.ok("include_inactive 的语义与那句描述一个字没动",
          "含已下架商品" in api
          and "if include_inactive and rk not in (UserRole.DISPATCHER.value, UserRole.SHIPPER.value):" in api_code)
