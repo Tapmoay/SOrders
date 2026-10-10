@@ -1007,7 +1007,7 @@ def _receipt_push(db: Session, customer_id: int, order_ids: list[int]) -> None:
 @router.delete("/receipts/{receipt_id}", status_code=status.HTTP_204_NO_CONTENT)
 def cancel_receipt_endpoint(
     receipt_id: int,
-    current: User = Depends(require_roles(UserRole.DISPATCHER)),
+    current: User = Depends(require_roles(UserRole.DISPATCHER, detail="仅派单员可操作")),
     db: Session = Depends(get_db),
 ) -> Response:
     """**撤销**一笔客户收款（软删；可 POST /receipts/{id}/restore 原样放回）。
@@ -1118,7 +1118,7 @@ def _cancel_rolled_orders(db: Session, receipt_id: int) -> set[int]:
 @router.post("/receipts/{receipt_id}/restore", response_model=ShipperReceiptOut)
 def restore_receipt_endpoint(
     receipt_id: int,
-    current: User = Depends(require_roles(UserRole.DISPATCHER)),
+    current: User = Depends(require_roles(UserRole.DISPATCHER, detail="仅派单员可操作")),
     db: Session = Depends(get_db),
 ) -> ShipperReceiptOut:
     """**恢复**一笔被撤销的收款（四个落点原样放回）。三道门都在"改数"之前：

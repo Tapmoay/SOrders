@@ -100,12 +100,18 @@ def get_current_user(
     return user
 
 
-def require_roles(*roles: UserRole):
+def require_roles(*roles: UserRole, detail: str = "当前角色无权执行此操作"):
+    """签名级角色门槛（写侧/角色专属端点用）。
+
+    `detail` 可换：默认那句是通用文案；对**本来就有专属文案**的老端点（例如「仅派单员可操作」），
+    挪成签名级门槛时把原话传进来 —— ⛔ 迁移不该顺手改用户看到的字（2026-10-10 复核修正）。
+    """
+
     def _inner(user: Annotated[User, Depends(get_current_user)]) -> User:
         uk = user_role_key(user)
         allowed = {r.value for r in roles}
         if uk not in allowed:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前角色无权执行此操作")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
         return user
 
     return _inner
