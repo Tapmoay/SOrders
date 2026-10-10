@@ -5,7 +5,7 @@
 这一单的判据是「接线型」的（某处必须有某个写法、某处不许再有某个写法；「从 expenses 取数」
 的清单由脚本自己扫出来）。接线型判据最典型的失效方式是**锚点悄悄失配**：过滤被删掉一行、
 软删被改成物理删、中文名被摘掉、恢复改成"按出参重建一条" —— 判据都必须当场红，而且红的
-必须是**那一条**判据（[!!] 后面那行），不是随便红一条。
+必须是**那一条**判据变红（片段要真的落在某个 [!!] 行里），不是随便红一条。
 
 ## 19 种破坏（每一种都必须让判据当场红，且报出对应那条标签）
 
@@ -313,13 +313,14 @@ def main() -> int:
                 print(f"  ❌ 注入失败：{why} —— {ex}")
                 continue
             code, out = run_check()
-            if code != 0 and ("[!!]   " + want) in out:
+            red_lines = [ln.strip() for ln in out.splitlines() if ln.startswith("  [!!]")]
+            # 片段必须落在**某一条真的报红**的判据行里（不是随便哪一行提到这几个字）
+            if code != 0 and any(want in ln for ln in red_lines):
                 print(f"  ✅ 红了：{why}")
             else:
                 bad += 1
-                flagged = [ln.strip() for ln in out.splitlines() if ln.startswith("  [!!]")]
                 print(f"  ❌ 没红 / 红错了判据：{why}")
-                print("     判据实际报的：" + ("；".join(flagged[:4]) if flagged else "（一条都没报）"))
+                print("     判据实际报的：" + ("；".join(red_lines[:4]) if red_lines else "（一条都没报）"))
     finally:
         sb.restore()
         unlock_reverse_verify()

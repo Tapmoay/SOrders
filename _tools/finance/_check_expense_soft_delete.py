@@ -181,6 +181,15 @@ def read_sites() -> list[tuple[str, str, bool]]:
     return rows
 
 
+def kt_live(src: str) -> str:
+    """去掉 Kotlin 的 `//` 行注释 —— **注释掉一个注解不算「这个入口还在」**。
+
+    反验⑫实测出来的假阳面：把 `@DELETE("expenses/{expenseId}")` 整行注释掉之后，
+    纯文本包含判定照样绿（那串字还在文件里），于是「客户端悄悄把撤销入口收起来」
+    这件事判据抓不住。Kotlin 侧这几条断言一律走这里。
+    """
+    return "\n".join(ln for ln in src.splitlines() if not ln.lstrip().startswith("//"))
+
 def block(src: str, marker: str, span: int = 4000) -> str:
     """从 marker 起切一段（到下一个顶层 class / @router 为止）—— 断言不要漫游整个文件。"""
     i = src.find(marker)
@@ -350,10 +359,13 @@ def main() -> int:
     c.ok('ExpenseDto 解析 is_deleted（默认 false）', '@SerialName("is_deleted")' in dto, "")
     c.ok("ExpenseDto 解析 deleted_at", '@SerialName("deleted_at")' in dto, "")
     apis = read(APIS)
-    c.ok('Apis.kt 有 @DELETE("expenses/{expenseId}")', '@DELETE("expenses/{expenseId}")' in apis, "")
+    live_apis = kt_live(apis)  # 注释掉的行不算入口（反验⑫就是这么弄坏的）
+    c.ok('Apis.kt 有 @DELETE("expenses/{expenseId}")',
+         '@DELETE("expenses/{expenseId}")' in live_apis, "")
     c.ok('Apis.kt 有 @POST("expenses/{expenseId}/restore")',
-         '@POST("expenses/{expenseId}/restore")' in apis, "")
-    c.ok('listExpenses 带 deleted_only 查询参数', '@Query("deleted_only")' in apis, "")
+         '@POST("expenses/{expenseId}/restore")' in live_apis, "")
+    c.ok('listExpenses 带 deleted_only 查询参数',
+         '@Query("deleted_only")' in live_apis, "")
     repo = read(REPO)
     c.ok("AppRepository 有 deleteExpense / restoreExpense",
          "fun deleteExpense(" in repo and "fun restoreExpense(" in repo, "")
