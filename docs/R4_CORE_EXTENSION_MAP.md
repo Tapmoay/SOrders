@@ -177,7 +177,7 @@ id: identity
 中文名: 身份（谁是谁）
 class: CORE
 domain: identity
-owns: users, usage_counters, user_categories
+owns: users, usage_counters, user_categories, account_devices
 contract: -
 why: 账号、角色、令牌版本是「谁」这件事的唯一事实源；权限判据只认库里的角色（判定规则 1）
 impl: services/auth_service.py, services/usage_service.py

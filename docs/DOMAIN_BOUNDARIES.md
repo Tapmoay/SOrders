@@ -105,8 +105,8 @@ pure_consumer: yes|no                 ← 只有 yes 才允许 owns 为空
 name: identity
 中文名: 身份与授权域
 为什么是它自己的域: 账号、角色、令牌版本是「谁」这件事的唯一事实源；权限判据只认库里的角色，所以这一域的写入点必须少而显眼。
-owns: users, usage_counters, user_categories
-commands: services.auth_service:issue_token, services.auth_service:bump_token_version, services.auth_service:revoke_tokens_and_sockets, services.login_guard:note_failure, services.login_guard:note_success, services.usage_service:record_usage
+owns: users, usage_counters, user_categories, account_devices
+commands: services.auth_service:issue_token, services.auth_service:bump_token_version, services.auth_service:revoke_tokens_and_sockets, services.login_guard:note_failure, services.login_guard:note_success, services.usage_service:record_usage, services.device_service:bind_device, services.device_service:unbind, services.device_service:unbind_all
 reads: -
 events: -
 pure_consumer: no
@@ -119,6 +119,12 @@ pure_consumer: no
 所以它在本域（与 `place_categories` 跟着 `shipper_locations` 去 place 域是同一条规矩）。
 ⚠️ 它与 `vehicle_categories` 是**两张独立的名册**：各管各的列、各管各的页面，⛔ 不合并成一张带 `kind` 的表
 （两边的级联目标与页面都不同，合并之后每次写都要多带一个 kind 参数，错一次就串类）。
+
+**为什么 `account_devices` 也在这里**（FEAT-0018，2026-10-11）：一行就是一次「这个账号用哪台手机登录」
+（`user_id` ↔ `device_id`，解绑只写 `unbound_at` 不删行，所以一台旧手机换下来仍可回查「谁什么时候用过它」）。
+它与 `usage_counters` 是同一条理由：**这张表是「这个人」的属性**，换到别的域都会变成一张需要反查用户的外键表。
+写入路径是 `backend/app/services/device_service.py`（`bind_device` / `unbind` / `unbind_all`，
+登录登记与「解冻」分别从 `api/v1/auth.py` 与 `api/v1/users.py` 进来），所以它连同三条命令一起登记在本域。
 
 **被谁读**：几乎所有域。所以它是这张地图最底层的域，⛔ 它不许反过来读任何业务表（`reads: -` 不是偷懒，是声明）。
 
