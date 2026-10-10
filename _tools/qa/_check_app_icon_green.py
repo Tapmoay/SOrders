@@ -13,6 +13,14 @@
 **拿 Color.kt 的现值去对资源里的字面量**，而不是把现值再抄一遍到判据里——
 抄一遍的话，下一次换色时判据和资源会一起过期，等于没判据。
 
+R4-BOUNDARY-JUSTIFICATION: 这一条**只能**靠机器判据，扩展点/边界都解决不了它 ——
+颜色在这里跨了两种语言与两种构建阶段：真源是 Kotlin 的 `Color.kt`，而图标与启动画面是
+`res/drawable/*.xml`、`res/values{,-v31}/*.xml` 里的**手抄十六进制字面量**，AAPT/编译器
+不会把两边对上，类型系统也管不到资源里的字符串；`colorPrimary` 之类的主题属性只覆盖
+Material 组件取色，覆盖不到 launcher 图标那两层 vector。于是「换色时只改了 App、忘了图标」
+在编译、单测、真机点按里**全都不报错**，只有用户在手机桌面上看得出来（CHG-0091 → CHG-0108
+就是这么发生的）。所以必须有一条判据把「资源现值 == Color.kt 现值」钉住。
+
 ## 检查什么
 
 1. 图标两层 + 兜底色 + 启动画面底色，四处都等于 `Color.kt` 的现值；
@@ -24,14 +32,29 @@
 6. 清单仍然指向 `@mipmap/ic_launcher` 与 `@style/Theme.SOrders`；
 7. 通知栏小图标仍在用 `ic_stat_order`（那是 24dp 单色剪影，**不能**换成
    `@mipmap/ic_launcher`——状态栏只取 alpha，自适应图标会显示成一个纯白方块）。
+
+## R4-BOUNDARY-JUSTIFICATION: 为什么代码边界解决不了这件事
+
+这一单的病**不在代码逻辑里**：`ic_launcher_background.xml` / `ic_launcher_foreground.xml`
+里的十六进制是**手抄**的（不是读 `Color.kt` 的 token），编译器、类型系统、契约层都看不出
+「它跟 `Color.kt` 的 `PrimaryContainer` 已经不是同一个值了」——两处都是合法的颜色字面量，
+编译一样过、单测一样绿（本单跑 `:app:testEmuDebugUnitTest` 是 1507 条 0 失败）。
+资源文件的形状里也没有任何一处能把「语义色」与「抄下来的旧值」分开。
+
+启动画面那一半更难：它只在 **API 31+ 真机冷启动的那一瞬**才存在，
+`values-v31/themes.xml` 里那两条属性不参与任何编译期或运行期校验，连截图都要靠
+「冷启动后连拍 14 帧再挑出那一帧」才拿得到。所以这件事没有边界可下沉，只能由一条静态判据
+把「资源的字面量 == `Color.kt` 的现值」钉住 —— 并且必须由反向验证证明它真的会红
+（12 条注入里第 ⑧ 条当场抓出过判据自己的一处假绿：`@mipmap/ic_launcher` 被自己的
+KDoc 满足了）。
 """
 
-import sys
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import io
 import re
 import sys
 from pathlib import Path
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = Path(__file__).resolve().parents[2]
 RES = ROOT / "android/app/src/main/res"
