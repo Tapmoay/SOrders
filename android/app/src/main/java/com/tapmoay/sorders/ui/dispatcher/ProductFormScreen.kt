@@ -321,7 +321,10 @@ fun ProductFormScreen(
                         }
                     }
                     Spacer(Modifier.height(6.dp))
-                    Hint(
+                    // ⛔ 这一句是**删除警告**（数据/风险类），不是可开关的解释句 ⇒ 走 Text。
+                    //    判据 _tools/qa/_check_hints.py 把它归类成 DATA：Hint 只装解释句，
+                    //    关掉提示的人不该顺手把「删除撤不回来」这条警告也关掉（CHG-0106 收尾）。
+                    Text(
                         "删除是软删：商品从列表里消失，但库存流水、订单行、账本都原样留着 —— 界面上撤不回来，误删了重新建一个即可（商品重建成本低）。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline,
