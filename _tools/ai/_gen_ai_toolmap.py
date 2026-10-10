@@ -155,6 +155,13 @@ MODULE_CN: dict[str, str] = {
     # ⛔ 这个模块**不给模型读**（读侧理由在 `_read_coverage.py` 的 EXCLUDED 里）：中文名在这里
     #    只为让"模块 → 中文名"这张表完整，`--check` 才不会为它报"缺中文名"。
     "ai_operations": "AI 操作流水",
+    # 设备登记（FEAT-0018，2026-10-11）：它是 App 首次启动拿本机 install_id 去换一份服务端签名
+    # 那一次（`POST /api/v1/devices/register`），**不是 App 里的一页** —— 所以这个中文名不是
+    # "入口名"，只为让"模块 → 中文名"这张表完整（同上面 `ai_operations` 那条的理由），
+    # `--check` 才不会为它一直报"缺中文名"（"永远红的检查 = 没有检查"）。
+    # ⛔ 读写两侧都不给模型：理由分别在 `_read_coverage.py` / `_write_coverage.py` 的 EXCLUDED 里
+    #    （那是"这台手机自己的身份"，模型没有"申请一台设备的签名"这种动作）。
+    "devices": "设备登记",
 }
 
 ROUTE_RE = re.compile(

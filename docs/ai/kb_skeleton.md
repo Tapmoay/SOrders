@@ -31,6 +31,7 @@
 | `logout` | 写 | `POST /api/v1/auth/logout` | 登出：**服务端**把这个账号已发出的令牌全部作废（`token_version` +1）+ 断开长连接。 |  |
 | `login_json` | 写 | `POST /api/v1/auth/login` |  |  |
 | `login_form` | 写 | `POST /api/v1/auth/token` | OAuth2 兼容：username 字段填手机号。 |  |
+| `register` | 写 | `POST /api/v1/auth/register` | 自助注册：手机号 + 密码 → 直接返回 token（注册完就进 App，不用再登一次）。 |  |
 
 ## 现金流水（`cash_flows`）
 
@@ -57,6 +58,12 @@
 | `list_customers` | 只读 | `GET /api/v1/customers` |  |  |
 | `create_customer` | 写 | `POST /api/v1/customers` |  |  |
 | `merge_customers` | 写 | `POST /api/v1/customers/merge` |  |  |
+
+## 设备登记（`devices`）
+
+| 动作 | 读/写 | 接口 | 它做什么（代码里的说明） | 用户可能这么说（← 人工填写） |
+|---|---|---|---|---|
+| `register_device` | 写 | `POST /api/v1/devices/register` | 用 install_id 换一份设备签名。**公开端点**：不需要 token，也不建任何数据。 |  |
 
 ## 定价只读诊断（`diagnostics`）
 
@@ -112,6 +119,8 @@
 |---|---|---|---|---|
 | `list_expenses` | 只读 | `GET /api/v1/expenses` |  |  |
 | `create_expense` | 写 | `POST /api/v1/expenses` |  |  |
+| `cancel_expense` | 写 | `DELETE /api/v1/expenses/{expense_id}` | **撤销**一笔开销（软删；可 `POST /expenses/{id}/restore` 原样放回）。 |  |
+| `restore_expense` | 写 | `POST /api/v1/expenses/{expense_id}/restore` | **恢复**一笔被撤销的开销（开销单 + 它写下的流水，两处原样放回）。 |  |
 
 ## AI 附件解析（`files`）
 
@@ -182,7 +191,9 @@
 | `get_export_job` | 只读 | `GET /api/v1/ledger/export-jobs/{job_id}` |  |  |
 | `download_export_job` | 只读 | `GET /api/v1/ledger/export-jobs/{job_id}/download` | 下载导出的账本文件（**带鉴权**）。 |  |
 | `create_receipt_endpoint` | 写 | `POST /api/v1/ledger/receipts` | 客户收款单（逐单核销默认）：绑定订单并标记 paid=1；生成资金流水。 |  |
-| `list_receipts` | 只读 | `GET /api/v1/ledger/receipts` |  |  |
+| `list_receipts` | 只读 | `GET /api/v1/ledger/receipts` | 收款记录（默认**不含**已撤销的）。 |  |
+| `cancel_receipt_endpoint` | 写 | `DELETE /api/v1/ledger/receipts/{receipt_id}` | **撤销**一笔客户收款（软删；可 POST /receipts/{id}/restore 原样放回）。 |  |
+| `restore_receipt_endpoint` | 写 | `POST /api/v1/ledger/receipts/{receipt_id}/restore` | **恢复**一笔被撤销的收款（四个落点原样放回）。三道门都在"改数"之前： |  |
 
 ## 消息通知（`notifications`）
 
@@ -497,6 +508,9 @@
 | `swap_shipper_driver` | 写 | `POST /api/v1/users/{user_id}/swap-shipper-driver` | 货主 ↔ 司机身份切换（派单员操作）。派单员账号不可切换。 |  |
 | `delete_user` | 写 | `DELETE /api/v1/users/{user_id}` |  |  |
 | `restore_user` | 写 | `POST /api/v1/users/{user_id}/restore` | 把删掉的账号恢复回来（`DELETE /{id}` 的逆操作）。 |  |
+| `list_user_devices` | 只读 | `GET /api/v1/users/{user_id}/devices` | 这个账号绑过哪些设备。**含已经解冻的历史**（`active=false`）。 |  |
+| `unbind_user_device` | 写 | `POST /api/v1/users/{user_id}/devices/{binding_id}/unbind` | 解冻**一台**设备（用户 2026-10-11 拍板：「派单员在账号管理里可以手动解冻（就在编辑当中）」）。 |  |
+| `unbind_all_user_devices` | 写 | `POST /api/v1/users/{user_id}/devices/unbind-all` | 把这个账号**所有还没解冻**的设备一次解开 —— "司机换手机"最常用的一键。 |  |
 
 ## 车辆分类（`vehicle_categories`）
 
