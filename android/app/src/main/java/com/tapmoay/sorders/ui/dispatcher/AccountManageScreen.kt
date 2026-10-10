@@ -688,8 +688,14 @@ private fun AccountSecretRow(
  */
 private fun labelColors(u: UserDto): Pair<Color, Color> = when {
     u.role == "dispatcher" -> Color(0xFFD4EAFF) to Color(0xFF004CDB)
-    // 三种司机同一个绿（浅底 0xFFDCF2E6 / 深字 0xFF0B5C3B）：车型靠文字区分，不靠颜色。
-    u.role == "driver" -> Color(0xFFDCF2E6) to Color(0xFF0B5C3B)
+    // 三种司机**要能一眼区分**，但每一对都必须是**同一色系的浅底 + 深字**（2026-10-11 用户第二次口径：
+    // 「挂车和大车司机都要做区别啊，不能用一样的颜色……那个字和他的底部背景的那个颜色要一致」）：
+    //   挂车 = 绿（浅绿底 / 深绿字）、大车 = 淡黄（浅黄底 / 深黄字）、小车 = 淡青（浅青底 / 深青字）。
+    // ⛔ 红色只属于「异常 / 危险」，不许拿来当正常角色的字色（上一版挂车是琥珀底 + 纯红字，用户当场点出来了）。
+    u.role == "driver" && u.vehicleType == "trailer" -> Color(0xFFDCF2E6) to Color(0xFF0B5C3B)
+    u.role == "driver" && u.vehicleType == "small" -> Color(0xFFD7F9FD) to Color(0xFF00646A)
+    // 大车（以及没写车型的老账号）走淡黄那一套 —— 与 `AccountRoleKind.fromDto` 的兜底一致。
+    u.role == "driver" -> Color(0xFFEFF6AE) to Color(0xFF6B6400)
     u.isMember -> Color(0xFFFFF1B2) to Color(0xFF805700)
     else -> Color(0xFFCAF5FF) to Color(0xFF005D89)
 }
