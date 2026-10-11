@@ -31,6 +31,49 @@
 
 ## 进行中
 
+### [2026-10-11 → ⏳ 进行中] 会话：**CHG-0118 所有账号的初始密码默认是 123321（AI 直接建号、不问密码）**（DSH `cf32385d-ab02-4b7f-96b2-a2d495db871d`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径`（2026-10-11 逐字）：「我们的**所有账号初始密码默认是 123321**，这是**规定死的**。**AI 也要知道** —— 比如说我叫它创建一个账号，它**直接帮我创建好、不要问我密码是什么**；当然也可以，它也可以问我"初始密码要按默认的走吗"。这个有个要改一下，把它改一下。」
+
+`改哪些文件`：`backend/app/core/security.py`（新增 `DEFAULT_INITIAL_PASSWORD = "123321"` —— 值的唯一一处）、`backend/app/schemas/user.py`（`UserCreate.password` 必填 → 默认引用常量）、`backend/app/api/v1/users.py`（L175 上方注释：默认值不在这里再写一遍）、`backend/tests/test_default_initial_password.py`（新，6 例）、`android/app/src/main/java/com/tapmoay/sorders/core/AccountRules.kt`（新：App 侧唯一常量 + 卡片那句话 + `passwordDraft(isEdit)`）、`ai/AiWriteMasterData.kt`（users.create：密码参数 `required = false`、说明与卡片写明默认值、执行 `ifBlank` 落默认）、`ai/AiAgentLoop.kt`（提示词加"例外：建账号不要追问密码；改密码仍然要问"）、`ui/dispatcher/AccountManageViewModel.kt`、`ui/dispatcher/UsersManageViewModel.kt`（openCreate 预填默认、openEdit 留空）、`ui/dispatcher/AccountManageScreen.kt`（占位"默认 123321，可改"）、`android/app/src/test/java/com/tapmoay/sorders/core/AccountRulesTest.kt`（新，3 例）、`android/app/src/test/java/com/tapmoay/sorders/ai/AiWriteTest.kt`（替换 1 条过时断言 + 新增 3 条）、`_tools/qa/_check_default_password.py`（新）、`_tools/qa/_reverse_verify_default_password.py`（新，11 条注入）、`docs/ACCOUNT_RULES.md`（新）、`docs/changes/CHG-0118.md`（新）、`docs/changes/README.md`（一行）、本页。
+
+**明确不碰**：⛔ `android/app/src/main/res/**`（CHG-0116 会话刚改完图标底色）；⛔ `ui/dispatcher/Vehicle*.kt` / `backend/app/services/inspection_due.py` / `message_producers.py`（CHG-0115 会话在做）；⛔ `ui/common/ContactPickerSheet.kt`（CHG-0117 会话在做）；⛔ `ui/messages/**`；⛔ `ai/AiAttachment*` / `AiVision.kt`（FEAT-0024 图片上传会话在做）；⛔ `ai/AiWriteService.kt`（**核心区**：写闸门 `preview → 确认卡 → execute` 的语义一个字不动，`createUser` 的签名也不改 —— 默认值在 CRUD 处理器里算）；⛔ `schemas/user.py` 里 `UserUpdate.password` 的"改密码"语义；⛔ `_tools/qa/_check_secrets.py`（不许为过关放宽任何一条判据）；⛔ 不构建 APK、不部署、不发布、**不 push**。
+
+`核心改动`：**无** —— 为什么：改动文件里没有一个是 `_tools/qa/_core_files.txt` 里的（钱 / 账本 / 订单生命周期 / 权限 / 审计 / 迁移一个都没碰；`AiWriteService.kt` 是 Android 侧唯一核心文件，本次未改签名与闸门）。
+
+- 状态：⏳ **进行中**（2026-10-11；代码 ＋ 单测 ＋ 判据 ＋ 反验 ＋ 文书收尾中）。
+
+### [2026-10-11 → ✅ 已完成（App 代码 / 单测 / 判据 / 反验 / 文书；⛔ 未构建 APK、未部署、未 push）] 会话：**CHG-0117 「选择联系人」弹层加一项「我自己」：派单员本人也能当收货联系人**（DSH `f547b254-a5c0-4061-8ec9-e4a8870243b6`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径`（2026-10-11 逐字）：「还有一个就是线路，他不是要选择联系人吗？**收货联系人**——这个联系人**可以选择派单员本人**啊。」
+
+`改哪些文件`：`android/app/src/main/java/com/tapmoay/sorders/ui/common/SelfContact.kt`（新：**全 App 唯一一处**把当前登录人拼成一条可选联系人 ＋ 取数；拿不到姓名或电话就返回 null）、`ui/common/ContactPickerSheet.kt`（可选参数 `selfContact` ＋ 「本人」小标签 ＋ 合并后统一过滤）、`ui/order/OrderEditInline.kt`（`OrderEditHost` 加 `val selfContact` ＋ 挂弹层时传）、`ui/order/OrderDetailViewModel.kt`（init 那次 `me()` 同时喂 `isMemberShipper` 与 `selfContact`）、`ui/shipper/AddressScreen.kt`（线路 / 地点表单那条，用户点名场景）、`ui/shipper/AddressViewModel.kt`（`openContactPickerFor` 与名册同一次取自己）、`ui/shipper/OrderCreateScreen.kt`、`ui/shipper/OrderCreateViewModel.kt`（init 那次 `me()` 复用，⚠️ 代理下单模式也要有）、`android/app/src/test/java/com/tapmoay/sorders/ui/common/SelfContactTest.kt`（新）、`_tools/qa/_check_contact_picker_self.py`（新）、`_tools/qa/_reverse_verify_contact_picker_self.py`（新）、`docs/changes/CHG-0117.md`（新）、`docs/changes/README.md`（一行）、本页。
+
+**明确不碰**：⛔ `backend/**` 一个文件都不改（这是纯客户端取数 ＋ 展示，⛔ 不写任何后端数据、不新建联系人）；⛔ `android/app/src/main/res/**`（CHG-0116 会话刚改完图标底色）；⛔ `backend/app/services/inspection_due.py` / `message_producers.py` / `ui/dispatcher/Vehicle*.kt`（CHG-0115 会话在做）；⛔ `ui/ai/*`；⛔ `TokenStore.Session` 的形状（会话里本来就没有 phone，改它要动登录链路）；⛔ 筛选 / 搜索的语义（仍是 `core/UserSearch.matches`，只是候选里多了「我自己」这一行）；⛔ 不构建 APK、不部署、不发布、**不 push**。
+
+`核心改动`：**无** —— 为什么：改动全在 Android 的 `ui/common`、`ui/order`、`ui/shipper` 与判据 / 文书里，没有一个是 `_tools/qa/_core_files.txt` 里的文件（钱 / 账本 / 订单生命周期 / 权限 / 审计 / 迁移一个都没碰）。
+
+- 状态：✅ **已完成**（2026-10-11）。
+- `六格`：
+  - **Changed**：新增 `ui/common/SelfContact.kt`（「把当前登录人拼成一条可选联系人」与「去哪儿取姓名电话」各自只有一处）；`ui/common/ContactPickerSheet.kt` 多一个可选具名参数 `selfContact`（固定最前 ＋ 「本人」小标签；过滤仍是原来那一行 `UserSearch.matches`）；三个调用方与其 VM 各接一行（`OrderEditHost.selfContact`；订单详情那次 `/users/me` 与 `is_member` 一次两用；代理下单模式也有）；单测 `SelfContactTest`（10 例）。
+  - **Preserved**：`backend/**` 零改动；联系人名册；`core/UserSearch.kt` 是唯一的按人搜索实现；`TokenStore.Session` 形状；订单收货人快照语义；三个调用点原有参数与行为。
+  - **Evidence**：`_tools/qa/_check_contact_picker_self.py` 九层 **95 项**全过（EXIT=0）；`_tools/qa/_reverse_verify_contact_picker_self.py` **6/6 注入全被抓 ＋ 4 个被碰文件逐字节还原**（EXIT=0）；`gradle :app:compilePhoneDebugKotlin` **BUILD SUCCESSFUL in 29s**；收尾复跑 `_check_contact_binding.py` / `_check_user_search.py`（33 项）/ `_check_adaptive_layout.py`（41 项全绿）/ `_check_dev_spec.py`（5 项）/ `_check_tool_scripts.py`（709 脚本）/ `_check_inline_role_gates.py`（4 组）全部 exit=0；提交 `89755fc6` ＋ 本笔。
+  - **Known Limitations**：⚠️ 单测那一步当次没跑起来 —— `:app:compilePhoneDebugKotlin` 被**别的会话**未提交的 `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/AccountManageScreen.kt:766`（`e: Unresolved reference 'AccountRules'`）挡住（已重试 4 次、每次间隔 ≥90 秒；本单代码在 14:0x 那次编译里是 BUILD SUCCESSFUL）；⚠️ 真机截图同样没做成（无模拟器在线 ＋ 同一个外来错误挡住 `assemble`）；「我自己」不带分类与备注（后端没有这条记录），且与用户自己存过的同号联系人会**同时出现**（故意不去重）。
+  - **Rollback**：`git revert` 本事项两笔提交（零迁移、零数据，回滚即回到今天的样子）。
+  - **Historical Data Impact**：无 —— 订单收货人一直是快照文本，历史订单不因这一行的出现或消失而改变解释。
+
+### [2026-10-11 → ⏳ 进行中] 会话：**CHG-0115 车辆年检提醒改成按交规提前（提前 3 个月 warn / 提前 1 个月 danger / 逾期兜底）**（DSH `352ec363-2301-4c4e-a57f-c1c659ecc0a9`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径`（2026-10-11 逐字）：「这个车辆年检是**不能逾期**的。意思就是说，我们不能等已经到了年检期、或者说年检期过了 —— 这是不可能的，因为**一旦过了的话那车子是不能上路的**。我们按照我们的交规来提醒，我们的交规是大概在**一个月，还是三个月前**就会有提醒的。」
+
+`改哪些文件`：`backend/app/services/inspection_due.py`（`INSPECTION_DUE_SOON_DAYS` 30→**90**、新增 `INSPECTION_URGENT_DAYS = 30`；`inspection_kind` 从两档变三档：`vehicle.inspection_due` / **`vehicle.inspection_urgent`** / `vehicle.inspection_overdue`——三档的**分档仍然只有这一处**）、`backend/app/services/message_producers.py`（`notify_inspection` 三套文案；`scan_inspection_due` 返回 `(临期, 紧急, 逾期)` 三个计数；`run_daily_scan` 七键→**八键**；`PRODUCED` 十一类）、`backend/app/services/message_center.py`（`vehicle.inspection_urgent` = danger ＋ 它的固定新闻词；`vehicle.inspection_overdue` 的新闻词「已逾期」→「已过期」随文案走）、`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleInspection.kt`（`INSPECTION_WARN_DAYS = 30L` → `INSPECTION_DUE_SOON_DAYS = 90L` ＋ `INSPECTION_URGENT_DAYS = 30L`，`inspectionRisk` 四档）、`ui/messages/MessageGrading.kt`（`VEHICLE_TYPES` 加 `vehicle.inspection_urgent`）、`backend/tests/test_inspection_due.py`、`backend/tests/test_message_producers.py`、`android/app/src/test/java/com/tapmoay/sorders/ui/dispatcher/VehicleInspectionTest.kt`、`.../ui/messages/MessageGradingTest.kt`、`_tools/qa/_check_inspection_and_near_low.py`、`_tools/qa/_reverse_verify_inspection_and_near_low.py`、`_tools/qa/_check_vehicle_inspection_ui.py`、`_tools/qa/_reverse_verify_vehicle_inspection_ui.py`、`_tools/qa/_check_message_producers.py`、`_tools/qa/_check_notification_severity.py`、`docs/MESSAGE_CARD_DESIGN.md`（§三/§六）、`docs/changes/CHG-0115.md`（新）、`docs/changes/README.md`、本页。
+
+**明确不碰**：⛔ `android/app/src/main/res/**`（CHG-0116 会话正在改图标与启动画面底色）；⛔ 别的会话未提交的 `ui/ai/*`；⛔ 迁移（**本单零结构变更、零回填** —— 年检日期是派生量，改的只是分档与文案）；⛔ 不构建 APK、不部署生产、不发布；⛔ 本单**不 push**（父会话统一推）。
+
+`核心改动`：**无** —— 为什么：`backend/app/services/inspection_due.py` / `message_producers.py` / `message_center.py` 与 `ui/**` 都不在 `_tools/qa/_core_files.txt` 里（钱/账本/订单生命周期/权限/审计/迁移一个都没碰；`schema_bootstrap` 一个字未动）。
+
+- 状态：⏳ **进行中**（2026-10-11；代码 ＋ 判据 ＋ 反验 ＋ 单测 ＋ 文书收尾中）。
+
 ### [2026-10-11 → ⏳ 进行中] 会话：**CHG-0116 桌面图标与启动画面底色改纯白**（DSH session-bd8fe093）
 
 - 用户口径（逐字）：「桌面那个图标……图案颜色没关系，但是那个背景图啊，是白底啊，不要是有一点绿了，不要带一点绿，白底就可以了。我启动的那个界面也是一样啊，背景不要带点绿。」
@@ -7110,6 +7153,7 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 | 时间 | 会话 | 文件 | 改了什么（一句话） |
 | --- | --- | --- | --- |
+| 2026-10-11 14:2x | **CHG-0115 车辆年检提前提醒**（我，子会话 `352ec363-2301-4c4e-a57f-c1c659ecc0a9`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`） | `docs/changes/README.md`（**登记簿**，多会话共写）＋ `docs/AI_WORK_CLAIM.md`（本页）＋ `docs/MESSAGE_CARD_DESIGN.md` | `README.md` 在 GOV-0022 行之后**追加我这一行**（CHG-0115），本页在「进行中」顶部追加我的声明块 —— ⚠️ **同一笔提交会一并带上 CHG-0117 会话已经写在这两个文件里的追加内容**（我只做追加式改动、没删改任何人的行；`docs/changes/CHG-0117.md` 当时已在工作区里，所以登记簿对账是绿的）；`MESSAGE_CARD_DESIGN.md` 的改动**全部是我这一单的**（§三 判定表四行 ＋ §六 第 4 条一段） |
 | 2026-10-11 03:0x | **FEAT-0019 消息卡片分级与深链（App 侧）**（我，子会话 `0b82f608-747c-4efd-ab8e-25618044f2ef`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`） | `_tools/qa/_check_inventory_purchase_merge.py`（CHG-0073 的判据，多会话共读的静态判据资产） | 只松一处签名断言：`fun InventoryScreen(` 的参数表末尾允许**可选**的 `focusProductId: Long = 0L`（FEAT-0019 从消息中心点库存预警要定位到那个商品）。⛔ 其余断言一字未动；老入口不传这个参数、行为不变。 |
 | 2026-10-11 03:0x | **FEAT-0019（App 侧）**（我，`0b82f608`） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（**生成物**，唯一作者是脚本） | 本单改了 `ui/nav/Routes.kt` / `ui/nav/NavGraph.kt` / `ui/dispatcher/InventoryScreen.kt`（加行 ⇒ 行号漂移）⇒ 按脚本自己印的修法重跑 `python _tools/qa/_hint_inventory.py --md`。 |
 | 2026-10-11 03:0x | **FEAT-0019（App 侧）**（我，`0b82f608`） | `android/.../ui/dispatcher/InventoryScreen.kt`、`ui/nav/Routes.kt`、`ui/nav/NavGraph.kt`、`ui/home/RoleHomeScreen.kt`、`data/remote/dto/Dtos.kt`（共享文件） | 一律**追加式**：库存页只加可选参数 `focusProductId: Long = 0L` ＋ 聚焦徽章；`Routes` 只加 `inventory(focusProductId)`（与退货那两条共用 `withFocus`）；`NavGraph` 库存那条路由收 `?focus={focusId}`；`RoleHomeScreen` 只把 `onOpenOrder/onOpenReturnRequest` 并成一个 `onOpenRoute`；`Dtos.NotificationDto` 只加 `severity: String? = null`。 |
