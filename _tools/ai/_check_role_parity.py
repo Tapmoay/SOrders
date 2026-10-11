@@ -412,6 +412,109 @@ _BRANCH_KEYS = re.compile(r'((?:"[a-z_]+"\s*,\s*)*"[a-z_]+")\s*->')
 PARAM_HANDLER_PAIRS: list[int] = [0]
 
 
+#: `AiWriteImage.Kind` 的枚举项声明：`PRODUCT("product", "product_id", …)`（首个字符串 = 资源键）。
+_KIND_ITEM = re.compile(r'(?m)^\s{8}([A-Z][A-Z0-9_]*)\(\s*"([a-z_]+)"')
+
+#: 通用读回器的**接收者**（键不是字面量那一支）：`kind.resource` / `kind`。
+_SNAPSHOT_RECV = re.compile(r"\s*([A-Za-z_]\w*)(?:\.(\w+))?\s*,")
+
+#: 目录文档里那条「后台最多放行到哪」的规则行（写法只有一处，见 `_gen_ai_read_catalog.DOC_RULE_RE`）。
+DOC_RULE_RE = re.compile(r"最多读到这里：[^\n]*")
+
+
+def kind_res_from_source() -> tuple[str, set[str], dict[str, set[str]]]:
+    """`AiWriteImage.Kind` 的**资源键字段名 / 全部可能的键 / 枚举项→键**三个事实。
+
+    为什么需要它：图片三条动作写的是 `ds.snapshot(kind.resource, …)` —— 键**不是字面量**，
+    而 [ds_calls] 只认 `ds.snapshot("字面量", …)`。认不出来的后果不是"少算一步"，而是
+    **退回宽口径 `snapshot`**（宁可多报不漏报），于是一条"给地址加图"被算成"读了全部 30 个
+    资源" ⇒ 货主那边一次报出 16 条**假越权**（真正的安全边界被这一片噪声淹掉）。
+
+    键只有一处定义（`AiWriteImage.kt` 的 Kind 构造参数）⇒ 这里也**只从那一处读**，
+    不另写一张表：抄一份的下场是 Kind 加了第四类而这张表没跟上，那时又是同一片假越权。
+    """
+    src = strip_kt_comments((AI / "AiWriteImage.kt").read_text(encoding="utf-8"))
+    m = re.search(r"enum\s+class\s+Kind\s*\(([\s\S]*?)\)\s*\{", src)
+    if not m:
+        raise SystemExit("❌ 找不到 `AiWriteImage.Kind` 的枚举声明 —— 图片动作的资源键没处可读了")
+    ctor = re.findall(r"val\s+(\w+)\s*:", m.group(1))
+    if not ctor or ctor[0] != "resource":
+        raise SystemExit(f"❌ `AiWriteImage.Kind` 的第一个构造参数不再是 resource（现在是 {ctor[:1]}）")
+    body = src[m.end():]
+    if "\n    ;" in body:
+        body = body[: body.find("\n    ;")]
+    items: dict[str, set[str]] = {}
+    for km in _KIND_ITEM.finditer(body):
+        items.setdefault(km.group(1), set()).add(km.group(2))
+    if len(items) < 3:
+        raise SystemExit(f"❌ 只从 Kind 里认出 {len(items)} 个枚举项（应当 >= 3：商品 / 地点 / 地址）")
+    keys = {k for ks in items.values() for k in ks}
+    return ctor[0], keys, items
+
+
+#: 反空转计数器：注册点上认出来的 `(处理器类, 动作常量)` 对（[param_handlers] 写，main 里断言）。
+PARAM_HANDLER_CALLS: set[tuple[str, str]] = set()
+
+#: 精确解析不了的 `ds.snapshot(...)` 调用点（给人看的 `file:line: 那一行代码`）。必须为 0 ——
+#: 每一处都是"这个动作读了全部资源"的宽口径回退，也就是一条以上的假越权（见 [ds_calls]）。
+UNRESOLVED_SNAPSHOTS: list[str] = []
+
+
+def ds_calls(
+    text: str,
+    kind_res: tuple[str, set[str], dict[str, set[str]], set[str] | None] | None = None,
+    where: str = "",
+) -> set[str]:
+    """一段（处理器/动作）代码里调到的 ds 函数名；`ds.snapshot("order", id)` 记成 `snapshot@order`。
+
+    ⚠️ **为什么 snapshot 要单列**：它是**一个** ds 函数，但按资源键分派到 30+ 个 repo 方法
+    （`AiWriteDataSource.kt` 那个 `when (resourceKey)`）。整块算给谁都等于说"这个动作读了
+    全部 30 个资源"，实测把订单转移算成 35 个端点、改联系方式算成 33 个 —— 于是判据报出一片
+    **假越权**（"派单员能动货主自己的账"），而这份判据自己的教条是「假越权比不报更糟」。
+
+    键**不是**字面量时分三步（2026-10-11 GOV-0024 补的第 ② 步）：
+    ① 字面量键 → `snapshot@键`（精确）；
+    ② **接收者是个已知的资源键变量**（`kind.resource`，键表见 [kind_res_from_source]）→ 按那个
+       变量的全部可能取值展开成 `snapshot@product` / `snapshot@location` / …（**仍然是精确的**：
+       动作 ↔ Kind 在 `AiWriteService.kt` 的注册点上是逐条钉死的）；
+    ③ 前两步都不成立 → 退回宽口径 `snapshot`，并**记进 [UNRESOLVED_SNAPSHOTS]**（main 里断言为 0）。
+       ②③ 合起来才把 2026-10-11 那片假越权收干净：只放宽回退（②）会把宽口径留成后门，
+       只收紧回退（③）又会把 `kind.resource` 那三条变成真缺口。
+    """
+    out: set[str] = set()
+    exact: list[tuple[int, int]] = []
+    for m in _SNAPSHOT_CALL.finditer(text):
+        km = _SNAPSHOT_KEY.match(text[m.end():])
+        if km:
+            out.add("snapshot@" + km.group(1))
+            exact.append((m.start(), m.end() + km.end()))
+            continue
+        recv = _SNAPSHOT_RECV.match(text[m.end():])       # `kind.resource` —— 字段式变量键
+        keys = None
+        if recv and kind_res:
+            prop, all_keys, items, exact_keys = kind_res
+            if recv.group(2):                             # `<变量>.<字段>`：字段名 == 枚举的资源键字段
+                # 这一条动作注册时点名了 Kind ⇒ 键是**那一个**；没点名才取并集
+                keys = (exact_keys or all_keys) if recv.group(2) == prop else None
+            else:                                         # 直接写枚举项名（`PRODUCT, …`）
+                keys = items.get(recv.group(1))
+        if keys:
+            for key in keys:
+                out.add("snapshot@" + key)
+            exact.append((m.start(), m.end() + recv.end()))
+            continue
+        out.add("snapshot")
+        exact.append((m.start(), m.end()))
+        head = text[m.start():].splitlines()[0].strip() if text[m.start():] else "?"
+        line = text.count("\n", 0, m.start()) + 1
+        UNRESOLVED_SNAPSHOTS.append(f"{where or '（未标注）'}:{line}  {head[:70]}")
+    for m in _DS_CALL.finditer(text):
+        if m.group(1) == "snapshot" and any(a <= m.start() < b for a, b in exact):
+            continue  # 已经按字面量键 / 资源键变量精确解析过（别再加一次宽口径）
+        out.add(m.group(1))
+    return out
+
+
 def action_ds_fns() -> dict[str, set[str]]:
     """动作常量名 → 它最终调的 `ds.<函数>` 名。
 
@@ -423,9 +526,11 @@ def action_ds_fns() -> dict[str, set[str]]:
        真正的调用在另一个文件的类里，靠 `actionId` 关联。
     """
     out: dict[str, set[str]] = {}
+    prop, keys, items = kind_res_from_source()   # 资源键只有这一处定义，见 [kind_res_from_source]
+    kind_res = (prop, keys, items, None)         # 声明式动作没有 Kind 实参 ⇒ 只能取并集（保守）
 
-    def add(const: str, text: str) -> None:
-        fns = ds_calls(text)
+    def add(const: str, text: str, where: str) -> None:
+        fns = ds_calls(text, kind_res, where)
         if fns:
             out.setdefault(const, set()).update(fns)
 
@@ -435,7 +540,7 @@ def action_ds_fns() -> dict[str, set[str]]:
         src = strip_kt_comments(f.read_text(encoding="utf-8"))
         # ① 声明式：`crud( … id = X … ) { ds, p -> ds.createAddress(p) }` —— 取**包住它的那次调用**
         for m in _ACTION_BLOCK.finditer(src):
-            add(m.group(1), call_at(src, m.start()))
+            add(m.group(1), call_at(src, m.start()), f"{f.name}:{m.group(1)}")
         # ①b 撤回专用（工厂调用点）：`restoreAction("地址", AiWrites.ADDRESS_RESTORE, …) { ds, id -> … }`
         #     ⚠️ 调用点是**位置参数**（第一版只认 `id = X` 这种具名写法 → 7 条恢复动作全部
         #        报"挂不上端点"，而那正是货主撤回路径缺的那一批）。
@@ -451,15 +556,102 @@ def action_ds_fns() -> dict[str, set[str]]:
                 seg += tail[: lm.end() - 1] + balanced(src, brace, "{", "}")
             ident = _RESTORE_ID.search(seg) or re.search(r"AiWrites\.([A-Z][A-Z0-9_]*)", seg)
             if ident:
-                add(ident.group(1), seg)
+                add(ident.group(1), seg, f"{f.name}:restoreAction({ident.group(1)})")
         # ② 手写处理器：类体到下一个顶层声明为止
         for m in _HANDLER.finditer(src):
             rest = src[m.end():]
             nxt = _NEXT_TOP_LEVEL.search(rest)
-            add(m.group(1), rest[: nxt.start()] if nxt else rest)
+            add(m.group(1), rest[: nxt.start()] if nxt else rest, f"{f.name}:{m.group(1)}")
     out.pop("", None)
     return out
 
+
+#: `AiWriteImage.Kind.XXX` —— 图片类动作的资源键枚举（三处定义见 [kind_res_from_source]）。
+KIND_PREFIX = "AiWriteImage.Kind."
+
+
+def _kind_name_at(src: str, at: int) -> str:
+    """`AiWriteImage.Kind.XXX` 里的 `XXX`（只吃标识符，不吃后面的逗号与箭头）。"""
+    i = at + len(KIND_PREFIX)
+    j = i
+    while j < len(src) and (src[j].isalnum() or src[j] == "_"):
+        j += 1
+    return src[i:j]
+
+
+def narrow_kind(body: str, kind: str) -> str:
+    """把「三个动作共用同一个处理器类」的类体，裁到**这一次注册的那个 Kind** 那一支。
+
+    为什么必须裁（2026-10-11 GOV-0024 现场）：`ImageWriteHandler` 被注册三次
+    （`AiWriteService.kt`：`ImageWriteHandler(AiWrites.PRODUCTS_IMAGE, AiWriteImage.Kind.PRODUCT, …)`
+    与 LOCATION / ADDRESS 两条），差别**全在** `when (kind)`；把整个类体算给每一个动作，
+    就等于说「给地址加图」也会 `ds.updateProduct` / `ds.uploadProductImage` ——
+    判据当场报出货主的两条**假越权**（`PATCH products/{}`、`POST products/{}/image`），
+    而真越权就被这一片噪声挡在后面（本文件的教条：假越权比不报更糟）。
+
+    只认本文件那两种形状；认不出的原样保留（**宁可多报，不漏报**）：
+    ① `when (kind) { AiWriteImage.Kind.X -> … }` —— 按分支头切，只留 X == 这一次的；
+       一个类里可能有好几处（写字段一处、名字名册一处），**每一处都要切**
+       （只切第一处的话，第二处仍把邻居的 `ds.products()` 带过来）；
+       丢弃的那一支里若出现 `else`，**留着**（兜底分支不认 Kind，保守起见不裁）；
+    ② `if (kind == AiWriteImage.Kind.X …) { … }` —— X != 这一次的，整段摘掉；
+       `!=` 的写法**不摘**（那是补集，摘了会反过来漏报）。
+    """
+    out = body
+    # ② 先摘 `if` 守卫（商品那一支在 commit 的公共路径上被它挡着）
+    pos = 0
+    while True:
+        at = out.find(KIND_PREFIX, pos)
+        if at < 0:
+            break
+        pos = at + 1
+        back = out[max(0, at - 60):at]
+        if "kind" not in back or "if" not in back or "!=" in back:
+            continue
+        if _kind_name_at(out, at) == kind:
+            continue
+        brace = out.find("{", at)
+        if brace < 0 or brace - at > 200:
+            continue
+        seg = balanced(out, brace, "{", "}")
+        head = out.rfind("if", max(0, at - 60), at)
+        out = out[:head] + out[brace + len(seg):]
+        pos = 0
+    # ① 再按分支头切 `when (kind)`：**每一处都要切**，切完跳过这一块接着找下一块
+    pos = 0
+    while True:
+        at = out.find("when (kind", pos)
+        if at < 0:
+            break
+        brace = out.find("{", at)
+        if brace < 0 or brace - at > 200:
+            break
+        seg = balanced(out, brace, "{", "}")
+        inner = seg[1:-1]
+        cuts = []
+        p = 0
+        while True:
+            k = inner.find(KIND_PREFIX, p)
+            if k < 0:
+                break
+            p = k + 1
+            name = _kind_name_at(inner, k)
+            tail = inner[k + len(KIND_PREFIX) + len(name):].lstrip()
+            if tail.startswith("->") and inner.count("{", 0, k) == inner.count("}", 0, k):
+                cuts.append((k, name))
+        keep = []
+        for i, (k, name) in enumerate(cuts):
+            end = cuts[i + 1][0] if i + 1 < len(cuts) else len(inner)
+            piece = inner[k:end]
+            if name == kind or "else" in piece:
+                keep.append(piece)
+        new_inner = "".join(keep)
+        if not cuts or new_inner == inner:
+            pos = brace + len(seg)
+            continue
+        out = out[:brace + 1] + new_inner + out[brace + len(seg):]
+        pos = brace + 1 + len(new_inner) + 1
+    return out
 
 def param_handlers() -> dict[str, set[str]]:
     """**参数式处理器**：动作常量 → 它调到的 `ds.<函数>`。
@@ -488,6 +680,8 @@ def param_handlers() -> dict[str, set[str]]:
             nxt = _NEXT_TOP_LEVEL.search(rest)
             bodies[m.group(1)] = rest[: nxt.start()] if nxt else rest
 
+    prop, keys, items = kind_res_from_source()
+    kind_res = (prop, keys, items, None)   # 不认 Kind 的处理器只能取并集（保守）
     out: dict[str, set[str]] = {}
     for f in sorted(AI.glob("AiWrite*.kt")):
         s = strip_kt_comments(f.read_text(encoding="utf-8"))
@@ -495,7 +689,19 @@ def param_handlers() -> dict[str, set[str]]:
             body = bodies.get(m.group(1))
             if not body:
                 continue
-            fns = ds_calls(body)
+            # ⚠️ 资源键也得从这里认（2026-10-11 GOV-0024）：`AiWriteImageHandlers` 读的是
+            #    `ds.snapshot(kind.resource, …)` —— 键不是字面量，不传 kind_res 就退回宽口径
+            #    `snapshot`（= "这个动作读了全部 30 个资源"），一次报出一片假越权。
+            # 第二次注册的实参就是**这一次的 Kind**（`ImageWriteHandler(AiWrites.X, Kind.Y, ds, store)`），
+            # 有它就裁类体 + 把 `kind.resource` 解析成那一个键；没有就整块 + 并集（宁可多报）。
+            kpos = s.find(KIND_PREFIX, m.end(), m.end() + 80)
+            kind = _kind_name_at(s, kpos) if (kpos > 0 and ")" not in s[m.end():kpos]) else ""
+            fns = ds_calls(
+                narrow_kind(body, kind) if kind else body,
+                (prop, keys, items, items.get(kind)) if kind else kind_res,
+                f"{m.group(1)}({m.group(2)})",
+            )
+            PARAM_HANDLER_CALLS.add((m.group(1), m.group(2)))
             if fns:
                 out.setdefault(m.group(2), set()).update(fns)
     # 反空转：一条都认不出说明注册点的写法又变了（那时这条判据会静默退回"看不见"）
@@ -763,6 +969,19 @@ def main() -> int:
     ai_role_endpoints("dispatcher", False)   # 跑一遍把计数器填上
     ok("参数式处理器解析没空转", PARAM_HANDLER_PAIRS[0] >= 2,
        f"只认出 {PARAM_HANDLER_PAIRS[0]} 条 ds 关联（下限 2：预订单的建/改就是这种形状）")
+    # ⚠️ 图片类动作（`ImageWriteHandler`）：**一个类、三次注册、差别全在 `Kind`**。
+    #    裁错了就会把商品的写端点背到「给地址加图」上（货主当场两条**假越权**），
+    #    而真越权会被这片噪声挡在后面 ⇒ 这里钉住三件事：Kind 认得出、三次注册都在、
+    #    快照的资源键全部落在字面键上（宽口径回退必须是 0）。
+    _prop, _keys, _items = kind_res_from_source()
+    ok("图片 Kind 枚举解析没空转", _prop == "resource" and len(_keys) >= 3,
+       f"只解析出 {_prop} / {sorted(_keys)}（三个动作用的就是这三个键）")
+    ok("图片处理器的三次注册都按 Kind 认出来了",
+       {("ImageWriteHandler", c) for c in ("PRODUCTS_IMAGE", "LOCATION_IMAGE", "ADDRESS_IMAGE")}
+       <= PARAM_HANDLER_CALLS,
+       f"只认出 {sorted(PARAM_HANDLER_CALLS)}（认不出 = 那三个动作的端点整块算给别的 Kind）")
+    ok("快照的资源键都解析到了字面键（宽口径回退为 0）", not UNRESOLVED_SNAPSHOTS,
+       "退到宽口径的调用点：" + "；".join(UNRESOLVED_SNAPSHOTS[:5]))
     # ⓪ 检查脚本建模的那两条规则，必须与 Kotlin 源码**逐字一致**（见 kotlin_rule_isomorphic）
     for p in kotlin_rule_isomorphic():
         ok("检查脚本与 AiWrite.kt 的角色规则同构", False, p)
