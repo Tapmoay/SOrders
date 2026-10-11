@@ -3919,7 +3919,11 @@ class AiWriteTest {
         //    也能接管批量操作页那件事）：它就是 products.no_discount 的开/关 —— 176。
         //    所以下面补了一条**真正的去重断言**——不然这条会退化成"一个过一阵就要手动抬的魔数"，
         //    而它本来想防的"同一个动作声明两遍"一次都拦不住。
-        assertTrue("动作数不该多于 176（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 176)
+        //    2026-10-11 给「AI 贴图写对象」加 3 个（FEAT-0024：商品图 / 地点图 / 线路图）＋ 给
+        //    「商品的附加成本价口径」加 3 个（FEAT-0025：设 / 删 / 从回收站恢复）—— 176 + 6 = 182。
+        //    六条都是**真的要做的事**：贴了图之后模型原先只能说"我做不到"；多个成本价原先
+        //    在聊天里设不了第二条。⛔ 不是顺手多带一句话。
+        assertTrue("动作数不该多于 182（当前 ${AiWrites.ALL.size}）", AiWrites.ALL.size <= 182)
         val ids = AiWrites.ALL.map { it.id }
         assertEquals(
             "动作 id 声明重复了：${ids.groupBy { it }.filter { it.value.size > 1 }.keys}",
