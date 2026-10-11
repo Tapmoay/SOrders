@@ -440,6 +440,41 @@ class AppRepository(private val api: ApiBundle) {
             com.tapmoay.sorders.data.remote.dto.UserCategoryReorderRequest(ids)
         )
 
+    // ---- 模块自有分类名册（FEAT-0026，2026-10-12；批发商 / 货主 / 司机管理**各一份**）----
+    //
+    // ⛔ 与上面那份账号名册**不是同一份数据**：账号册的一级固定六类、二级靠**拉取**这里；
+    //    这一份只有一级，建 / 改名 / 排序 / 软删都在模块页自己的「管理分类」里做。
+    suspend fun moduleCategories(module: String) = api.shipperApi.listModuleCategories(module)
+
+    suspend fun createModuleCategory(module: String, name: String, sortOrder: Int? = null) =
+        api.shipperApi.createModuleCategory(
+            com.tapmoay.sorders.data.remote.dto.ModuleCategoryCreateRequest(module, name, sortOrder)
+        )
+
+    /** 改名只级联改**这个模块**那几个一级下面的账号（后端做）。 */
+    suspend fun updateModuleCategory(id: Long, name: String? = null, sortOrder: Int? = null) =
+        api.shipperApi.updateModuleCategory(
+            id,
+            com.tapmoay.sorders.data.remote.dto.ModuleCategoryUpdateRequest(name, sortOrder),
+        )
+
+    suspend fun deleteModuleCategory(id: Long) = api.shipperApi.deleteModuleCategory(id)
+
+    /**
+     * 「撤销删除」用的那一格 —— 这份名册的删除是**软删**（后端留着那一行），
+     * 所以恢复走专门的 `/restore`，编号不变。
+     * 与账号册那条 [restoreUserCategory]（硬删，只能按原名重建）不是一回事。
+     */
+    suspend fun restoreModuleCategory(module: String, name: String, sortOrder: Int? = null) =
+        api.shipperApi.restoreModuleCategory(
+            com.tapmoay.sorders.data.remote.dto.ModuleCategoryRestoreRequest(module, name, sortOrder)
+        )
+
+    suspend fun reorderModuleCategories(module: String, ids: List<Long>) =
+        api.shipperApi.reorderModuleCategories(
+            com.tapmoay.sorders.data.remote.dto.ModuleCategoryReorderRequest(module, ids)
+        )
+
     // ---- 车辆分类名册（2026-10-05；**全店一份**，车辆管理页用）----
     suspend fun vehicleCategories() = api.shipperApi.listVehicleCategories()
     suspend fun createVehicleCategory(name: String, sortOrder: Int? = null) =

@@ -109,14 +109,19 @@ fun UsersManageScreen(
     // 默认是显示，全部，同样也是左边侧边栏，然后左边侧边栏同样也是可以新增分类的，
     // 那个左边侧分栏的底下，凡是跟地点是同样的」。
     //
-    // ⚠️ 司机 / 货主 / 批发商三池是**同一个界面**（`UserPool`），所以这一份抽屉一次喂三页；
-    //    分类名册也是同一份（`user_categories`，挂在 `users.category` 上）—— 账户管理页那一格也一样。
+    // ⚠️ 司机 / 货主 / 批发商三池是**同一个界面**（`UserPool`），但**分类名册各是各的**
+    //    （FEAT-0026，2026-10-12）：三池各读 `module_categories` 里的自己那一份（键就是
+    //    `pool.key`：drivers / shippers / members），互不共用 —— 用户原话
+    //    「他那个分类是跟账号管理不一样的……他们是有自己的分类的，他们的分类基本上就是 1 级、
+    //      不会有 2 级的」。账号管理页那一格仍是账号册（一级固定六类 + 拉取来的二级）。
     //
     // 形态照「地址与联系人」：**抽屉**（⛔ 不是商品管理那种常驻左栏 —— 用户 2026-09-19 的裁定是
     // 「右边的卡片的信息被挤压了不是很好看」）。抽屉底部那格「管理分类」进分类管理面板。
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    val catVm: UserCategoriesViewModel = appViewModel { UserCategoriesViewModel(container) }
+    // 这一页**自己的**那一份名册（只有一级、能新建）：键就是 `pool.key`（drivers / shippers / members）
+    // —— 与账号册不是同一份数据（FEAT-0026）。
+    val catVm: ModuleCategoriesViewModel = appViewModel { ModuleCategoriesViewModel(container, pool.key) }
     var managingCategory by remember { mutableStateOf(false) }
 
     ModalNavigationDrawer(
@@ -124,7 +129,7 @@ fun UsersManageScreen(
         drawerContent = {
             ModalDrawerSheet(modifier = Modifier.width(CategoryDrawerWidth)) {
                 CategoryDrawerSheet(
-                    title = "账号分类",
+                    title = pool.title + "分类",
                     // ⛔ 一格都不显示条数（用户 2026-09-19：「那个分组下面不要显示有多少条啊，
                     //    这是多余信息」）—— 条数只在「管理分类」那个面板里出现。
                     items = listOf(CategoryDrawerItem("", "全部")) +
@@ -217,8 +222,10 @@ fun UsersManageScreen(
             // `CategoryManagePanel` 先例 —— 真机上新开一页会「抽屉先收起再弹整页、中间闪一下」。
             // 返回时名册与账号列表都刷一遍（分类名可能刚改过）。
             Box(Modifier.fillMaxSize().padding(padding)) {
-                UserCategoriesPanel(
+                ModuleCategoriesPanel(
                     vm = catVm,
+                    moduleTitle = pool.title,
+                    accent = poolModuleColor(pool),
                     onBack = {
                         managingCategory = false
                         catVm.load()
@@ -543,14 +550,16 @@ fun UsersManageScreen(
                     }
                 }
 
-                // 分类（左栏分组，2026-10-05）：四个名册页**共用同一份名册**（`user_categories`），
-                // 所以这里改一格，账户 / 司机 / 货主 / 批发商四页的左栏一起变。
+                // 分类（左栏分组，2026-10-05；FEAT-0026 起按模块分开）：这一格读的是**这一页自己的**
+                // 名册（一级、能新建），不是账号册 —— 用户原话「他那个分类是跟账号管理不一样的，
+                // 他现在串在一起了……他们是有自己的分类的」。
                 FormGroup(icon = Icons.Default.Folder, title = "分类", tint = poolAccent(pool)) {
                     CategoryPickRow(
                         vm = catVm,
                         selected = vm.draftCategory,
                         onPick = { vm.draftCategory = it },
-                        hint = "只影响左栏怎么分组；四个名册页（账户 / 司机 / 货主 / 批发商）共用这一份分类。",
+                        hint = "只影响这一页左栏怎么分组；这一份是「" + pool.title + "」自己的分类" +
+                            "（只有一级、不跟别的模块共用），账号管理那边会自动拉取成二级。",
                     )
                 }
 

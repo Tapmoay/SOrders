@@ -27,6 +27,14 @@ data class RosterRow(
      * 车辆那份名册是平表，这一格永远是 null。
      */
     val parentId: Long? = null,
+    /**
+     * 这一行**只读**（界面上不画上移 / 改名 / 删除）：账号册里的一级（固定六类）、
+     * 从模块名册**拉取**来的二级、以及挂在模块一级下面的历史子类都是这类（FEAT-0026）。
+     * 模块 / 车辆那两份名册全是可写的，这一格是 false。
+     */
+    val readOnly: Boolean = false,
+    /** 只读行下面那行小字：说清"为什么不能在这儿改、要去哪儿改"。可写行留空。 */
+    val note: String = "",
 )
 
 /**
@@ -137,7 +145,9 @@ abstract class RosterViewModel(protected val container: AppContainer) : ViewMode
             try {
                 // 只把「名册内的行」发上去（id > 0）—— 共用件 submittableIds，
                 // ⛔ 不要在这里自己 map 一遍（名册外的合成行会被一起发过去，判据盯着这条）。
-                rows = reorderRows(submittableIds(next) { it.id })
+                // FEAT-0026：账号册里现在混着**只读**的行（固定的一级 + 拉取来的二级），
+                // 它们不归这份名册排序 —— 一起发上去后端会 400（"顺序里有账号册不认的行"）。
+                rows = reorderRows(submittableIds(next.filterNot { it.readOnly }) { it.id })
             } catch (e: Exception) {
                 error = toApiException(e).message
                 load()
@@ -246,12 +256,41 @@ abstract class RosterViewModel(protected val container: AppContainer) : ViewMode
     }
 }
 
-/** 账号分类名册（**全店一份**：账户 / 司机 / 货主 / 批发商四个名册页共用）。 */
+/**
+ * 账号分类名册（**全店一份**：账户 / 司机 / 货主 / 批发商四个名册页共用）。
+ *
+ * FEAT-0026（2026-10-12）之后这一份**大部分是只读**的：一级＝固定六类（不能新建 / 改名 / 删），
+ * 二级里挂着模块页自己那些分类的行是**拉取**来的（改要去模块页的「管理分类」）。
+ * 只有「派单员」下面的子类还能在这儿动 —— 派单员没有自己的模块页。
+ */
 class UserCategoriesViewModel(container: AppContainer) : RosterViewModel(container) {
+    /**
+     * 一行只读的三种来路（用户 2026-10-12：「账号管理……他是主动拉取的，而且我们分类已经固定好了的」）：
+     * 1. 一级（`parent_id == null`）—— 固定六类，账号册不能新建 / 改名 / 删；
+     * 2. **拉取**来的二级（编号是负数，后端用 `pulled` 标出来）；
+     * 3. 挂在模块一级下面的历史子类（`module != null`）—— 它们跟着模块名册走。
+     */
+    private fun rowOf(d: com.tapmoay.sorders.data.remote.dto.UserCategoryDto): RosterRow {
+        val pulled = d.id < 0L || d.pulled
+        val top = d.parentId == null
+        return RosterRow(
+            id = d.id,
+            name = d.name,
+            count = d.userCount,
+            sortOrder = d.sortOrder,
+            parentId = d.parentId,
+            readOnly = pulled || top || d.module != null,
+            note = when {
+                pulled -> "自动拉取 · 改到它所属模块的「管理分类」里改"
+                top && d.module != null -> "固定一级 · 归它所属模块的名册管（这里只读）"
+                top -> "固定一级 · 账号分类的一级是这六类，不能新建 / 改名 / 删"
+                else -> "历史子类 · 跟着它所属模块的名册走（这里只读）"
+            },
+        )
+    }
+
     override suspend fun fetch(): List<RosterRow> =
-        container.repo.userCategories().map {
-            RosterRow(it.id, it.name, it.userCount, it.sortOrder, it.parentId)
-        }
+        container.repo.userCategories().map { rowOf(it) }
 
     override suspend fun createRow(name: String, parentId: Long?) {
         container.repo.createUserCategory(name, parentId = parentId)
@@ -273,9 +312,7 @@ class UserCategoriesViewModel(container: AppContainer) : RosterViewModel(contain
     }
 
     override suspend fun reorderRows(ids: List<Long>): List<RosterRow> =
-        container.repo.reorderUserCategories(ids).map {
-            RosterRow(it.id, it.name, it.userCount, it.sortOrder, it.parentId)
-        }
+        container.repo.reorderUserCategories(ids).map { rowOf(it) }
 }
 
 /** 车辆分类名册（**全店一份**：车辆管理页）。 */
@@ -303,4 +340,44 @@ class VehicleCategoriesViewModel(container: AppContainer) : RosterViewModel(cont
 
     override suspend fun reorderRows(ids: List<Long>): List<RosterRow> =
         container.repo.reorderVehicleCategories(ids).map { RosterRow(it.id, it.name, it.vehicleCount, it.sortOrder) }
+}
+
+/**
+ * 模块自有分类名册（FEAT-0026，2026-10-12）：**批发商管理 / 货主管理 / 司机管理 各一份**。
+ *
+ * 与账号册（[UserCategoriesViewModel]）**不是同一份数据** —— 用户原话：
+ * 「他那个分类是跟账号管理不一样的，他现在串在一起了……他们是有自己的分类的，
+ *   他们的分类基本上就是 1 级、不会有 2 级的」。
+ * 这一份**只有一级**（平表，面板上不画归属选择器）；账号册那边的一级固定六类，
+ * 二级是把这里的活行**拉取**过去的（那边只读、自动出现）。
+ *
+ * 删除是**软删**（后端留着那一行），所以撤销走 `/restore` 找回**原来那一行**、编号不变 ——
+ * 与账号册「按原名重建一格（新编号）」不是一回事。
+ */
+class ModuleCategoriesViewModel(container: AppContainer, private val module: String) : RosterViewModel(container) {
+    override suspend fun fetch(): List<RosterRow> =
+        container.repo.moduleCategories(module).map { RosterRow(it.id, it.name, it.userCount, it.sortOrder) }
+
+    /** 这份名册只有一级：`parentId` 收下但不用（见 [RosterRow.parentId]）。 */
+    override suspend fun createRow(name: String, parentId: Long?) {
+        container.repo.createModuleCategory(module, name)
+    }
+
+    override suspend fun renameRow(id: Long, name: String) {
+        container.repo.updateModuleCategory(id, name = name)
+    }
+
+    override suspend fun deleteRow(id: Long) {
+        container.repo.deleteModuleCategory(id)
+    }
+
+    override suspend fun restoreRow(name: String, sortOrder: Int, parentId: Long?) {
+        // 软删 → 按名字找回被删的那一行（编号不变），不是重建。
+        container.repo.restoreModuleCategory(module, name, sortOrder)
+    }
+
+    override suspend fun reorderRows(ids: List<Long>): List<RosterRow> =
+        container.repo.reorderModuleCategories(module, ids).map {
+            RosterRow(it.id, it.name, it.userCount, it.sortOrder)
+        }
 }

@@ -46,15 +46,18 @@ fun UserCategoriesPanel(
         accent = accent,
         backLabel = "返回名册",
         newPlaceholder = "新分类名（如：自有车 / 外请车 / 长期合作）",
-        hint = "全店一份：账户 / 司机 / 货主 / 批发商四个名册页的左栏都用这一份，顺序就是左栏的顺序。" +
-            "两级：在「上层分类」里选一个大类，建出来的就是它下面的子类。",
+        hint = "一级是**固定的六类**（派单员 / 货主 / 批发商 / 小车司机 / 大车司机 / 挂车司机），" +
+            "在这儿不能新建、改名、删。批发商 / 货主 / 司机各自的分类在**他们自己那一页**的" +
+            "「管理分类」里建 —— 建好之后这里会自动**拉取**成对应大类下面的二级（只读，改要去那边改）。",
         emptyText = "还没有分类。不建也能用：四个名册页的左栏只有「全部」一格，账号照样都在。",
         countUnit = "个账号",
         renameHint = "改名会把挂在这个分类下的账号一起改过去（回收站里的也一样，不会掉回未分类）。",
         countLine = "现在有 %d 个账号挂在这一类下。",
-        deleteNote = "（后端不允许删还有账号挂着的分类；大类下面还有子类时也不许删，" +
-            "先把它下面的子类删掉或改到别的大类下面）",
-        // 只有账号这份名册能建**子类**（两级）：把大类列出来给它当父。
+        deleteNote = "（固定的一级六类删不掉；拉取来的二级要到它所属模块的「管理分类」里删 —— " +
+            "那边是**软删**，删错了手边能撤销）",
+        // FEAT-0026：六个大类里只有「派单员」还能当父（它没有自己的模块页）—— 其余五个的
+        // 子类跟着各自的模块名册走（在它们下面建会被后端 400）。那五个是**只读**行，
+        // 由 [RosterPanel] 按 `readOnly` 滤掉，所以这里照旧把大类整个传进去。
         parentChoices = vm.rows.filter { it.parentId == null },
         onBack = onBack,
     )
@@ -84,6 +87,40 @@ fun VehicleCategoriesPanel(
     )
 }
 
+/**
+ * **模块自有分类**管理面板（FEAT-0026，2026-10-12）：批发商管理 / 货主管理 / 司机管理**各一份**。
+ *
+ * 用户原话：「他那个分类是跟账号管理不一样的，他现在串在一起了……他们是有自己的分类的，
+ * 他们的分类基本上就是 1 级、不会有 2 级的」。所以这一块**只有一级** —— `parentChoices` 留空，
+ * 与车辆那份名册逐像素同形（连「上层分类」那个选择器都不画）。
+ * 账号册那边的一级固定六类，二级是把这里的活行**拉取**过去的（那边只读）。
+ */
+@Composable
+fun ModuleCategoriesPanel(
+    vm: ModuleCategoriesViewModel,
+    /** 宿主模块的标题（司机管理 / 货主管理 / 批发商管理）—— 标题与提示文案都用它。 */
+    moduleTitle: String,
+    onBack: () -> Unit,
+    accent: Color,
+) {
+    RosterPanel(
+        vm = vm,
+        title = moduleTitle + "分类",
+        accent = accent,
+        backLabel = "返回" + moduleTitle.removeSuffix("管理"),
+        newPlaceholder = "新分类名（如：食堂客户 / 长期合作 / 月结）",
+        hint = "这一份是「" + moduleTitle + "」**自己的**分类名册：只有一级，顺序就是左栏的顺序。" +
+            "账号管理那边的对应大类下面会自动**拉取**这里的分类当二级（那边只读、改要到这儿改）。",
+        emptyText = "还没有分类。不建也能用：这一页的左栏只有「全部」一格，账号照样都在。",
+        countUnit = "个账号",
+        renameHint = "改名会把挂在这个分类下的账号一起改过去（回收站里的也一样，不会掉回未分类）。",
+        countLine = "现在有 %d 个账号挂在这一类下。",
+        deleteNote = "（删掉是**软删**：这一格离开名册，但下面没有「撤销」时也能找回来；" +
+            "还挂着账号的分类后端不让删，先把它们改到别的分类）",
+        onBack = onBack,
+    )
+}
+
 /** 两份名册共用的面板（差别只有几处文案与单位）。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,10 +139,15 @@ private fun RosterPanel(
     /**
      * 「新建」那一格要挂到哪个大类下面（**只有账号分类有二级**）。
      * 空 = 平表名册（车辆那份）→ 连这个选择器都不画，与两级之前逐像素一样。
+     *
+     * ⚠️ 传进来的大类里**只读的会被滤掉**（FEAT-0026）：账号册那六个大类里五个归各自的模块
+     * 名册管（在它们下面建子类会被后端 400），只剩「派单员」还能选 —— 所以调用方照旧把大类
+     * 整个传进来，由这里按 [RosterRow.readOnly] 挑出真正能当父的。
      */
     parentChoices: List<RosterRow> = emptyList(),
     onBack: () -> Unit,
 ) {
+    val picks = parentChoices.filterNot { it.readOnly }
     Column(Modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp),
@@ -139,7 +181,7 @@ private fun RosterPanel(
                 enabled = !vm.acting && vm.draftName.isNotBlank(),
             )
         }
-        if (parentChoices.isNotEmpty()) {
+        if (picks.isNotEmpty()) {
             // 「新建」那一格的**归属**（2026-10-11 CHG-0112）：选一个大类 = 建它下面的子类，
             // 选「顶层分类」= 建一个大类本身。形态与表单里那一格同一个（ExposedDropdownMenuBox +
             // FormPickRow），⛔ 不是再套一层弹层（规范 §4.14 点名过那种两层 modal）。
@@ -147,7 +189,7 @@ private fun RosterPanel(
             ExposedDropdownMenuBox(expanded = pickParent, onExpandedChange = { pickParent = it }) {
                 FormPickRow(
                     label = "上层分类",
-                    value = parentChoices.firstOrNull { it.id == vm.draftParentId }?.name ?: "顶层分类",
+                    value = picks.firstOrNull { it.id == vm.draftParentId }?.name ?: "顶层分类",
                     placeholder = "顶层分类",
                     onClick = { pickParent = true },
                     modifier = Modifier.padding(horizontal = 20.dp).menuAnchor(),
@@ -162,7 +204,7 @@ private fun RosterPanel(
                         },
                         onClick = { vm.draftParentId = null; pickParent = false },
                     )
-                    parentChoices.forEach { p ->
+                    picks.forEach { p ->
                         DropdownMenuItem(
                             text = {
                                 Text(
@@ -205,6 +247,8 @@ private fun RosterPanel(
                         row = r,
                         unit = countUnit,
                         parentName = parentName,
+                        readOnly = r.readOnly,
+                        note = r.note,
                         first = idx == 0,
                         last = idx == vm.rows.lastIndex,
                         onUp = { vm.move(idx, -1) },
@@ -299,6 +343,10 @@ private fun RosterRowCard(
     onDown: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
+    /** 只读行（固定的一级 / 拉取来的二级）：**不画**上移 / 改名 / 删除 —— 按下去后端也会 400。 */
+    readOnly: Boolean = false,
+    /** 只读行第二行下面那句小字：说清"为什么不能在这儿改、要去哪儿改"。 */
+    note: String = "",
 ) {
     SectionCard {
         Row(
@@ -318,47 +366,66 @@ private fun RosterRowCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (readOnly && note.isNotBlank()) {
+                    // 只读行：把"它归谁管"写在这儿（如「自动拉取 · 改到它所属模块的『管理分类』里改」）。
+                    Text(
+                        note,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                    )
+                }
             }
-            // 四颗动作图标走共用件 `CardActionIcon`（规范 §4.2c：卡片上的**图标**动作一律做成
-            // 圈底图标）。原来这里是四枚裸 `IconButton` 里塞一个 18dp 图标 —— 规范里被用户当场
-            // 点名「这个不行」的正是那个形态：在信息很满的卡片上它太轻，手指也不好找。
-            //
-            // ⛔ 这四颗**不带字**（不传 `label`）：一行要挤下四颗，带字会把这一行撑爆；
-            //    四颗各自的 `contentDescription` 仍然说清是"上移 / 下移 / 重命名 / 删除"。
-            CardActionIcon(
-                icon = Icons.Default.KeyboardArrowUp,
-                contentDescription = "上移",
-                tint = if (first) MaterialTheme.colorScheme.outlineVariant else accent,
-                onClick = onUp,
-                enabled = !first,
-                size = 15.dp,
-                container = 30.dp,
-            )
-            CardActionIcon(
-                icon = Icons.Default.KeyboardArrowDown,
-                contentDescription = "下移",
-                tint = if (last) MaterialTheme.colorScheme.outlineVariant else accent,
-                onClick = onDown,
-                enabled = !last,
-                size = 15.dp,
-                container = 30.dp,
-            )
-            CardActionIcon(
-                icon = Icons.Default.Edit,
-                contentDescription = "重命名",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                onClick = onRename,
-                size = 15.dp,
-                container = 30.dp,
-            )
-            CardActionIcon(
-                icon = Icons.Default.DeleteOutline,
-                contentDescription = "删除",
-                tint = Color(MessageRed),
-                onClick = onDelete,
-                size = 15.dp,
-                container = 30.dp,
-            )
+            if (readOnly) {
+                // 固定的一级 / 拉取来的二级都是**只读**的（FEAT-0026）：四颗动作一颗都不画
+                // —— 画出来再按钮报 400 是骗人的。横幅那格直接写"只读"。
+                Text(
+                    "只读",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            } else {
+                // 四颗动作图标走共用件 `CardActionIcon`（规范 §4.2c：卡片上的**图标**动作一律做成
+                // 圈底图标）。原来这里是四枚裸 `IconButton` 里塞一个 18dp 图标 —— 规范里被用户当场
+                // 点名「这个不行」的正是那个形态：在信息很满的卡片上它太轻，手指也不好找。
+                //
+                // ⛔ 这四颗**不带字**（不传 `label`）：一行要挤下四颗，带字会把这一行撑爆；
+                //    四颗各自的 `contentDescription` 仍然说清是"上移 / 下移 / 重命名 / 删除"。
+                CardActionIcon(
+                    icon = Icons.Default.KeyboardArrowUp,
+                    contentDescription = "上移",
+                    tint = if (first) MaterialTheme.colorScheme.outlineVariant else accent,
+                    onClick = onUp,
+                    enabled = !first,
+                    size = 15.dp,
+                    container = 30.dp,
+                )
+                CardActionIcon(
+                    icon = Icons.Default.KeyboardArrowDown,
+                    contentDescription = "下移",
+                    tint = if (last) MaterialTheme.colorScheme.outlineVariant else accent,
+                    onClick = onDown,
+                    enabled = !last,
+                    size = 15.dp,
+                    container = 30.dp,
+                )
+                CardActionIcon(
+                    icon = Icons.Default.Edit,
+                    contentDescription = "重命名",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onClick = onRename,
+                    size = 15.dp,
+                    container = 30.dp,
+                )
+                CardActionIcon(
+                    icon = Icons.Default.DeleteOutline,
+                    contentDescription = "删除",
+                    tint = Color(MessageRed),
+                    onClick = onDelete,
+                    size = 15.dp,
+                    container = 30.dp,
+                )
+            }
         }
     }
 }

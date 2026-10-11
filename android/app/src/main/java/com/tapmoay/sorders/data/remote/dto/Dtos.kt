@@ -848,6 +848,18 @@ data class UserCategoryDto(
      * 2026-10-11 CHG-0112）。⚠️ 后端只允许两级：父一定是一个大类。
      */
     @SerialName("parent_id") val parentId: Long? = null,
+    /** 一级行（固定六类）：账号册**不能新建 / 改名 / 删**（FEAT-0026）。 */
+    val fixed: Boolean = false,
+    /**
+     * 这一行是从**模块自有名册拉取**来的二级（FEAT-0026）。
+     * ⚠️ 拉取行是**只读**的：改 / 删 / 排序都要到它所属模块的「管理分类」里做。
+     */
+    val pulled: Boolean = false,
+    /**
+     * 这一行归哪个模块的名册管（`members` / `shippers` / `drivers`；不归任何模块 = null）。
+     * 一级里的「批发商 / 货主 / 三种司机」与它们下面的子类都带这个值 —— 账号册对它们只读。
+     */
+    val module: String? = null,
 )
 
 @Serializable
@@ -863,6 +875,48 @@ data class UserCategoryUpdateRequest(val name: String? = null, @SerialName("sort
 
 @Serializable
 data class UserCategoryReorderRequest(val ids: List<Long>)
+
+/**
+ * 模块自有分类名册（FEAT-0026，2026-10-12）：**批发商管理 / 货主管理 / 司机管理 各一份**。
+ *
+ * 与账号册（[UserCategoryDto]）是**两张表、两套端点**（用户：「他那个分类是跟账号管理不一样的，
+ * 他现在串在一起了……他们是有自己的分类的，他们的分类基本上就是 1 级、不会有 2 级的」）：
+ *  · 这份：**只有一级**（没有 `parent_id`）；建 / 改名 / 排序 / 删都在这儿；
+ *  · 账号册：一级固定六类，二级是**从这里拉取**出来的（账号册那边只读、自动出现）。
+ * ⚠️ [module] 把三份名册分开装在同一张表里（`members` / `shippers` / `drivers`），
+ * 同名分类在三份里各有一行 —— 所以每个请求都必须带上它。
+ */
+@Serializable
+data class ModuleCategoryDto(
+    val id: Long,
+    /** 这份名册属于哪个模块（`members` = 批发商管理 / `shippers` = 货主管理 / `drivers` = 司机管理）。 */
+    val module: String = "",
+    val name: String = "",
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    /** 这一类下**在用**的账号条数（回收站里的账号不算 —— 与后端同一口径）。 */
+    @SerialName("user_count") val userCount: Int = 0,
+)
+
+@Serializable
+data class ModuleCategoryCreateRequest(
+    val module: String,
+    val name: String,
+    @SerialName("sort_order") val sortOrder: Int? = null,
+)
+
+@Serializable
+data class ModuleCategoryUpdateRequest(val name: String? = null, @SerialName("sort_order") val sortOrder: Int? = null)
+
+@Serializable
+data class ModuleCategoryReorderRequest(val module: String, val ids: List<Long>)
+
+/** 「撤销删除」：这份名册的删除是**软删**，恢复走 `/module-categories/restore`（按名字找回那一行）。 */
+@Serializable
+data class ModuleCategoryRestoreRequest(
+    val module: String,
+    val name: String,
+    @SerialName("sort_order") val sortOrder: Int? = null,
+)
 
 /**
  * 车辆分类名册（2026-10-05，**全店一份**：车辆管理页左侧那一列）。

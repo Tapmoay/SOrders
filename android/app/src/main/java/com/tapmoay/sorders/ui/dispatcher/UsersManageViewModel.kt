@@ -145,8 +145,10 @@ class UsersManageViewModel(
     // 用户原话：「还有我们的账户管理司机管理货主管理批发商管理。车辆管理……在这个位置也加个分类，
     // 默认是显示，全部，同样也是左边侧边栏，然后左边侧边栏同样也是可以新增分类的」。
     //
-    // 一份名册喂**四个**页面（账户 / 司机 / 货主 / 批发商）—— 它挂在 `users.category` 上，
-    // 后端名册是 `user_categories`（全局一份，不是按人分区那一类）。
+    // FEAT-0026（2026-10-12）起**各页各读一份**：这一页（司机 / 货主 / 批发商）读的是模块自己的
+    // 名册 `module_categories`（键 `pool.key`，只有一级、可新建）；账号管理页那份是账号册
+    // （一级固定六类 + 从模块名册**拉取**来的二级）。两边的共同点：分组名都落在 `users.category` 上，
+    // 所以筛选用的是同一个名字。
     // 筛选**在本地过一遍**：名册与列表本来就在手上，不往返后端（与地址页同一条）。
     var categoryNames by mutableStateOf<List<String>>(emptyList())
         private set
@@ -161,7 +163,7 @@ class UsersManageViewModel(
     fun loadCategories() {
         viewModelScope.launch {
             try {
-                val names = container.repo.userCategories().map { it.name }
+                val names = container.repo.moduleCategories(pool.key).map { it.name }
                 // 选中的那一格没了（分类被删/改名）→ 回到「全部」，别把列表锁死在一个不存在的类别上
                 if (railKey.isNotBlank() && names.none { "c|" + it == railKey }) railKey = ""
                 categoryNames = names
@@ -194,7 +196,7 @@ class UsersManageViewModel(
     var draftName by mutableStateOf("")
     var draftPassword by mutableStateOf("")
     var draftVehicleType by mutableStateOf("large")
-    /** 分类（左栏分组，2026-10-05）：四个名册页共用这一份名册。 */
+    /** 分类（左栏分组，2026-10-05）：FEAT-0026 起＝**这一页自己的**那一份模块名册（一级）。 */
     var draftCategory by mutableStateOf("")
 
     /**

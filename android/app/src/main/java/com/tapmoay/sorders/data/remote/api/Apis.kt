@@ -605,6 +605,39 @@ interface ShipperApi {
     suspend fun reorderUserCategories(@Body body: UserCategoryReorderRequest): List<UserCategoryDto>
 
     /**
+     * 模块自有分类名册（FEAT-0026，2026-10-12）：**批发商管理 / 货主管理 / 司机管理 各一份**。
+     *
+     * 与账号册那五个端点**不是同一份数据**（用户：「他那个分类是跟账号管理不一样的，
+     * 他现在串在一起了……他们是有自己的分类的」）：
+     * · 这份只有一级，建 / 改名 / 排序 / 软删都在这里；
+     * · 账号册的一级固定六类，二级是把这里的活行**拉取**过去的（那边只读）。
+     * 每次都要带 `module`：三份名册装在同一张表里，同名分类各有各的一行。
+     * 门同样是 `user:manage`（与账号名册同一道门）。
+     */
+    @GET("module-categories")
+    suspend fun listModuleCategories(@Query("module") module: String): List<ModuleCategoryDto>
+
+    @POST("module-categories")
+    suspend fun createModuleCategory(@Body body: ModuleCategoryCreateRequest): ModuleCategoryDto
+
+    @PATCH("module-categories/{categoryId}")
+    suspend fun updateModuleCategory(
+        @Path("categoryId") categoryId: Long,
+        @Body body: ModuleCategoryUpdateRequest,
+    ): ModuleCategoryDto
+
+    /** 软删（后端留着那一行）—— 撤销走 `POST /module-categories/restore`。 */
+    @DELETE("module-categories/{categoryId}")
+    suspend fun deleteModuleCategory(@Path("categoryId") categoryId: Long)
+
+    @POST("module-categories/restore")
+    suspend fun restoreModuleCategory(@Body body: ModuleCategoryRestoreRequest): ModuleCategoryDto
+
+    /** 整份顺序一次提交（`ids[0]` 排最前）。只传一部分后端会 400。 */
+    @POST("module-categories/reorder")
+    suspend fun reorderModuleCategories(@Body body: ModuleCategoryReorderRequest): List<ModuleCategoryDto>
+
+    /**
      * 车辆分类名册（2026-10-05，**全店一份**：车辆管理页左侧那一列）。
      * 门同样是 `user:manage`（⛔ 与车辆台账的体内 `_must_dispatcher` 不是同一处判据，
      * 分类只影响分组、不碰任何车辆事实）。
