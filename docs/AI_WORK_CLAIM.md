@@ -31,6 +31,19 @@
 
 ## 进行中
 
+### [2026-10-11 → ✅ 已完成（代码 / 单测（被别人的文件挡住，见文末）/ 判据 / 反验 / 文书；⛔ 未 push、未构建 APK、未部署）] 会话：**GOV-0024 AI 的角色读权限要与后端授权一致（从 AI 那一侧也加一道拦截）**（DSH `ecccdcd7-6908-43dc-8cb4-edf382102040`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径`（2026-10-11 逐字）：「AI 以为货主能读挂账单位、计费规则、开支分类啊……这个**从根源上后端做了一个拦截**，但是我们要**从 AI 那也做个拦截** —— 就是 AI **明确地知道**：我作为货主，**只能读货主的那些东西**，其他的他**根本读不了**，他**压根就不会去想**去读这些他**能力范围之外**的事情。我们也要做个这个拦截。」
+
+**做了什么**：① **先定性谁对谁错**（三种可能逐条排除）：六条端点后端**都拦了**（`backend/app/api/v1/arrears.py:28-36` 的 `require_permission(Permission.LEDGER_EDIT)`、`expense_categories.py:83` 的 `DispatcherUser`（`deps.py:169`）、`driver_billing_rules.py:281` / `freight_categories.py:69-70` / `freight_templates.py:220` 的 `权限:ORDER_DISPATCH`、`order_template_categories.py:86` 的 `权限:ORDER_EDIT`），目录**也没写宽**（`docs/ai/ai_read_catalog.json` 六条 `roles` 都是 `["dispatcher"]`；角色由 `_tools/ai/_gen_ai_read_catalog.py:160-194` 从索引的入口级授权标签推出，`backend/app/core/rbac.py:72-94` 的货主那格根本没有 LEDGER_EDIT / ORDER_DISPATCH / ORDER_EDIT）；② **红来自判据自己的静态分析器写宽**：`AiWriteImageHandlers.kt:28` 的 `ImageWriteHandler` 在 `AiWriteService.kt:1147-1149` 被注册三次，差别全在 `when (kind)`（`:83` / `:117-121` / `:125-129`），改前 `param_handlers()` 把整段类体算给每一次注册，`ds.snapshot(kind.resource, …)` 又解析不出键 ⇒ 退回宽口径 ⇒ 货主背上商品的写端点（实测改前 40 动作 / **78** 端点、改后 40 / **50**；派单员 173/207 → 173/**197**）；③ 修**解析精度**：`narrow_kind()` 按注册实参收窄共用类体、`ds_calls` 的 `exact_keys` 让 `ds.snapshot(kind.resource, …)` 落到单个资源键、另加 3 条反空转断言（宽口径回退必须为 0 / 图片 Kind 三次注册都认出来 / 资源键 ≥3），⛔ 越权 / 缺口 / 软删 / 同构四类断言一条没删；④ AI 侧：新增 `ai/AiReadScope.kt`（`SCOPE_RULE` / `NO_PERMISSION` ＋ `modulesOf` / `cnOf` / `rule`，范围只能从 `AiReads.forRole` 现算），`ai/AiRolePrompt.kt:110-114` 在「查数据（只读）」之后拼上（模块中文名走 `AiReads.moduleCn`、张数走 `reads.size`，⛔ 没手抄任何端点名/表名）；⑤ 新增判据 `_tools/qa/_check_ai_role_read_scope.py`（**52 项**）+ 反验 `_tools/qa/_reverse_verify_ai_role_read_scope.py`（**8 条注入**）+ 单测 `AiRolePromptTest` 2 例。
+
+**改哪些文件**：`_tools/ai/_check_role_parity.py`、`android/app/src/main/java/com/tapmoay/sorders/ai/AiReadScope.kt`（新）、`ai/AiRolePrompt.kt`、`android/app/src/test/java/com/tapmoay/sorders/ai/AiRolePromptTest.kt`、`_tools/qa/_check_ai_role_read_scope.py`（新）、`_tools/qa/_reverse_verify_ai_role_read_scope.py`（新）、`docs/changes/GOV-0024.md`（新）、`docs/changes/README.md`、`docs/AI_WORK_CLAIM.md`。
+
+**明确不碰**：⛔ `backend/app/**` 一个字节不动（授权是这次对账的**基准**，不是被改的对象）；⛔ `docs/ai/ai_read_catalog.json` / `_tools/ai/_gen_ai_read_catalog.py` / `backend/scripts/gen_endpoint_index.py` 本次未改（只在反验里临时注入又逐字节还原）；⛔ 判据不放宽、断言不删；⛔ 其它会话在改的 `ui/**`（含 `ReportCenter.kt`）不碰。
+
+**核心改动**：不适用（没有改核心区文件）。
+
+**证据**：`python -X utf8 _tools/qa/_check_ai_role_read_scope.py` → **52 项全过**；`python -X utf8 _tools/qa/_reverse_verify_ai_role_read_scope.py` → **8/8 条注入全部被抓 + 逐字节还原**（输出末行「源码已按字节还原」）；`python -X utf8 _tools/ai/_check_role_parity.py` → **20/20**（货主 40 动作 / 50 端点，派单员 173/197，宽口径快照回退 0）；真后端逐条对账 `python -X utf8 _tools/ai/_probe_read_roles.py` → **`✅ 每个角色的读权限都与实测一致。`（exit 0；6 条探针端点 × 3 角色：dispatcher 全 200/声明可用，**shipper 与 driver 全 403/声明不可用**；存档 `_tmp/role_parity/probe_read_roles.txt`）**。改前/改后归属对照存档 `_tmp/role_parity/probe_before_after.txt`。⚠️ Kotlin 单测**未跑成**：`:app:compileEmuDebugKotlin` 编译失败在**别的会话**的文件 `android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/ReportCenter.kt:1224-1227`（`Syntax error: Expecting a when-condition.`）。
 ### [2026-10-11 → ✅ 已完成（代码 / 单测 / 判据 / 反验 / 文书；⛔ 未 push、未构建 APK、未部署）] 会话：**FEAT-0026 分类名册按模块拆开：账号管理一份（一级固定六类 + 把模块分类主动拉取成二级）、批发商 / 货主 / 司机各自一份（可新建、只有一级）**（DSH `00c8406c-ea8c-4fd6-97e6-fa1a8dd8eaa1`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径`（2026-10-11 逐字）：「我批发商管理他那个分类啊，他那个分类是**跟账号管理不一样**的，**他现在串在一起了**。他那个分类是**可以新建的、另外建的**。只不过我们**账号管理拉取他们的分类的时候是搞 2 级分类**；当然，我们这些**子分类是不会拉取主分类**的。也就如**司机管理**，还有其他的**批发商管理**，**他们是有自己的分类的**，他们的分类基本上就是 **1 级**、不会有 2 级的。然后我们的**账号管理**，他的那个分类他是**有 2 级的**，他是**主动拉取**的，而且我们分类**已经固定好了**的。」
