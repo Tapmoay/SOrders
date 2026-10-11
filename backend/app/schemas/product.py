@@ -129,3 +129,62 @@ class ProductCostHistoryOut(BaseModel):
     movement_id: int | None = None
     # ⛔ 刻意**不下发** `operator_id`：那是内部主键，界面上要显示的是人名，
     #    而名字要另查一次（这一屏不值得为它多一次请求）。要查是谁改的走「异常与审计」。
+
+class ProductCostPriceCreate(MoneyInput):
+    """新增/设置一条**附加成本口径**（FEAT-0025）。
+
+    ⚠️ 名字里的 `Default` 不在这个模型里：默认那个口径是 `products.cost_price`，
+    它有自己唯一的写入口（`services/cost_history.py::record_cost`）——
+    ⛔ 这里**刻意不提供**"改默认成本价"的通道，那件事走 `PATCH /products/{id}` 的 `cost_price`。
+    """
+
+    name: str = Field(min_length=1, max_length=64)
+    cost_price: Decimal = Field(default=Decimal("0"), ge=0)
+    #: 不传 = 排到最后（新建的加在末尾，用户不用自己管顺序）
+    sort_order: int | None = Field(None, ge=0)
+
+    @field_validator("name")
+    @classmethod
+    def name_not_blank(cls, v: str) -> str:
+        # 纯空格的名字在列表上看起来是"一条没有名字的价"——用户没法指着它说清楚是哪一条。
+        if not v.strip():
+            raise ValueError("成本价名称不能为空或纯空格")
+        return v.strip()
+
+
+class ProductCostPriceUpdate(MoneyInput):
+    """改名 / 改价 / 改顺序（按请求里**实际出现的字段**更新，部分更新语义）。"""
+
+    name: str | None = Field(None, min_length=1, max_length=64)
+    cost_price: Decimal | None = Field(None, ge=0)
+    sort_order: int | None = Field(None, ge=0)
+
+    @field_validator("name")
+    @classmethod
+    def name_not_blank(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not v.strip():
+            raise ValueError("成本价名称不能为空或纯空格")
+        return v.strip()
+
+
+class ProductCostPriceOut(BaseModel):
+    """一条成本价口径（**列表里第一条永远是"默认口径"**，但那一条不在本表里）。
+
+    默认那一条是**合成出来的**：`id=0`、`name="真实成本价"`、金额取自 `products.cost_price`、
+    `is_default=True`。为什么合成而不是在库里也存一行：存一行就有两份真值，
+    而"订单与毛利按哪个算"只允许有一个答案（`products.cost_price`）。
+    """
+
+    id: int
+    product_id: int
+    name: str
+    cost_price: Decimal
+    sort_order: int = 0
+    #: True = 默认口径（真实成本价，订单与毛利按它算）；它不可改名/改价/删除
+    is_default: bool = False
+    #: 口径说明（默认那条＝"订单与毛利按它算"，其余＝"参考口径，不参与计算"）——
+    #: 文案由后端给：界面与 AI 卡片都照它写，⛔ 不要在两边各写一份自己的说法
+    note: str = ""
+

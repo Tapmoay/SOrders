@@ -370,6 +370,17 @@ class OperationAction(str, enum.Enum):
     #    一次 `POST /notifications/batch-delete {recipient_id: X, all: true}` 就能永久清空
     #    X 的全部站内信，而在这之前它一条日志都不写，"谁删的、删了多少"事后无从查起。
     NOTIFICATION_MODERATE = "NOTIFICATION_MODERATE"
+    # 商品的**附加成本口径**（FEAT-0025，用户 2026-10-11：「我们是可以设置多个成本价的」）。
+    # 拆四个码：要回答的是四件不同的事 ——「谁新增/改了这个口径的价」「谁改了口径名或顺序」
+    # 「谁删掉了一条口径（它还在回收站里）」「谁把删掉的那条放回来了」。
+    # ⚠️ 这四个码**都不涉及订单与毛利的成本口径**：那仍然是 `products.cost_price`（真实成本价），
+    #    它只由 services/cost_history.py::record_cost 写，改它记的是 PRODUCT_CREATE / PRODUCT_UPDATE。
+    #    分开记的理由：审计页上「改了真实成本价」与「加了一条参考口径」的后果完全不同 ——
+    #    前者会改毛利，后者一个字都不会改。
+    PRODUCT_COST_PRICE_UPSERT = "PRODUCT_COST_PRICE_UPSERT"
+    PRODUCT_COST_PRICE_UPDATE = "PRODUCT_COST_PRICE_UPDATE"
+    PRODUCT_COST_PRICE_DELETE = "PRODUCT_COST_PRICE_DELETE"
+    PRODUCT_COST_PRICE_RESTORE = "PRODUCT_COST_PRICE_RESTORE"
 
 class CustomerKind(str, enum.Enum):
     REGISTERED = "registered"

@@ -148,3 +148,48 @@ class PriceRule(Base, TimestampMixin, SoftDeleteMixin):
 
     shipper: Mapped["User"] = relationship(foreign_keys=[shipper_id])
     product: Mapped["Product"] = relationship(back_populates="price_rules")
+
+
+class ProductCostPrice(Base, TimestampMixin, SoftDeleteMixin):
+    """商品的**附加成本口径**（FEAT-0025，用户 2026-10-11：「我们是可以设置多个成本价的」）。
+
+    ### 为什么是"另一张表"而不是给 `products` 再加一列
+    用户要的不是"再多一格"，而是**能命名、能列好几个、能改能删能撤回**的一小组数，
+    原话：「有时候计算的时候还有第二个成本价 —— 这个成本价可能是加了其他东西、
+    或者比如说有补贴啊等等之后的成本价。所以一定要有多个成本价啊」。
+    加固定列（`cost_price_2`）等于把"最多两个、名字写死在代码里"钉进表结构，
+    第三个口径来了还得再迁移一次。
+
+    ### ⛔ 这张表**不是**订单与毛利的成本口径
+    订单与毛利只认 `products.cost_price`（真实成本价）：订单行的 `cost_price_snapshot`、
+    毛利报表的成本基数（`services/cost_basis.py`）全都只按它算 ——
+    **本表一个字都不参与任何金额计算**，它只回答"这个商品还有哪些口径的参考成本"。
+    要按别的口径出报表是**另一件事**（用户尚未拍板，见 `docs/changes/FEAT-0025.md`「下一单」）。
+
+    ### 唯一约束与"同名不许重复"
+    `(product_id, name)` 唯一 —— 但**软删的行仍占着那个组合**（与 `price_rules` 同一个坑，
+    见 `PriceRule` 的注释）。所以"再设一次同样的名字"必须**复活那一行**而不是插新的：
+    `api/v1/products.py` 的 upsert 查已有行时**不过滤 is_deleted**。
+    """
+
+    __tablename__ = "product_cost_prices"
+    __table_args__ = (
+        UniqueConstraint("product_id", "name", name="uq_product_cost_price_product_name"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    #: 口径名（"返点后成本" / "补贴后成本"…）。
+    #: ⚠️ **默认那个口径不在这张表里** —— 它就是 `products.cost_price`（真实成本价）。
+    #: 界面与 AI 都把它排在最前、标注「订单/毛利按它算」，其余才标注「参考口径」。
+    name: Mapped[str] = mapped_column(String(64))
+    # ⚠️ 列名刻意叫 `cost_price`（键名里含 cost）：AI 侧的两扇门都是**按键名**认成本的 ——
+    #    读取脱敏 `ai/AiRowShaper.kt::isHiddenField`（认 "cost" 子串），
+    #    写入那道门 `ai/AiWriteService.kt::COST_PARAMS`（认 "cost_price"）。
+    #    换成 `amount` 之类的名字等于**绕开那两扇门**：开关关着成本价也会进模型上下文。
+    #    ⛔ 不要为了"好看"改名（判据/单测都钉着这一点）。
+    cost_price: Mapped[Decimal] = mapped_column(Numeric(14, 4), default=Decimal("0"))
+    #: 显示顺序（小的在前；0/相同 = 没排过，此时按 id 正序即"先加的在前"）
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    product: Mapped["Product"] = relationship()

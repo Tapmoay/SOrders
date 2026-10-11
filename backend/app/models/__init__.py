@@ -51,7 +51,7 @@ from app.models.outbox import OutboxEvent, OutboxStatus
 from app.models.order_template_category import OrderTemplateCategory
 from app.models.place import Place, PlaceUserUsage
 from app.models.place_category import PlaceCategory
-from app.models.product import PriceRule, Product, ProductCostHistory
+from app.models.product import PriceRule, Product, ProductCostHistory, ProductCostPrice
 from app.models.product_category import ProductCategory
 from app.models.product_visibility import UserProductVisibility
 from app.models.purchase import PurchaseOrder, PurchaseOrderItem
@@ -120,6 +120,7 @@ __all__ = [
     "Product",
     "ProductCategory",
     "ProductCostHistory",
+    "ProductCostPrice",
     "PurchaseOrder",
     "PurchaseOrderItem",
     "ShipperAddress",

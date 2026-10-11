@@ -54,6 +54,18 @@ ASSIGN_ALLOW: dict[str, str] = {
         "（2026-09-19 审计 R12-H1：原来无条件下发，货主与司机都能读到进价）。"
         "它改的是 Pydantic 出参对象，**不是 `products` 那一列**。"
     ),
+    "cost_row.cost_price =": (
+        "FEAT-0025（2026-10-11）：写的是 `product_cost_prices` 这张**附加口径表**"
+        "（用户要的「多个成本价」：返点后成本 / 补贴后成本…），不是 `products.cost_price`。"
+        "为什么会命中这条判据：那张表的金额列**刻意**叫 `cost_price`"
+        "（AI 侧两扇门都按键名认成本 —— `AiRowShaper.isHiddenField` 认 cost 子串、"
+        "`AiWriteService.COST_PARAMS` 认 cost_price；换个名字就等于绕开脱敏与那道开关）。"
+        "⚠️ 两处都在这一个键下：`products.py::upsert_product_cost_price`（同名 upsert 改价/复活）"
+        "与 `products.py::update_product_cost_price`（PATCH 改价），变量名 `cost_row` "
+        "全库只在这两个函数里出现。"
+        "⛔ `products.cost_price` 仍然**只**由 `services/cost_history.record_cost` 写 —— "
+        "订单与毛利的成本口径一个字都没变。"
+    ),
 }
 
 

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
-from sqlalchemy import case, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import uploads_root
@@ -15,11 +15,19 @@ from app.core.rbac import Permission, role_has_permission, user_role_key
 from app.core.upload_read import MAX_IMAGE_BYTES, read_limited
 from app.database import get_db
 from app.deps import CurrentUser, require_permission, require_product_recycle_bin_access
-from app.models import OperationLog, Product, ProductCostHistory, User
+from app.models import OperationLog, Product, ProductCostHistory, ProductCostPrice, User
 from app.models.enums import OperationAction, UserRole
 from app.api.v1.product_categories import ensure_category
 from app.schemas.product_visibility import product_visible_to, visible_product_ids
-from app.schemas.product import ProductCostHistoryOut, ProductCreate, ProductOut, ProductUpdate
+from app.schemas.product import (
+    ProductCostHistoryOut,
+    ProductCostPriceCreate,
+    ProductCostPriceOut,
+    ProductCostPriceUpdate,
+    ProductCreate,
+    ProductOut,
+    ProductUpdate,
+)
 from app.services import cost_history
 from app.services import usage_service
 from app.services.cost_history import record_cost
@@ -263,6 +271,366 @@ def product_cost_history(
     # ⚠️ 不按 `products.is_deleted` 过滤：删掉的是商品，不是"这批货当时的成本是多少"这个事实，
     #    而派单员正是要靠它核对历史订单的毛利 —— 商品删了反而更需要这份记录。
     return finish_page(list(db.scalars(q)), limit, response)
+
+
+# =====================================================================================
+# 商品的**成本价口径**（FEAT-0025，用户 2026-10-11）
+#
+# 用户原话：「我们是可以设置多个成本价的，AI 也都可以调。只不过我们一般情况下是默认按
+# 一个成本价，也就是真实成本价，按那个来计算的……当然，我们有时候计算的时候还有第二个成本价 ——
+# 这个成本价可能是加了其他东西、或者比如说有补贴啊等等之后的成本价。所以一定要有多个成本价啊。」
+#
+# ⛔ 这里的东西**一个字都不参与金额计算**：订单、账单、毛利、快照一律仍按"真实成本价"
+#    （`products.cost_price` → 订单行 `cost_price_snapshot` → 毛利只算 `cost_price_snapshot > 0` 的行）。
+#    默认那一条在列表里是**合成出来的**（id=0，金额直接取自 products.cost_price）——
+#    因此它天然不可改名/改价/删除：改它只有一条路（PATCH /products/{id} 的 cost_price，
+#    由 services/cost_history.py::record_cost 写时间轴）。
+#
+# ⛔ 路由顺序：`GET /cost-prices` 必须声明在 `@router.get("/{product_id}")` 之前（与 cost-history
+#    同一个坑：Starlette 按声明顺序匹配，先声明的 `/{product_id}` 会把 "cost-prices" 接住，
+#    然后拿它去转 int → 422）。
+# =====================================================================================
+
+#: 默认口径在列表里的显示名（它不在 `product_cost_prices` 表里，是 products.cost_price 的投影）
+DEFAULT_COST_PRICE_NAME = "真实成本价"
+#: 口径说明文案 —— **只在这里写一份**，App 与 AI 卡片都照它显示（⛔ 别在两边各写一套说法）
+COST_PRICE_DEFAULT_NOTE = "订单与毛利按它算（真实成本价）"
+COST_PRICE_EXTRA_NOTE = "参考口径：不参与订单与毛利的计算"
+
+
+def _cost_price_out(cost_row: ProductCostPrice) -> ProductCostPriceOut:
+    """表里的一条附加口径。"""
+    return ProductCostPriceOut(
+        id=cost_row.id,
+        product_id=cost_row.product_id,
+        name=cost_row.name,
+        cost_price=cost_row.cost_price,
+        sort_order=cost_row.sort_order,
+        is_default=False,
+        note=COST_PRICE_EXTRA_NOTE,
+    )
+
+
+def _default_cost_price_out(p: Product) -> ProductCostPriceOut:
+    """**合成**默认那一条（id=0、is_default=True）。
+
+    为什么不在库里也存一行：存了就有两份真值 —— 而"订单与毛利按哪个算"只允许有一个答案。
+    `sort_order=-1` 让它永远排在最前（客户端就算自己按 sort_order 排也不会把它挤下去）。
+    """
+    return ProductCostPriceOut(
+        id=0,
+        product_id=p.id,
+        name=DEFAULT_COST_PRICE_NAME,
+        cost_price=p.cost_price,
+        sort_order=-1,
+        is_default=True,
+        note=COST_PRICE_DEFAULT_NOTE,
+    )
+
+
+def _cost_product_or_404(db: Session, product_id: int) -> Product:
+    p = db.get(Product, product_id)
+    if p is None or p.is_deleted:
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    return p
+
+
+def _cost_row_or_404(db: Session, row_id: int, *, include_deleted: bool = False) -> ProductCostPrice:
+    cost_row = db.get(ProductCostPrice, row_id)
+    # 软删的那些对普通查询不可见（与商品同一条语义）；回收站的入口显式传 include_deleted=True
+    if cost_row is None or (cost_row.is_deleted and not include_deleted):
+        raise HTTPException(status_code=404, detail="未找到对应记录")
+    return cost_row
+
+
+def _cost_row_by_name(db: Session, product_id: int, name: str) -> ProductCostPrice | None:
+    """按（商品, 名字）找那一条。
+
+    ⚠️ **不过滤 is_deleted**：软删的行仍然占着 `(product_id, name)` 唯一约束（不能像联系人
+    那样把键改名，改了就对不上"是哪个口径"了）—— 所以"再设一次同名的价"必须**复活那一行**，
+    而不是插一条新的（插会直接撞唯一约束报 500）。这与 `price_rules` 的 upsert 同一条口径。
+    """
+    return db.scalars(
+        select(ProductCostPrice).where(
+            ProductCostPrice.product_id == product_id,
+            ProductCostPrice.name == name,
+        )
+    ).first()
+
+
+def _next_cost_sort(db: Session, product_id: int) -> int:
+    """新加的口径排到最后（用户不填顺序时）——"先加的在前"比"按 id 倒序"更像他心里的顺序。"""
+    biggest = db.scalar(
+        select(func.max(ProductCostPrice.sort_order)).where(
+            ProductCostPrice.product_id == product_id
+        )
+    )
+    return int(biggest or 0) + 1
+
+
+@router.get("/cost-prices", response_model=list[ProductCostPriceOut])
+def product_cost_prices(
+    response: Response,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_permission(Permission.PRODUCT_MANAGE)),
+    product_id: int | None = Query(None, description="按商品筛；不传 = 全部商品的附加口径"),
+    deleted_only: bool = Query(False, description="只看回收站里被删掉的那些"),
+    limit: int = Query(200, ge=1, le=500),
+) -> list[ProductCostPriceOut]:
+    """某个商品的**成本价口径**列表：第一条永远是默认口径（真实成本价）。
+
+    ## 口径（用户 2026-10-11 的原话就是这三句）
+    · **默认那个＝真实成本价**：订单与毛利按它算（`note` 字段里写死这句话）；
+    · 其余的（"返点后成本" / "补贴后成本"…）是**参考口径**：一个字节都不参与金额计算；
+    · 一个商品可以有**多个**，⛔ 不再是"只能留一个"。
+
+    ## 为什么是"带 ?product_id= 的列表"而不是 "/products/{id}/cost-prices"
+    与 `/products/cost-history` 同一条硬规矩：**AI 看不到任何内部编号**，带路径参数的端点
+    对模型是死的（`_gen_ai_read_catalog.py` 按"路径里有没有 `{}`"排除）。商品走查询参数之后，
+    模型说商品名 → App 解析成编号 → 调同一条路由。**AI 必须能设第二个成本价**正是本单要治的痛。
+
+    ⛔ 权限是 `product:manage`（派单员）。成本是内部数：货主与司机连商品详情里的
+    `cost_price` 都拿不到，这里当然也不能给。
+    """
+    q = (
+        select(ProductCostPrice)
+        .order_by(
+            ProductCostPrice.product_id.asc(),
+            ProductCostPrice.sort_order.asc(),
+            ProductCostPrice.id.asc(),
+        )
+        # 多取一行判截断（2026-09-19 分页红线）：不给 X-Truncated 的话，
+        # "这个商品有 200 多条口径"会静默变成"就 200 条"。
+        .limit(limit + 1)
+    )
+    q = q.where(ProductCostPrice.is_deleted.is_(deleted_only))
+    if product_id is not None:
+        # 回收站里看的是"删掉的口径"，此时不合成默认那条（它不是可删的行）
+        p = None if deleted_only else _cost_product_or_404(db, product_id)
+        q = q.where(ProductCostPrice.product_id == product_id)
+    else:
+        p = None
+
+    items = [_cost_price_out(r) for r in db.scalars(q)]
+    if p is not None:
+        # 默认口径排在最前 —— 用户要一眼看到"订单/毛利按哪个算"
+        items.insert(0, _default_cost_price_out(p))
+    return finish_page(items, limit, response)
+
+
+@router.post(
+    "/{product_id}/cost-prices",
+    response_model=ProductCostPriceOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def upsert_product_cost_price(
+    product_id: int,
+    body: ProductCostPriceCreate,
+    response: Response,
+    current: User = Depends(require_permission(Permission.PRODUCT_MANAGE)),
+    db: Session = Depends(get_db),
+) -> ProductCostPriceOut:
+    """新增或**改价**一条附加成本口径（按名字 upsert：有就改、没有就建）。
+
+    · 回收站里已经有一条同名的 → **把它放回来并改成这个价**（唯一约束让它没有第二种做法）；
+    · 返回码：建出来是 **201**，改的是 **200**（客户端据此知道是"新增"还是"改了已有的"）；
+    · ⛔ 这个名字**不许**叫默认那个口径（"真实成本价"）：那是 `products.cost_price`，
+      改它只有一条路（PATCH /products/{id} 的 cost_price，会写成本价时间轴）。
+    """
+    p = _cost_product_or_404(db, product_id)
+    if body.name == DEFAULT_COST_PRICE_NAME:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"「{DEFAULT_COST_PRICE_NAME}」是默认口径（订单与毛利按它算），"
+                "不在这张表里 —— 要改它请直接改商品的成本价"
+            ),
+        )
+
+    cost_row = _cost_row_by_name(db, product_id, body.name)
+    if cost_row is not None:
+        before = str(cost_row.cost_price)
+        was_deleted = cost_row.is_deleted
+        cost_row.cost_price = body.cost_price
+        if body.sort_order is not None:
+            cost_row.sort_order = body.sort_order
+        if was_deleted:
+            cost_row.is_deleted = False
+            cost_row.deleted_at = None
+        response.status_code = status.HTTP_200_OK
+        write_log(
+            db,
+            operator_id=current.id,
+            order_id=None,
+            action=OperationAction.PRODUCT_COST_PRICE_UPSERT,
+            change_payload={
+                "product_id": p.id,
+                "product_name": p.name,
+                "cost_price_id": cost_row.id,
+                "name": cost_row.name,
+                "changes": {"cost_price": [before, str(cost_row.cost_price)]},
+                "restored": was_deleted,
+                "note": "附加成本口径：不参与订单与毛利的计算",
+            },
+        )
+        db.commit()
+        db.refresh(cost_row)
+        return _cost_price_out(cost_row)
+
+    cost_row = ProductCostPrice(
+        product_id=product_id,
+        name=body.name,
+        cost_price=body.cost_price,
+        sort_order=(
+            body.sort_order if body.sort_order is not None else _next_cost_sort(db, product_id)
+        ),
+    )
+    db.add(cost_row)
+    db.flush()
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.PRODUCT_COST_PRICE_UPSERT,
+        change_payload={
+            "product_id": p.id,
+            "product_name": p.name,
+            "cost_price_id": cost_row.id,
+            "name": cost_row.name,
+            "cost_price": str(cost_row.cost_price),
+            "note": "附加成本口径：不参与订单与毛利的计算",
+        },
+    )
+    db.commit()
+    db.refresh(cost_row)
+    return _cost_price_out(cost_row)
+
+
+@router.patch("/cost-prices/{row_id}", response_model=ProductCostPriceOut)
+def update_product_cost_price(
+    row_id: int,
+    body: ProductCostPriceUpdate,
+    current: User = Depends(require_permission(Permission.PRODUCT_MANAGE)),
+    db: Session = Depends(get_db),
+) -> ProductCostPriceOut:
+    """改名 / 改价 / 改顺序（**部分更新**：只动请求里真的出现的字段）。
+
+    ⛔ 改名撞上同商品已有的名字 → **409**（含糊地合并两条价会让用户以为改错了行）；
+    改名撞上**回收站里**的名字也拒绝，并在话里说清"回收站里有一条同名的，先把它放回来"。
+    """
+    cost_row = _cost_row_or_404(db, row_id)
+    data = body.model_dump(exclude_unset=True)
+    if not data:
+        raise HTTPException(status_code=400, detail="没有要改的内容（名称、金额、顺序至少要给一个）")
+
+    p = db.get(Product, cost_row.product_id)
+    changes: dict[str, list[str]] = {}
+
+    if data.get("name") is not None and data["name"] != cost_row.name:
+        clash = _cost_row_by_name(db, cost_row.product_id, data["name"])
+        if clash is not None and clash.id != cost_row.id:
+            if clash.is_deleted:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"回收站里已经有一条叫「{data['name']}」的成本价了，先把它放回来（或换个名字）",
+                )
+            raise HTTPException(
+                status_code=409, detail=f"这个商品已经有一条叫「{data['name']}」的成本价了"
+            )
+        changes["name"] = [cost_row.name, data["name"]]
+        cost_row.name = data["name"]
+
+    if data.get("cost_price") is not None and data["cost_price"] != cost_row.cost_price:
+        changes["cost_price"] = [str(cost_row.cost_price), str(data["cost_price"])]
+        cost_row.cost_price = data["cost_price"]
+
+    if data.get("sort_order") is not None and data["sort_order"] != cost_row.sort_order:
+        changes["sort_order"] = [str(cost_row.sort_order), str(data["sort_order"])]
+        cost_row.sort_order = data["sort_order"]
+
+    if changes:
+        db.flush()
+        write_log(
+            db,
+            operator_id=current.id,
+            order_id=None,
+            action=OperationAction.PRODUCT_COST_PRICE_UPDATE,
+            change_payload={
+                "product_id": cost_row.product_id,
+                "product_name": p.name if p else "",
+                "cost_price_id": cost_row.id,
+                "name": cost_row.name,
+                "changes": changes,
+                "note": "附加成本口径：不参与订单与毛利的计算",
+            },
+        )
+    db.commit()
+    db.refresh(cost_row)
+    return _cost_price_out(cost_row)
+
+
+@router.delete("/cost-prices/{row_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_product_cost_price(
+    row_id: int,
+    current: User = Depends(require_permission(Permission.PRODUCT_MANAGE)),
+    db: Session = Depends(get_db),
+) -> Response:
+    """**软删**一条附加成本口径（行还在，可 `POST /products/cost-prices/{id}/restore` 放回来）。
+
+    ⛔ 默认那条口径不在本表里，所以这里**删不到它**（想"不再用它"是另一件事：
+    订单与毛利的口径不许被随手关掉）。
+    """
+    cost_row = _cost_row_or_404(db, row_id)
+    p = db.get(Product, cost_row.product_id)
+    cost_row.is_deleted = True
+    cost_row.deleted_at = utc_now_naive()
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.PRODUCT_COST_PRICE_DELETE,
+        change_payload={
+            "product_id": cost_row.product_id,
+            "product_name": p.name if p else "",
+            "cost_price_id": cost_row.id,
+            "name": cost_row.name,
+            "cost_price": str(cost_row.cost_price),
+            "note": "软删（伪装删除）：行还在，可以恢复",
+        },
+    )
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/cost-prices/{row_id}/restore", response_model=ProductCostPriceOut)
+def restore_product_cost_price(
+    row_id: int,
+    current: User = Depends(require_permission(Permission.PRODUCT_MANAGE)),
+    db: Session = Depends(get_db),
+) -> ProductCostPriceOut:
+    """把回收站里的那条口径**原样放回来**（逐字段照搬，不重建）。"""
+    cost_row = _cost_row_or_404(db, row_id, include_deleted=True)
+    if not cost_row.is_deleted:
+        raise HTTPException(status_code=400, detail="这一条没有在回收站里，不需要恢复")
+    p = db.get(Product, cost_row.product_id)
+    cost_row.is_deleted = False
+    cost_row.deleted_at = None
+    write_log(
+        db,
+        operator_id=current.id,
+        order_id=None,
+        action=OperationAction.PRODUCT_COST_PRICE_RESTORE,
+        change_payload={
+            "product_id": cost_row.product_id,
+            "product_name": p.name if p else "",
+            "cost_price_id": cost_row.id,
+            "name": cost_row.name,
+            "cost_price": str(cost_row.cost_price),
+        },
+    )
+    db.commit()
+    db.refresh(cost_row)
+    return _cost_price_out(cost_row)
 
 
 @router.get("/{product_id}", response_model=ProductOut)
