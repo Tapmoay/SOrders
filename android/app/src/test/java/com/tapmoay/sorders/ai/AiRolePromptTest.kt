@@ -185,4 +185,36 @@ class AiRolePromptTest {
         assertTrue(shipper.contains("不许凭印象归纳"))
         assertTrue(dispatcher.contains("照**上面这份清单**念"))
     }
+
+    @Test
+    fun `读范围声明必须在（GOV-0024：从 AI 那也做个拦截）`() {
+        // 用户原话：「AI 明确地知道：我作为货主，只能读货主的那些东西，其他的他根本读不了，
+        // 他压根就不会去想读这些他能力范围之外的事情。」后端那道门拦的是"动作"（试了会 403），
+        // 这句拦的是"想法"（事先把范围说死）。**删掉它，判据 `_check_ai_role_read_scope.py` 会红。**
+        for ((who, brief) in listOf("货主" to shipper, "派单员" to dispatcher)) {
+            assertTrue("$who 那份提示词缺读范围声明：\n$brief", brief.contains(AiReadScope.SCOPE_RULE))
+            assertTrue("$who 那份缺「读不了 = 没授权，不是系统里没有」那句：\n$brief", brief.contains(AiReadScope.NO_PERMISSION))
+        }
+        // 声明必须落在「能做」那一段里（排在"不归你的"之后就成了备注，模型会当补充说明读）
+        val can = canDoPart(shipper)
+        assertTrue("读范围声明必须在「你能做什么」那一段里：\n$can", can.contains(AiReadScope.SCOPE_RULE))
+        // 认不出角色 = 一张表都没有 → 不提范围（"你只能读：（空）"读起来像故障）
+        assertFalse("认不出角色时不该提读范围：\n$unknown", unknown.contains(AiReadScope.SCOPE_RULE))
+    }
+
+    @Test
+    fun `读范围里的模块与张数和目录同源（不是手抄的）`() {
+        // ⛔ 提示词里**一个字都不许**手抄模块名/表名：抄的那一刻它就开始过期，而且不报错
+        //    （模型只是越来越不会用）。所以这里把声明里的清单与 AiReads.forRole 逐条对账。
+        val reads = AiReads.forRole(AiActor.byRole(AiRole.SHIPPER), AiReads.allModules().toSet())
+        val want = AiReadScope.cnOf(AiReadScope.modulesOf(reads))
+        val line = canDoPart(shipper).lines().first { it.contains(AiReadScope.SCOPE_RULE) }
+        val got = line.substringAfter("范围就是这几块：").substringBefore("（共").split("、").map { it.trim() }
+        assertEquals("读范围里的模块必须和 AiReads.forRole 一致：\n$line", want, got)
+        assertTrue("范围里要写明一共几张表：\n$line", line.contains("共 ${reads.size} 张表"))
+        // 空清单 → 不拼这一行（否则是「你只能读：（空）」）
+        assertEquals(null, AiReadScope.rule(emptyList(), 0))
+        assertEquals(null, AiReadScope.rule(listOf("orders"), 0))
+        assertTrue("有模块有表时必须给一行", AiReadScope.rule(listOf("orders"), 3) != null)
+    }
 }

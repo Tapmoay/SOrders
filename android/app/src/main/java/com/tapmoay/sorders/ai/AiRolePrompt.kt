@@ -107,6 +107,10 @@ object AiRolePrompt {
                         .joinToString("、"),
                 )
             }
+            // 读范围的**声明**（GOV-0024，2026-10-11 用户点名）：上面那行只说了「能读哪几块」，
+            // 这句把**范围之外**说死 —— 用户的话是「他压根就不会去想读这些他能力范围之外的事情」。
+            // ⚠️ 与目录同源（模块键 / 表数都从同一个 `reads` 来）：绝不手抄表名或端点名。
+            AiReadScope.rule(AiReadScope.modulesOf(reads), reads.size)?.let { appendLine(it) }
             // 「他有哪些页面」也从界面配置里取（见 pagesOf）：指路只能指这些，多一个都不行。
             appendLine("· 他界面上有的页面（**只有这些**）：" + pages.joinToString("、"))
             // 「不归你」只写**域**：写具体动作名等于把不该有的能力名字摆到它眼前。
