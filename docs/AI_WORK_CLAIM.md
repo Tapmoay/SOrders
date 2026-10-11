@@ -59,9 +59,11 @@
 
 **明确不碰**：⛔ 司机新单那条链（`postOrder` 的渠道 `orders_alert`、语音 `NewOrderPlayer`、`NewOrderAlert` 的去重与响铃口径）一个字节不动；⛔ 别的会话正在改的文件（`ai/AiWrite*.kt` / `ai/AiCard*.kt` / `ai/AiAttachment*` / `ai/AiResources.kt` / `ai/AiRevert.kt` / `data/remote/api/Apis.kt` / `data/remote/dto/Dtos.kt` / `data/repo/AppRepository.kt` / `ui/ai/AiChatScreen.kt` / `ui/dispatcher/AccountManageScreen.kt` / `ui/dispatcher/ProductForm*` / `ui/dispatcher/ReportCenter.kt`）；⛔ 后端与数据库一个字节不动（消息仍由服务端产生与保存）；⛔ 消息中心页的既有样式与路由映射（深链**复用** `ui/messages/MessageGrading.kt::noticeRoute`，不写第二套）；⛔ 不构建 APK、不部署、**不 push**。
 
-**交叉点**：① `_tools/qa/_check_alert_ringback.py` 第 231 / 238 行把「渠道常量个数 == 5」写死；本单按 severity 新增两条渠道（`messages_warn` / `messages_info` —— 安卓渠道是**一次性**的，改 importance 对老机器无效，分档只能新 id）⇒ 这两行必红，已按**保留原意**的方式改写（旧五条一个不少 ＋ 每个渠道常量都必须真的建渠道），并跑它的反验 `_tools/qa/_reverse_verify_alert_ringback.py` 复核。② `docs/changes/README.md` 是登记簿（多会话共写），只追加一行。③ `docs/INTEGRATIONS.md §5` 若需补口径按追加式补。
+**交叉点**：① `_tools/qa/_check_alert_ringback.py` 第 231 / 238 行把「渠道常量个数 == 5」写死；本单按 severity 新增两条渠道（`messages_warn` / `messages_info` —— 安卓渠道是**一次性**的，改 importance 对老机器无效，分档只能新 id）⇒ 这两行必红，已按**保留原意**的方式改写（旧五条一个不少 ＋ 每个渠道常量都必须真的建渠道），并跑它的反验 `_tools/qa/_reverse_verify_alert_ringback.py` 复核。② `docs/changes/README.md` 是登记簿（多会话共写），只追加一行。③ `docs/INTEGRATIONS.md §5` 若需补口径按追加式补（**结论：不需要补** —— 本单服务端零改动、没有新接口/字段/事件，§5 的既有口径仍准确）。
 
-- 状态：⏳ **进行中**（2026-10-11；代码 ＋ 单测 ＋ 判据 ＋ 反验 ＋ 文书收尾中）。
+- 状态：✅ **已完成**（2026-10-11；实现 `58e8c4a4`（代码 12 文件 ＋ 单测）／判据＋反验 `0f4165fe`（`_check_message_system_notify.py` 53/53 全绿、`_reverse_verify_message_system_notify.py` 11/11 全红、`_check_alert_ringback.py` 三处断言按新实现改写后仍 79/79）／文书 `607108e7`；`:app:compilePhoneDebugKotlin` BUILD SUCCESSFUL、`:app:testEmuDebugUnitTest --tests "*Notify*"` MessageNotifyTest **14 例全过**、`_check_notify_guardrails.py` **126/126**）。
+⛔ **未 push、未构建 APK、未部署生产、未做真机实测**（本机没接真机，`72e5048` 常掉线）—— 证据全是判据 ＋ 反验 ＋ 编译 ＋ 单测。
+⚠️ 两处**与本单无关**的红已如实记在 `_tmp/message_system_notify/report.md`：① `_check_reverse_verify_anchors.py` 报 `_reverse_verify_product_cost_prices.py`（FEAT-0025）有 1 处**注入残留** —— 那个被注入的 bug 现在就在源码树里，修法 `python _tools/qa/_check_reverse_verify_anchors.py --restore`；② `_reverse_verify_notify.py` 有 2 条注入恒不报错（`realtime` 取的是整份 `RealtimeHub.kt`，而 `NewOrderAlert.shouldStop(` 在文件里出现两次；`setSound(null, null)` 在 `NotifyCenter.kt` 里也有两处 ⇒ 锚点不唯一）。两处都是 HEAD 就有的，本会话没替别人动。
 
 ### [2026-10-11 → ✅ 已完成] 会话：**CHG-0121 账号分类按身份自动推导**（DSH session-bd8fe093）
 
