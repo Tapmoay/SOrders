@@ -7,7 +7,11 @@
 而 2 月 29 日上牌的车每四年才撞上这个分叉一次，真出问题时没人会想到是这里。
 
 消息那一层（谁收、几点发、文案怎么写）在 `tests/test_message_producers.py`；
-这里只钉**日期本身**：周年、2/29、以谁为准、两格都空。
+这里只钉**日期本身与分档**：周年、2/29、以谁为准、两格都空、**两条提前量边界（90 / 30）**。
+
+⚠️ CHG-0115（2026-10-11）把提前量从"只剩 30 天才说"改成**提前 3 个月开口、提前 1 个月转红**
+（用户口径：「这个车辆年检是不能逾期的……一旦过了的话那车子是不能上路的。……大概在
+**一个月，还是三个月前**就会有提醒的」）—— 所以下面那条边界用例有**三条**线，不是两条。
 """
 
 from __future__ import annotations
@@ -80,10 +84,12 @@ def test_no_base_date_means_no_reminder_at_all() -> None:
 
 # ---------------------------------------------------------------- 分档
 
-def test_kind_buckets_with_two_exact_boundaries() -> None:
-    """两条边界：**还剩 30 天**（含）进临期、**到期日当天**仍算临期、**过 1 天**才算逾期。
+def test_kind_buckets_with_three_exact_boundaries() -> None:
+    """三条边界各钉两边：90 天开口、30 天转紧急、**到期日当天**仍不算逾期（过 1 天才算）。
 
-    ⚠️ 到期日当天车还能合法上路，说"已逾期"是错的话 —— 这条边界与 `payable_kind` 同形。
+    ⚠️ CHG-0115：第一次开口从"只剩 30 天"提前到 **90 天**（用户口径「大概在**一个月**，
+    还是**三个月前**就会有提醒的」）—— 这一条用例正是那两个数字的落点。
+    ⚠️ 到期日当天车还能合法上路，说"已过期"是错的话 —— 这条边界与 `payable_kind` 同形。
     """
     day = date(2026, 10, 11)
 
@@ -92,13 +98,37 @@ def test_kind_buckets_with_two_exact_boundaries() -> None:
         d = day + timedelta(days=days_to_due)
         return d.replace(year=d.year - 1)
 
-    assert inspection_due.INSPECTION_DUE_SOON_DAYS == 30
-    assert inspection_due.inspection_kind(base(31), None, day=day) is None
-    assert inspection_due.inspection_kind(base(30), None, day=day) == "vehicle.inspection_due"
-    assert inspection_due.inspection_kind(base(1), None, day=day) == "vehicle.inspection_due"
-    assert inspection_due.inspection_kind(base(0), None, day=day) == "vehicle.inspection_due"
+    assert inspection_due.INSPECTION_DUE_SOON_DAYS == 90
+    assert inspection_due.INSPECTION_URGENT_DAYS == 30
+    assert inspection_due.inspection_kind(base(91), None, day=day) is None
+    assert inspection_due.inspection_kind(base(90), None, day=day) == "vehicle.inspection_due"
+    assert inspection_due.inspection_kind(base(31), None, day=day) == "vehicle.inspection_due"
+    assert inspection_due.inspection_kind(base(30), None, day=day) == "vehicle.inspection_urgent"
+    assert inspection_due.inspection_kind(base(1), None, day=day) == "vehicle.inspection_urgent"
+    assert inspection_due.inspection_kind(base(0), None, day=day) == "vehicle.inspection_urgent"
     assert inspection_due.inspection_kind(base(-1), None, day=day) == "vehicle.inspection_overdue"
     assert inspection_due.inspection_kind(base(-400), None, day=day) == "vehicle.inspection_overdue"
+
+
+def test_every_day_hits_exactly_one_band() -> None:
+    """逐天走一遍：**同一天只可能命中一档** —— 这是"同一天不会同时发两条"的结构性保证。
+
+    从"还有 120 天"走到"已过期 10 天"，每一天的返回值要么是 `None`（还早）、要么是
+    三档里的**一个**类型名。⛔ 这条用例防的是"先发 90 天那条、再发 30 天那条"那种写法：
+    只要 `inspection_kind` 改成返回列表或让两个分支都命中，这里立刻红。
+    """
+    day = date(2026, 10, 11)
+
+    def base(days_to_due: int) -> date:
+        d = day + timedelta(days=days_to_due)
+        return d.replace(year=d.year - 1)
+
+    seen = [inspection_due.inspection_kind(base(left), None, day=day) for left in range(120, -11, -1)]
+    assert len(seen) == 131
+    assert seen[:30] == [None] * 30                                      # 还有 120…91 天：一个字都不发
+    assert set(seen[30:90]) == {"vehicle.inspection_due"}                # 还有 90…31 天：warn 那一档
+    assert set(seen[90:121]) == {"vehicle.inspection_urgent"}            # 还有 30…0 天：danger 那一档
+    assert set(seen[121:]) == {"vehicle.inspection_overdue"}             # 过期：兜底那一档
 
 
 def test_kind_follows_the_same_base_rule_as_the_date() -> None:

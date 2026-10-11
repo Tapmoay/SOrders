@@ -46,7 +46,8 @@ from app.models.notification import SEVERITY_DANGER, SEVERITY_INFO, SEVERITY_WAR
 #:
 #: 档位口径（对齐用户过目的那张 17 类样式表）：
 #:   · `danger`：**已经在亏 / 已经出事**（库存低于报警阈值、应收超额度、应付已逾期、异地新设备登录）
-#:   · `warn`  ：**不好但还没到最坏 / 需要人去看一眼**（撤销·删单·退货一族、库存偏低、应付临期、年检）
+#:   · `warn`  ：**不好但还没到最坏 / 需要人去看一眼**（撤销·删单·退货一族、库存偏低、应付临期、
+#:              年检**提前 90 天**那一档）
 #:   · `info`  ：正常流转（派单·接单·送达·收款到账·开票·价格调整·系统公告）
 SEVERITY_BY_TYPE: dict[str, str] = {
     # ── 订单：正常流转 ───────────────────────────────────────────────────────
@@ -84,7 +85,8 @@ SEVERITY_BY_TYPE: dict[str, str] = {
     # ── 下面这些曾经"只定了名字、没有生产者"（库存预警、应付到期、发票、车辆年检、账号安全）──
     #    FEAT-0019 按样式表（`_tmp/palette_demo/messages_all.html`，用户已过目）里那 17 类
     #    先把名字与档位定下来，App 那一侧照着 `type` 上色、后端这边照着 `type` 定档。
-    #    ✅ FEAT-0021（七类）＋ FEAT-0022（`stock.near_low` 与两类年检）之后**十类全都有生产者了**。
+    #    ✅ FEAT-0021（七类）＋ FEAT-0022（`stock.near_low` 与两类年检）之后**十类全都有生产者了**；
+    #    CHG-0115 再加 `vehicle.inspection_urgent`（年检拆成提前 90 天 / 提前 30 天 / 已过期三档）。
     #    ⛔ 新接生产者时**用这些名字**（别另起一个近义名），否则档位会安静地掉回 info。
     "stock.low": SEVERITY_DANGER,             # 库存**低于**报警阈值（用户原话「库存不足……很危险」）
     "stock.near_low": SEVERITY_WARN,          # 库存到了报警阈值但还在 ×(1+20%) 以内（2026-10-11 用户口径）
@@ -92,8 +94,9 @@ SEVERITY_BY_TYPE: dict[str, str] = {
     "payable.due_soon": SEVERITY_WARN,        # 应付临期（≤7 天）
     "payable.overdue": SEVERITY_DANGER,       # 应付已逾期
     "invoice.issued": SEVERITY_INFO,          # 发票已开具
-    "vehicle.inspection_due": SEVERITY_WARN,  # 车辆年检临期（≤30 天）
-    "vehicle.inspection_overdue": SEVERITY_DANGER,  # 车辆年检已逾期（FEAT-0022 新增）
+    "vehicle.inspection_due": SEVERITY_WARN,  # 车辆年检**提前 90 天**（CHG-0115 从 30 天提前到 90 天）
+    "vehicle.inspection_urgent": SEVERITY_DANGER,  # 车辆年检**只剩 30 天**（CHG-0115 新增：必须去了）
+    "vehicle.inspection_overdue": SEVERITY_DANGER,  # 车辆年检已过期（**兜底**：设计目标是不让它发生）
     "account.new_device_login": SEVERITY_DANGER,  # 异地 / 新设备登录
     "account.device_unfrozen": SEVERITY_INFO,     # 账号已解冻
 }
@@ -128,7 +131,8 @@ EMPHASIS_BY_TYPE: dict[str, tuple[str, ...]] = {
     "payable.overdue": ("已逾期",),
     "invoice.issued": ("已开具",),
     "vehicle.inspection_due": ("年检",),
-    "vehicle.inspection_overdue": ("已逾期",),
+    "vehicle.inspection_urgent": ("年检",),
+    "vehicle.inspection_overdue": ("已过期",),   # CHG-0115：措辞从「已逾期」改成说清后果的「已过期」
     "account.new_device_login": ("新设备登录",),
     "account.device_unfrozen": ("已解冻",),
     "system.notice": ("系统公告",),

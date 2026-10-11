@@ -1,8 +1,38 @@
-"""下次车辆年检日期：**只有这一处**算法（FEAT-0022，用户口径 2026-10-11）。
+"""下次车辆年检日期与**提前量分档**：只有这一处算法（FEAT-0022 → CHG-0115，用户口径 2026-10-11）。
 
-## 这一单治的病
+## 这一单治的病（CHG-0115）
 
-用户 2026-10-11：
+用户 2026-10-11（逐字）：
+
+> 「这个车辆年检是**不能逾期**的。意思就是说，我们不能等已经到了年检期、或者说年检期过了 ——
+>   这是不可能的，因为**一旦过了的话那车子是不能上路的**。我们按照我们的交规来提醒，
+>   我们的交规是大概在**一个月，还是三个月前**就会有提醒的。」
+
+也就是说：**等到期才提醒就已经晚了**。年检要预约、要上线检测，不是当天去就能办完的事。
+CHG-0115 之前只有"临期 / 逾期"两档，而那个"临期"是 30 天 —— 等于**只剩一个月**才第一次
+告诉用户，正是用户说的"不能等已经到了年检期"。现在改成**提前 3 个月就开口**：
+
+| 距到期天数 `left = (due - day).days` | 返回 | 档位（由 `message_center` 定） |
+| --- | --- | --- |
+| `left < 0` | `"vehicle.inspection_overdue"` | danger —— **兜底**，设计目标是**不让它发生** |
+| `0 <= left <= INSPECTION_URGENT_DAYS`（30） | `"vehicle.inspection_urgent"` | danger（只剩一个月，必须去了） |
+| `INSPECTION_URGENT_DAYS < left <= INSPECTION_DUE_SOON_DAYS`（90） | `"vehicle.inspection_due"` | warn（还有三个月，该安排年检了） |
+| `left > INSPECTION_DUE_SOON_DAYS` | `None` | 不发 |
+
+⚠️ **三档互斥、一天只会命中一档** —— 这是"同一台车、同一个到期日，三段各只发一条"的
+**结构性保证**：本函数返回的是**单个**类型名，扫描按它发一条；不是"先发 90 天那条、
+再发 30 天那条"（那样同一天会刷两条）。幂等键再带上类型名（`message_producers.notify_inspection`），
+所以进入下一档那天发的那条与上一档那条**各是各的记录**，谁也不顶掉谁。
+
+⚠️ **到期日当天算"紧急"、不算"逾期"**：那一天车还能合法上路，说"已过期"是错的话
+（与 `payable_kind` 的第 0 天 = 临期同形）；但它是"今天就得去"的那一档。
+
+⛔ 风险档**不在这里定**（`message_center.SEVERITY_BY_TYPE` 说了算），这里只回答"算哪一档"。
+
+## 两个日期（都是**已发生过的事实**，⛔ 不落库）
+
+用户 2026-10-11（FEAT-0022，逐字）：
+
 > 「关于这个车辆年检提醒啊，到我给那个车子建档案的时候会填一下就是这车的**上牌日期**。
 >   或者说是**上一个年检日期**啊方便我们去做一个提醒」
 
@@ -25,22 +55,11 @@
    2 月 29 日上牌的车，在平年里"满一年"的那一天只能是 2 月 28 日（夹到 3/1 会让提醒晚一天，
    而"提前一天"与"晚一天"之间，提前一天是安全的那一侧）。
 
-## 分档（临期 / 逾期）
-
-`inspection_kind()` 是**唯一**的分档判据，形状与 `message_producers.payable_kind` 完全同形：
-
-| 距到期天数 `left = (due - day).days` | 返回 | 档位（由 `message_center` 定） |
-| --- | --- | --- |
-| `left < 0` | `"vehicle.inspection_overdue"` | danger（**已经出事**：年检过期上路要罚款扣车） |
-| `0 <= left <= INSPECTION_DUE_SOON_DAYS` | `"vehicle.inspection_due"` | warn（还没出事，但要处理） |
-| `left > INSPECTION_DUE_SOON_DAYS` | `None` | 不发 |
-
-⚠️ **到期日当天算"临期"、不算"逾期"**：那一天车还能合法上路，说"已逾期"是错的话。
-⛔ 风险档**不在这里定**（`SEVERITY_BY_TYPE` 说了算），这里只回答"算哪一档"。
-
 ## 谁在用
 
 `services/message_producers.py` 的 `notify_inspection` / `scan_inspection_due`（每日兜底扫描）。
+App 端同一条规则的另一份实现：`android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleInspection.kt`
+（两边的提前量必须一样：90 天 / 30 天）。
 单测：`backend/tests/test_inspection_due.py`。
 """
 
@@ -48,9 +67,16 @@ from __future__ import annotations
 
 from datetime import date
 
-#: 到期前多少天开始提醒（warn 档）。30 天 ≈ 一个月，够预约一次年检（年检要上线检测，
-#: 不是当天去就能办完的事）。
-INSPECTION_DUE_SOON_DAYS = 30
+#: 到期前多少天**进入紧急档**（danger，只剩一个月）。
+#: 用户 2026-10-11：「按我们的交规……大概在**一个月**，还是三个月前就会有提醒的」
+#: —— 一个月这一档是"必须去了"，不是第一次开口。
+INSPECTION_URGENT_DAYS = 30
+
+#: 到期前多少天**开始提醒**（warn 档，提前 3 个月 = 90 天）。
+#: 用户 2026-10-11：「这个车辆年检是**不能逾期**的……**一旦过了的话那车子是不能上路的**」
+#: —— 所以第一次提醒必须落在**到期之前足够早**的地方：90 天够预约、够安排上线检测。
+#: ⛔ 两个天数都只在这里定义一处（App 侧 `VehicleInspection.kt` 是另一份、必须同值）。
+INSPECTION_DUE_SOON_DAYS = 90
 
 #: 年检周期（年）。写在这里而不是散在调用点：将来改成"两年一检"只动这一行。
 INSPECTION_PERIOD_YEARS = 1
@@ -85,10 +111,14 @@ def next_due_date(
 def inspection_kind(
     registration_date: date | None, last_inspection_date: date | None, *, day: date
 ) -> str | None:
-    """这台车**今天**算哪一档（唯一的分档判据）；还早 = `None`。
+    """这台车**今天**算哪一档（唯一的**分档**判据）；还早 = `None`。
+
+    三档互斥、**一天只命中一档**（见模块 docstring 的那张表）—— 所以"同一天不会同时发两条"。
 
     ⛔ 返回值是**消息类型名**，不是档位名：`vehicle.inspection_due`=warn、
-    `vehicle.inspection_overdue`=danger 由 `message_center.SEVERITY_BY_TYPE` 说了算。
+    `vehicle.inspection_urgent` / `vehicle.inspection_overdue`=danger
+    由 `message_center.SEVERITY_BY_TYPE` 说了算。
+    ⛔ 预判今天之前不许出现（`today` / `business_today`）：起点只能是那两个**已发生**的日期。
     """
     due = next_due_date(registration_date, last_inspection_date)
     if due is None:
@@ -96,6 +126,8 @@ def inspection_kind(
     left = (due - day).days
     if left < 0:
         return "vehicle.inspection_overdue"
+    if left <= INSPECTION_URGENT_DAYS:
+        return "vehicle.inspection_urgent"
     if left <= INSPECTION_DUE_SOON_DAYS:
         return "vehicle.inspection_due"
     return None

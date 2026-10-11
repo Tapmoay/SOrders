@@ -32,13 +32,21 @@ FEAT-0021 当时写着"没做"的两类，理由都是"**字段全库不存在**
   （`services/inspection_due.py` 现算，⛔ 不落库）。用户原话：「到我给那个车子建档案的时候
   会填一下就是这车的**上牌日期**。或者说是**上一个年检日期**啊方便我们去做一个提醒」。
 
+**十一类 —— CHG-0115（2026-10-11）把年检从两档拆成三档**：用户原话「这个车辆年检是**不能
+逾期**的……**一旦过了的话那车子是不能上路的**。我们按照我们的交规来提醒，我们的交规是大概
+在**一个月，还是三个月前**就会有提醒的」。于是：
+`vehicle.inspection_due` = **提前 90 天**（warn，该安排年检了）、**新增
+`vehicle.inspection_urgent` = 提前 30 天**（danger，只剩一个月、必须去了）、
+`vehicle.inspection_overdue` = 已过期（danger，**兜底** —— 设计目标是不让它发生）。
+三档仍然只由 `inspection_due.inspection_kind()` 一处判，本模块只挑文案与幂等键前缀。
+
 ## 触发时机
 
 - **事件驱动**（跟着业务那一次写库走，同一个事务）：
   `account.new_device_login`（登录时真的新绑了一台）、`account.device_unfrozen`（派单员解冻）、
   `stock.low`（手工出入库 / 送达实扣之后）、`invoice.issued`（开票）。
 - **每日兜底扫描**（`run_daily_scan`，挂在 `main.py` 既有的每日循环旁边）：
-  库存不足 / 库存偏低 / 应付临期 / 应付逾期 / 挂账单位超限 / 年检临期 / 年检逾期。
+  库存不足 / 库存偏低 / 应付临期 / 应付逾期 / 挂账单位超限 / 年检临期 / 年检紧急 / 年检已过期。
   事件驱动的几类也会被它兜到（防漏），幂等键保证不会重复刷屏。
   ⚠️ **年检没有别的触发点**：它不跟着任何一次写库走（"今天到没到期"与用户改了什么无关），
   所以这里是它唯一的入口 —— 每日扫一遍全车队。
@@ -98,8 +106,10 @@ __all__ = [
     "stock_band",
 ]
 
-#: **真有**生产者的十类（判据拿它跟 `NOT_PRODUCED` 一起对十类做全集核对）。
-#: FEAT-0022（2026-10-11）把 `stock.near_low` 与两类年检补齐后，这里就是全集。
+#: **真有**生产者的十一类（判据拿它跟 `NOT_PRODUCED` 一起对全集核对）。
+#: FEAT-0022（2026-10-11）把 `stock.near_low` 与两类年检补齐；CHG-0115 又加了
+#: `vehicle.inspection_urgent`（提前 30 天那一档）—— 它不是一个"新功能"，而是把年检
+#: 从两档拆成三档时**必须**同时存在的那一档（否则 30 天内会掉回"没有类型可发"）。
 PRODUCED: tuple[str, ...] = (
     "stock.low",
     "stock.near_low",
@@ -108,6 +118,7 @@ PRODUCED: tuple[str, ...] = (
     "arrears.over_limit",
     "invoice.issued",
     "vehicle.inspection_due",
+    "vehicle.inspection_urgent",
     "vehicle.inspection_overdue",
     "account.new_device_login",
     "account.device_unfrozen",
@@ -538,13 +549,25 @@ def scan_arrears_over_limit(db: Session, *, day: date) -> int:
 
 
 # ---------------------------------------------------------------------------
-# ④ 车辆年检：临期（warn）/ 逾期（danger）
+# ④ 车辆年检：提前 90 天（warn）/ 提前 30 天（danger）/ 已过期（danger，**兜底**）
 # ---------------------------------------------------------------------------
 def notify_inspection(db: Session, *, vehicle: Vehicle, kind: str, day: date) -> int:
-    """一台车的年检提醒（**临期与逾期只会有一条**）。
+    """一台车的年检提醒（**同一天只发其中一条**）。
 
     `kind` 必须来自 `inspection_due.inspection_kind()`（**唯一**的分档判据）——
     ⛔ 这里不自己比日期分档，也不定档位（档位由 `message_center.SEVERITY_BY_TYPE` 定）。
+
+    ## 三档的措辞（CHG-0115；用户 2026-10-11「不能等已经到了年检期……一旦过了那车子就不能上路」）
+
+    | kind | 标题 | 正文 |
+    | --- | --- | --- |
+    | `vehicle.inspection_due`（还有 31~90 天，warn） | 车辆年检将到期：车牌 | 下次年检日期是 …，**还有 N 天，该安排年检了**。 |
+    | `vehicle.inspection_urgent`（还有 0~30 天，danger） | 车辆年检快到期：车牌 | 下次年检日期是 …，**只剩 N 天，必须去年检了**。 |
+    | `vehicle.inspection_overdue`（已过，danger） | 车辆年检已过期：车牌 | 年检**已过期 N 天**，车辆不能上路，请立即处理。 |
+
+    ⚠️ **`vehicle.inspection_overdue` 是兜底**：本单的设计目标（按交规提前 3 个月开口）
+    就是**不让它发生**。它还在，是因为"提醒漏了 / 用户一直没理"时总得有最后一声 ——
+    ⛔ 别因为它平时不发就把它删掉、也别降档。
 
     ⚠️ **两格日期都空的车不发**：`inspection_due.next_due_date()` 返回 None 时直接 0。
     ⛔ 不许拿"今天"或建档日期凑一个到期日出来 —— 那不是提醒，是系统自己编的事实。
@@ -559,19 +582,27 @@ def notify_inspection(db: Session, *, vehicle: Vehicle, kind: str, day: date) ->
     plate = str(vehicle.plate_no or "").strip()
     plate_text = plate or "（无车牌）"
     left = (due - day).days
+    # ⚠️ 三分支与 `inspection_kind` 的三档**一一对应**（⛔ 不在这里判日期，只挑文案）。
     if kind == "vehicle.inspection_overdue":
         days_text = str(-left) + " 天"
-        title = "车辆年检已逾期：" + plate_text
+        title = "车辆年检已过期：" + plate_text
         content = (
-            "车辆「" + plate_text + "」的年检已逾期 " + days_text
-            + "（下次年检日期 " + due.isoformat() + "），请尽快安排年检。"
+            "车辆「" + plate_text + "」的年检已过期 " + days_text
+            + "（下次年检日期 " + due.isoformat() + "），车辆不能上路，请立即处理。"
+        )
+    elif kind == "vehicle.inspection_urgent":
+        days_text = ("只剩 " + str(left) + " 天") if left > 0 else "今天到期"
+        title = "车辆年检快到期：" + plate_text
+        content = (
+            "车辆「" + plate_text + "」的下次年检日期是 " + due.isoformat()
+            + "，" + days_text + "，必须去年检了。"
         )
     else:
         days_text = ("还有 " + str(left) + " 天") if left > 0 else "今天到期"
         title = "车辆年检将到期：" + plate_text
         content = (
             "车辆「" + plate_text + "」的下次年检日期是 " + due.isoformat()
-            + "，" + days_text + "，请提前安排年检。"
+            + "，" + days_text + "，该安排年检了。"
         )
     payload = {
         # ⚠️ §五：车辆族**永远不跳**（`MessageGrading.noticeRoute` 该支返回 null）。
@@ -588,15 +619,19 @@ def notify_inspection(db: Session, *, vehicle: Vehicle, kind: str, day: date) ->
         title=title,
         content=content,
         payload=payload,
-        # 「事实 + 到期日」：同一台车的**同一次**年检只发一条；
-        # 明年算出来的 due 变了 → 键变了 → 明年那条照发（这正是要的）。
+        # 「类型 + 车辆 + 到期日」：同一次年检的**同一档**只发一条；
+        # 进入下一档（90 天 → 30 天 → 过期）时类型名变了 → 键变了 → 那一条照发（这正是要的）；
+        # 明年算出来的 due 变了 → 键也变了 → 明年照发。
         idem_key=kind + ":" + str(int(vehicle.id)) + ":" + due.isoformat(),
         emphasis=(plate_text, days_text),
     )
 
 
-def scan_inspection_due(db: Session, *, day: date) -> tuple[int, int]:
-    """每日兜底：把"该年检了"的车各发一条，返回 `(临期, 逾期)` 两个计数。
+def scan_inspection_due(db: Session, *, day: date) -> tuple[int, int, int]:
+    """每日兜底：把"该年检了"的车各发一条，返回 `(临期, 紧急, 逾期)` 三个计数。
+
+    ⚠️ **一台车一天只会进一个计数** —— 因为 `inspection_kind()` 返回的是**单个**类型名
+    （三档互斥），所以"同一台车同一天既发 90 天那条、又发 30 天那条"在构造上不可能。
 
     **为什么年检只有这一个入口**：它不跟着任何一次写库走 —— "今天到没到期"与用户改了
     什么无关（改的是车牌、司机、分类）。每日扫一遍全车队是唯一能保证不漏的地方。
@@ -616,7 +651,7 @@ def scan_inspection_due(db: Session, *, day: date) -> tuple[int, int]:
             ),
         )
     ).all()
-    soon = overdue = 0
+    soon = urgent = overdue = 0
     for v in rows:
         kind = inspection_due.inspection_kind(
             v.registration_date, v.last_inspection_date, day=day
@@ -626,9 +661,11 @@ def scan_inspection_due(db: Session, *, day: date) -> tuple[int, int]:
         sent = notify_inspection(db, vehicle=v, kind=kind, day=day)
         if kind == "vehicle.inspection_overdue":
             overdue += sent
+        elif kind == "vehicle.inspection_urgent":
+            urgent += sent
         else:
             soon += sent
-    return soon, overdue
+    return soon, urgent, overdue
 
 
 # ---------------------------------------------------------------------------
@@ -766,7 +803,7 @@ def notify_device_unfrozen(db: Session, *, user_id: int, count: int, anchor: str
 # ---------------------------------------------------------------------------
 def run_daily_scan(db: Session, *, day: date | None = None) -> dict[str, int]:
     """每日兜底扫描：库存不足 / 库存偏低 / 应付临期 / 应付逾期 / 挂账单位超限 /
-    年检临期 / 年检逾期。
+    年检临期（提前 90 天）/ 年检紧急（提前 30 天）/ 年检已过期。
 
     **为什么要有它**：事件驱动的钩子挂在几条写路径上，任何一条被绕过（脚本直接改库、
     以后新增的写路径、钩子之前进程崩了）消息就永远丢了 —— 而"没发"和"没出事"在界面上
@@ -776,14 +813,14 @@ def run_daily_scan(db: Session, *, day: date | None = None) -> dict[str, int]:
     **可以随便重跑**：每一条都带幂等键（同商品同一天 / 同单据同到期日 / 同单位同自然月 /
     同车同到期日），第二次跑出来的条数是 0（判据连续跑两次断言"通知条数不增加"）。
 
-    返回七个计数（键名 = 人读的名字，⛔ 不是消息类型名）：`stock_low` / `stock_near_low` /
+    返回八个计数（键名 = 人读的名字，⛔ 不是消息类型名）：`stock_low` / `stock_near_low` /
     `payable_due_soon` / `payable_overdue` / `arrears_over_limit` / `inspection_due` /
-    `inspection_overdue`。
+    `inspection_urgent` / `inspection_overdue`。
     """
     when = day or business_today()
     soon, overdue = scan_payables(db, day=when)
     low, near_low = scan_stock_low(db, day=when)
-    insp_soon, insp_overdue = scan_inspection_due(db, day=when)
+    insp_soon, insp_urgent, insp_overdue = scan_inspection_due(db, day=when)
     result = {
         "stock_low": low,
         "stock_near_low": near_low,
@@ -791,6 +828,7 @@ def run_daily_scan(db: Session, *, day: date | None = None) -> dict[str, int]:
         "payable_overdue": overdue,
         "arrears_over_limit": scan_arrears_over_limit(db, day=when),
         "inspection_due": insp_soon,
+        "inspection_urgent": insp_urgent,
         "inspection_overdue": insp_overdue,
     }
     db.commit()
