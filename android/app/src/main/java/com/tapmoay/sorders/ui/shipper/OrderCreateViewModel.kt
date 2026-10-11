@@ -13,6 +13,7 @@ import com.tapmoay.sorders.ui.common.CONTACT_REQUIRED_MESSAGE
 import com.tapmoay.sorders.ui.common.ContactFillMode
 import com.tapmoay.sorders.ui.common.PickedLine
 import com.tapmoay.sorders.ui.common.ReceiverContact
+import com.tapmoay.sorders.ui.common.SelfContact
 import com.tapmoay.sorders.ui.common.contactInfoMissing
 import com.tapmoay.sorders.ui.common.fillReceiver
 import com.tapmoay.sorders.ui.common.receiverSwapNotice
@@ -231,6 +232,14 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     var contacts by mutableStateOf<List<ContactDto>>(emptyList())
     var showContactSheet by mutableStateOf(false)
 
+    /**
+     * 「我自己」那一行（CHG-0117）：当前登录人自己也是一个可选的收货联系人。
+     *
+     * 构造与取数只在 `ui/common/SelfContact.kt`（会话里**没有电话**，⛔ 不许拿 `username` 顶替）；
+     * 拿不到姓名或电话时是 null ⇒ 弹层里不出现这一项。
+     */
+    var selfContact by mutableStateOf<ContactDto?>(null)
+
     /** 名册在飞 / 取数失败的原因。失败**必须说出来**：空白列表与"你还没建过联系人"长得一模一样。 */
     var loadingContacts by mutableStateOf(false)
     var contactsError by mutableStateOf<String?>(null)
@@ -327,16 +336,17 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
             myShipperId = s?.userId
             proxyMode = s?.role == "dispatcher"
             canManageSharedPlaces = proxyMode
+            // 「我自己」那一行（CHG-0117）：**代理下单也要有它** —— 用户点名的场景正是派单员本人
+            // 给自己下的那一单（收货人＝他自己）。取不到就是 null（弹层里不出现这一项）。
+            val me = SelfContact.meOrNull(container)
+            selfContact = SelfContact.of(me)
             // 代理下单**不预填自己**：等 `setShipper` 选了货主再填那位货主的（见 [applyOrdererFromShipper]）。
             if (!proxyMode) {
                 // 货主 / 批发商自己下单：下单人＝他自己，取**账号资料**（`/users/me`）的姓名与电话。
                 // ⛔ 不能用会话里的 `username` 当电话（种子/老数据里可能是人名 → 填一个打不通的号）。
-                try {
-                    val me = container.repo.me()
-                    prefillOrdererFromSelf(me.fullName.ifBlank { s?.fullName }, me.phone)
-                } catch (_: Exception) {
-                    prefillOrdererFromSelf(s?.fullName, null)
-                }
+                // 口径与从前逐字一致：拿不到资料就用会话里的姓名 + 空电话。
+                if (me != null) prefillOrdererFromSelf(me.fullName.ifBlank { s?.fullName }, me.phone)
+                else prefillOrdererFromSelf(s?.fullName, null)
             }
             loadPriceRulesFor(s?.userId)
         }

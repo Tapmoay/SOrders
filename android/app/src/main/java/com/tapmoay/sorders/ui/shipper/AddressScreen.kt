@@ -813,6 +813,8 @@ fun AddressScreen(
     vm.contactPickTarget?.let { target ->
         ContactPickerSheet(
             contacts = vm.contacts,
+            // 「我自己」（CHG-0117）：派单员给自己下的单，收货人就是他自己。拿不到姓名/电话时是 null。
+            selfContact = vm.selfContact,
             title = if (target == "loc") "选择这个地点的联系人" else "选择收货联系人",
             creating = vm.creatingContact,
             // ⚠️ `error` 留空：这一页的取数失败由整页的 `loadError` 说（`vm.load()` 里），

@@ -125,6 +125,14 @@ interface OrderEditHost {
     /** 自己的联系人名册（弹层里那一列）。 */
     val contacts: List<ContactDto>
 
+    /**
+     * 「我自己」那一行（当前登录人；CHG-0117）。
+     *
+     * 构造与取数都只在一处：`ui/common/SelfContact.kt`。拿不到姓名或电话时是 null
+     * ⇒ 弹层里不出现这一项（⛔ 这里不许自己拼一个 `ContactDto`）。
+     */
+    val selfContact: ContactDto?
+
     /** 名册拉失败的原因（只写在弹层里，⛔ 不换整页）。 */
     val contactsError: String?
 
@@ -337,6 +345,7 @@ fun ContactFillPanel(edit: OrderEditHost, modifier: Modifier = Modifier) {
     if (edit.showContactSheet) {
         ContactPickerSheet(
             contacts = edit.contacts,
+            selfContact = edit.selfContact,
             onPick = { edit.pickContactForDongjia(it) },
             onDismiss = { edit.closeContactSheet() },
             loading = edit.loadingContacts,

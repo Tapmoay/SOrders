@@ -40,7 +40,18 @@ import com.tapmoay.sorders.data.remote.dto.ContactDto
  * 地址与联系人页的「联系人」段用的就是它，两处必须是同一个判据：
  * 否则同一个人在下单页搜得到、在地址页搜不到。
  *
+ * ## 「我自己」也能挑（CHG-0117，用户 2026-10-11 逐字）
+ * > 「还有一个就是线路，他不是要选择联系人吗？**收货联系人**——这个联系人**可以选择派单员本人**啊。」
+ *
+ * [selfContact] 非空时它**固定排在最前**、带一枚「本人」小标签；点它的效果与点一条已存的
+ * 联系人**完全一样**（姓名 + 电话回填给调用方）。
+ * ⛔ 它只是一条**内存里的**行（`SelfContact.SELF_ID` 负哨兵）：不新建联系人、不写任何后端数据。
+ * ⚠️ 它也走下面那一份 [UserSearch] 过滤（按自己的姓名 / 号码参与匹配）：⛔ 不给它开后门、
+ * 也不让它常驻 —— 搜索的意义就是"把不相关的行筛掉"。
+ *
  * @param contacts 当前登录人的联系人名册（按登录人隔离；调用方负责取数）
+ * @param selfContact 「我自己」那一行（`ui/common/SelfContact.kt` 是全 App 唯一的构造与取数处）；
+ *   null ＝ **这个账号拿不到姓名或电话** ⇒ 这一项不出现（宁可不显示，也不要一行空的「我自己」）
  * @param onPick 点某一行 → 回传这位联系人（弹层由调用方关掉）
  * @param onCreate 非空时底部出现「新建联系人」：**就地建一个**（下单时最常见的场景 ——
  *   第一次给这个人送货，打完电话顺手存下来，下次就不用再打了）。参数是 (姓名, 电话)。
@@ -50,6 +61,7 @@ import com.tapmoay.sorders.data.remote.dto.ContactDto
 @Composable
 fun ContactPickerSheet(
     contacts: List<ContactDto>,
+    selfContact: ContactDto? = null,
     onPick: (ContactDto) -> Unit,
     onDismiss: () -> Unit,
     loading: Boolean = false,
@@ -64,8 +76,10 @@ fun ContactPickerSheet(
     var keyword by remember { mutableStateOf("") }
     var showCreate by remember { mutableStateOf(false) }
     val kw = keyword.trim()
-    val shown = remember(contacts, kw) {
-        if (kw.isBlank()) contacts else contacts.filter { UserSearch.matches(kw, it.displayName, it.phone) }
+    // 「我自己」固定排在最前；拿不到姓名或电话时 selfContact 就是 null ⇒ 这一项根本不出现。
+    val rows = remember(contacts, selfContact) { SelfContact.withSelf(contacts, selfContact) }
+    val shown = remember(rows, kw) {
+        if (kw.isBlank()) rows else rows.filter { UserSearch.matches(kw, it.displayName, it.phone) }
     }
 
     if (showCreate && onCreate != null) {
@@ -102,7 +116,10 @@ fun ContactPickerSheet(
             when {
                 loading -> LoadingBox(Modifier.fillMaxWidth().height(140.dp))
                 error != null -> ErrorView(error, onRetry = onRetry, Modifier.fillMaxWidth().height(140.dp))
-                contacts.isEmpty() -> {
+                contacts.isEmpty() && shown.isEmpty() -> {
+                    // ⚠️ 这一支是"名册本来就是空的"（**不是**搜索没命中）：有「我自己」时
+                    //    shown 里有那一行，走的是下面列表那一支 —— 否则用户会看到"还没有联系人"
+                    //    却搜得到自己。
                     // ⚠️ 空态文案**常显**（不走 `Hint`）：这一屏只剩它，
                     //    藏了之后用户看到的是**一片空白**，"还没建过联系人"与"加载失败"就分不出来了。
                     Text("还没有联系人", style = MaterialTheme.typography.bodyMedium)
@@ -150,17 +167,25 @@ private fun ContactRow(c: ContactDto, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(
-                // ⛔ 不编名字：名册允许只存一个号码（`display_name` 缺省为空串），
-                //    编一个"联系人"出来会让人以为名册里真有个叫"联系人"的人。
-                c.displayName.trim().ifBlank { "未命名" },
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                // 显式占满这一列：`maxLines = 1 + Ellipsis` 却不给宽度的文本会去**吃**兄弟的宽度
-                // （判据 `_check_adaptive_layout.py` §5 的存量基线只许减不许增）。
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    // ⛔ 不编名字：名册允许只存一个号码（`display_name` 缺省为空串），
+                    //    编一个"联系人"出来会让人以为名册里真有个叫"联系人"的人。
+                    c.displayName.trim().ifBlank { "未命名" },
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    // 显式给出宽度：`maxLines = 1 + Ellipsis` 却不给宽度的文本会去**吃**兄弟的宽度
+                    // （判据 `_check_adaptive_layout.py` §5 的存量基线只许减不许增）。
+                    // 「我自己」那一行多一枚「本人」标签，所以这里用 weight(fill = false)：
+                    // ⛔ 不能再用 fillMaxWidth —— 那会把标签挤成 0 宽（weight 同样在豁免之列）。
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (SelfContact.isSelf(c)) {
+                    Spacer(Modifier.width(6.dp))
+                    SelfTag()
+                }
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Phone, null, Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.width(4.dp))
@@ -168,6 +193,26 @@ private fun ContactRow(c: ContactDto, onClick: () -> Unit) {
             }
         }
         Text("选择", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+    }
+}
+
+/**
+ * 那一枚「本人」小标签（只有"我自己"那一行有）。
+ *
+ * 样式照「地址与联系人」页卡片上的分类标签（`ui/shipper/AddressScreen.kt::CardTag`）：
+ * 语义色底 + `labelSmall` + 小圆角 —— 同一个 App 里"小标签"长两副样子会让人以为它们不是一回事。
+ * ⛔ 不带 `overflow = TextOverflow.Ellipsis`（那一对是"可伸缩文本"的记号，判据 §5 会数）。
+ */
+@Composable
+private fun SelfTag() {
+    Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.small) {
+        Text(
+            SelfContact.LABEL,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+        )
     }
 }
 

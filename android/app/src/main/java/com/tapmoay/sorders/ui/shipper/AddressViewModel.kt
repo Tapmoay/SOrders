@@ -19,6 +19,7 @@ import com.tapmoay.sorders.data.remote.dto.RouteCategoryDto
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.ContactFillMode
 import com.tapmoay.sorders.ui.common.ReceiverContact
+import com.tapmoay.sorders.ui.common.SelfContact
 import com.tapmoay.sorders.ui.common.fillReceiver
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -79,6 +80,9 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
 
     var addresses by mutableStateOf<List<AddressDto>>(emptyList())
     var contacts by mutableStateOf<List<ContactDto>>(emptyList())
+
+    /** 「我自己」那一行（CHG-0117）；拿不到姓名或电话时是 null ⇒ 弹层里不出现这一项。 */
+    var selfContact by mutableStateOf<ContactDto?>(null)
     var locations by mutableStateOf<List<LocationDto>>(emptyList())
     var loading by mutableStateOf(false)
     /**
@@ -401,7 +405,11 @@ class AddressViewModel(private val container: AppContainer) : ViewModel() {
     fun openContactPickerFor(target: String) {
         contactPickTarget = target
         pickerError = null
-        viewModelScope.launch { try { contacts = container.repo.contacts() } catch (_: Exception) {} }
+        viewModelScope.launch {
+            try { contacts = container.repo.contacts() } catch (_: Exception) {}
+            // 「我自己」那一行（CHG-0117）：跟名册同一次刷新取回来，构造只在 ui/common/SelfContact.kt。
+            selfContact = SelfContact.load(container)
+        }
     }
 
     /** 弹层里挑了一位 → 按 [contactPickTarget] 落到对应那一份草稿上，然后关掉弹层。 */

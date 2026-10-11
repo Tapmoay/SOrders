@@ -725,6 +725,8 @@ fun OrderCreateScreen(
     if (vm.showContactSheet) {
         ContactPickerSheet(
             contacts = vm.contacts,
+            // 「我自己」（CHG-0117）：收货人也可以是下单人自己。拿不到姓名/电话时是 null。
+            selfContact = vm.selfContact,
             loading = vm.loadingContacts,
             error = vm.contactsError,
             onRetry = { vm.loadContacts() },

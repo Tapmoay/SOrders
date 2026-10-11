@@ -30,6 +30,7 @@ import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.ContactFillMode
 import com.tapmoay.sorders.ui.common.PickedLine
 import com.tapmoay.sorders.ui.common.ReceiverContact
+import com.tapmoay.sorders.ui.common.SelfContact
 import com.tapmoay.sorders.ui.common.fillReceiver
 import com.tapmoay.sorders.ui.nav.Role
 import com.tapmoay.sorders.util.formatMoney
@@ -68,7 +69,8 @@ class OrderDetailViewModel(
      * 当前登录人是不是**批发商**（`users.is_member` 的货主）——「拨打司机电话」那一档要用它。
      *
      * 为什么要单独取一次 `/users/me`：会话（`core/TokenStore.kt::Session`）里只有角色 / 姓名 /
-     * 电话，**没有 `is_member`**，而"批发商"在这里是**权限**（那颗拨号按钮给不给他），不能靠猜。
+     * 用户 id —— **既没有 `is_member`、也没有电话**（⛔ 别拿 `username` 顶替电话），
+     * 而"批发商"在这里是**权限**（那颗拨号按钮给不给他），不能靠猜。
      * ⚠️ 取不到时保持 `false` ＝ **不给**：拿不准的动作就不递出去（真门还在后端，这里只决定画不画）。
      */
     var isMemberShipper by mutableStateOf(false)
@@ -357,9 +359,13 @@ class OrderDetailViewModel(
 
     init {
         load()
-        // 「我是不是批发商」——只给「拨打司机电话」那颗按钮用（判据 `ui/common/DriverCall.kt`）。
+        // 一次 `/users/me` 两用：「我是不是批发商」（只给「拨打司机电话」那颗按钮用，
+        // 判据 `ui/common/DriverCall.kt`）与「我自己」那一行（判据 `ui/common/SelfContact.kt`）。
+        // 取不到时 is_member 保持 false ＝ 不给；「我自己」是 null ＝ 弹层里不出现这一项。
         viewModelScope.launch {
-            isMemberShipper = runCatching { container.repo.me().isMember }.getOrDefault(false)
+            val me = SelfContact.meOrNull(container)
+            isMemberShipper = me?.isMember == true
+            selfContact = SelfContact.of(me)
         }
         // 状态变化（接单/送达/派单等）自动刷新详情页，无需手动刷新
         viewModelScope.launch {
@@ -1142,6 +1148,9 @@ class OrderDetailViewModel(
     override var showContactSheet by mutableStateOf(false)
         private set
     override var contacts by mutableStateOf<List<ContactDto>>(emptyList())
+        private set
+    // 「我自己」那一行（CHG-0117）：与上面同一个 `/users/me`，构造只在 `ui/common/SelfContact.kt`。
+    override var selfContact by mutableStateOf<ContactDto?>(null)
         private set
     override var contactsError by mutableStateOf<String?>(null)
         private set
