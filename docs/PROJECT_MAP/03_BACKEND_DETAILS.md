@@ -78,7 +78,7 @@ app/
 | stats_export.py | 看板 Excel 导出（openpyxl 内存流） |
 | message_center.py / message_push.py | 站内信 + Socket 推送 |
 | operation_log_service.py | 敏感操作审计写日志 |
-| auth_service.py / token_response.py | 登录/JWT（⚠️ **没有注册**：`sms_code.py` 与自助建号已于 2026-09-18 删除，建账号只有派单员 `POST /users`） |
+| auth_service.py / token_response.py | 登录/JWT（⚠️ **没有注册**：`sms_code.py` 与自助建号已于 2026-09-18 删除，建账号只有派单员 `POST /users`；**建号没给密码就用规定的默认初始密码 123321**，见 [../ACCOUNT_RULES.md](../ACCOUNT_RULES.md)） |
 | core/validation_errors.py | **校验失败的中文说明**（422 的 `detail` 从 Pydantic 英文结构体换成中文，`errors` 留原始数组） |
 | schemas/text.py | **文本入参长度上限的唯一定义处**（MAX_URL/MAX_IMAGES/MAX_NOTE/MAX_TEXT + `Url` 类型；与列宽对齐，审计工具 `_tools/qa/_audit_text_fields.py` 逐字段核对） |
 | shipper_contact_service.py | 联系人唯一性校验（重复电话 409） |

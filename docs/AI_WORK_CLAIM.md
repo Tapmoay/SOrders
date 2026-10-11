@@ -31,7 +31,18 @@
 
 ## 进行中
 
-### [2026-10-11 → ⏳ 进行中] 会话：**CHG-0118 所有账号的初始密码默认是 123321（AI 直接建号、不问密码）**（DSH `cf32385d-ab02-4b7f-96b2-a2d495db871d`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+### [2026-10-11 → ⏳ 进行中] 会话：**CHG-0120 AI 少问：有已文档化的默认值就直接执行（并把假设写在确认卡上）**（DSH `6a744b78-a715-4108-9135-d508bd6aebaf`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径`（2026-10-11 逐字）：「这个 AI 啊**太过繁琐**了 —— 教他执行任务了，他**老是反复确定**，但其实任务其实**也全都已经写好了、基本是已经确认的**。」
+
+`改哪些文件`：`android/app/src/main/java/com/tapmoay/sorders/ai/AiRolePrompt.kt`（新增 `internal object AiDefaults`：提示词正文 `RULES`，密码引用 `AccountRules.DEFAULT_INITIAL_PASSWORD`）、`android/app/src/main/java/com/tapmoay/sorders/ai/AiAgentLoop.kt`（`systemPrompt` 接一句 `append(AiDefaults.RULES)`，原「不知道的事就去问，绝不许替他决定」一个字没动、只被收窄）、`docs/AI_DEFAULTS.md`（新）、`docs/PROJECT_MAP/INDEX.md`（一行）、`android/app/src/test/java/com/tapmoay/sorders/ai/AiAskLessTest.kt`（新，7 例）、`_tools/qa/_check_ai_ask_less.py`（新）、`_tools/qa/_reverse_verify_ai_ask_less.py`（新，9 条注入）、`docs/changes/CHG-0120.md`（新）、`docs/changes/README.md`（一行）、本页。
+
+**明确不碰**：⛔ `ai/AiWrite*.kt`（含 `AiWriteImage*.kt` —— FEAT-0024 图片上传会话在做）、`ai/AiCard*.kt`（CHG-0119 会话在做批量卡）、`ai/AiAttachment*` / `AiVision.kt`（FEAT-0024）、`ui/**`、`android/app/src/main/res/**`；⛔ 后端一个文件都不改（`backend/**` 零改动）；⛔ 确认卡那套结构（`preview_write` → 用户点确认 → `AiWriteService.execute`）与风险分级一个字不改；⛔ 不构建 APK、不部署、不发布、**不 push**。
+
+`核心改动`：**无** —— 为什么：本单改的是 AI 提示词的文案与一份口径文档，`_tools/qa/_core_files.txt` 里 Android 侧唯一的核心文件是 `android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt`，本次没有改它（签名与写闸门都没动），后端、账本、权限、迁移一个都没碰。
+
+- 状态：⏳ **进行中**（2026-10-11；代码 ＋ 单测 ＋ 判据 ＋ 反验 ＋ 文书收尾中）。
+### [2026-10-11 → ✅ 已完成（代码 / 单测 / 判据 / 反验 / 文书；⛔ 未构建 APK、未部署、未 push）] 会话：**CHG-0118 所有账号的初始密码默认是 123321（AI 直接建号、不问密码）**（DSH `cf32385d-ab02-4b7f-96b2-a2d495db871d`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径`（2026-10-11 逐字）：「我们的**所有账号初始密码默认是 123321**，这是**规定死的**。**AI 也要知道** —— 比如说我叫它创建一个账号，它**直接帮我创建好、不要问我密码是什么**；当然也可以，它也可以问我"初始密码要按默认的走吗"。这个有个要改一下，把它改一下。」
 
@@ -41,7 +52,8 @@
 
 `核心改动`：**无** —— 为什么：改动文件里没有一个是 `_tools/qa/_core_files.txt` 里的（钱 / 账本 / 订单生命周期 / 权限 / 审计 / 迁移一个都没碰；`AiWriteService.kt` 是 Android 侧唯一核心文件，本次未改签名与闸门）。
 
-- 状态：⏳ **进行中**（2026-10-11；代码 ＋ 单测 ＋ 判据 ＋ 反验 ＋ 文书收尾中）。
+- 状态：✅ **已完成**（2026-10-11；两笔提交：`0fc29ece`（代码+单测）＋ 紧随其后的一笔（判据 / 反验 / 文书），**未 push**）。
+  证据：`cd backend; python -m pytest tests/test_default_initial_password.py -q` → 6 passed；`python _tools/qa/_check_default_password.py` → 49 项全过；`python _tools/qa/_reverse_verify_default_password.py` → 11/11 注入全红 + 逐字节还原；`:app:testEmuDebugUnitTest`（AiWriteTest / AccountRulesTest）→ BUILD SUCCESSFUL（357+3 例、0 失败）。报告 `_tmp/default_password/report.md`。
 
 ### [2026-10-11 → ✅ 已完成（App 代码 / 单测 / 判据 / 反验 / 文书；⛔ 未构建 APK、未部署、未 push）] 会话：**CHG-0117 「选择联系人」弹层加一项「我自己」：派单员本人也能当收货联系人**（DSH `f547b254-a5c0-4061-8ec9-e4a8870243b6`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
