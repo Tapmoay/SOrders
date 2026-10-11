@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tapmoay.sorders.core.AccountRules
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.DeviceBindingDto
@@ -761,7 +762,9 @@ private fun AccountFormSheet(
                 label = "密码",
                 value = vm.draftPassword,
                 onValueChange = { vm.draftPassword = it; vm.passwordError = null },
-                placeholder = if (isEdit) "留空表示不修改" else "至少 6 位",
+                // 新建时占位里就写明**默认是哪个密码**（用户 2026-10-11 的规定，唯一一份在 AccountRules）；
+                // 编辑时留空 = 不改（⛔ 不能写默认值，那会静默重置密码）。
+                placeholder = if (isEdit) "留空表示不修改" else "默认 " + AccountRules.DEFAULT_INITIAL_PASSWORD + "，可改",
                 required = !isEdit,
             )
         }

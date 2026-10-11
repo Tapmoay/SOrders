@@ -3,6 +3,7 @@ package com.tapmoay.sorders.ui.dispatcher
 import androidx.compose.runtime.*
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tapmoay.sorders.core.AccountRules
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.api.UserCreateRequest
@@ -392,7 +393,9 @@ class AccountManageViewModel(
         editing = null
         draftName = ""
         draftPhone = ""
-        draftPassword = ""
+        // 新建**预填默认初始密码**（用户 2026-10-11 的规定：所有账号初始密码默认 123321）——
+        // 手工建号也该有一个默认，和 AI 那条链路用的是同一个常量；⛔ 用户照样可以改。
+        draftPassword = AccountRules.passwordDraft(isEdit = false)
         draftRoleKey = AccountRoleKind.SHIPPER.key
         draftCategory = ""
         clearSheetErrors()
@@ -403,7 +406,8 @@ class AccountManageViewModel(
         editing = u
         draftName = u.fullName
         draftPhone = u.phone
-        draftPassword = ""
+        // 编辑时**必须是空串**：空串 = 不改密码（预填默认值会在"只改个手机号"时把密码重置）。
+        draftPassword = AccountRules.passwordDraft(isEdit = true)
         draftRoleKey = AccountRoleKind.fromDto(u).key
         draftCategory = u.category
         clearSheetErrors()

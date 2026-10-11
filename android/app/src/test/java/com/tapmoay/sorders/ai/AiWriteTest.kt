@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ai
 
+import com.tapmoay.sorders.core.AccountRules
 import com.tapmoay.sorders.data.remote.dto.ExpenseCreateRequest
 import com.tapmoay.sorders.data.remote.dto.LedgerCreateRequest
 import com.tapmoay.sorders.data.remote.dto.OrderCreateRequest
@@ -2661,18 +2662,75 @@ class AiWriteTest {
     // ============================================ 17. 主数据：账号与凭据红线
 
     @Test
-    fun `新建账号必须给密码不许自己编`() = runBlocking<Unit> {
+    fun `新建账号不问密码_不填就用规定的默认初始密码`() = runBlocking {
+        // 用户 2026-10-11 的规定（CHG-0118）：「我们的所有账号初始密码默认是 123321，
+        // 这是**规定死的**。AI 也要知道 —— 我叫它创建一个账号，它**直接帮我创建好、
+        // 不要问我密码是什么**。」
+        //
+        // ⚠️ 这条**替换**了原来那条"新建账号必须给密码不许自己编"——那条钉的是"没密码就拒绝"，
+        //    而规定恰好相反。但"不要自己编一个"那条限制**没有作废**，它收窄成了
+        //    「只能是默认值或用户给的」（见下面第二条测试与卡片上那条 已设置 / 默认 的分支）。
+        //
+        // 这一条钉的是**整条链**：参数能省 → 卡片写明用的是哪个默认值 → 执行时真的发出去。
+        // 少了最后一段，它只证明了"卡片好看"（账号建出来仍是别的密码，而没人会知道）。
         val r = Rig()
-        // 模型"顺手编一个密码"是这里最坏的一种行为：用户根本不知道密码是什么，
-        // 而且他会以为账号能登。
-        val out = rejected(
+        val card = ok(
             r.svc.preview(
                 AiWrites.USERS_CREATE,
                 p("phone" to "13900000000", "role" to "司机", "name" to "王五"),
             ),
         )
-        assertTrue(out.reason.contains("password"))
-        assertEquals(0, r.ds.masterCalls.size)
+        val text = card.summary + "\n" + card.detailLines.joinToString("\n")
+        assertTrue(
+            "卡片上必须写明用的是默认初始密码，否则用户不知道该拿什么去登录：$text",
+            text.contains(AccountRules.DEFAULT_INITIAL_PASSWORD),
+        )
+        assertTrue("还要让他知道这个可以改：$text", text.contains("你可以改"))
+        r.svc.execute(card.token)
+        val sent = r.ds.masterCalls.single()
+        assertTrue(
+            "执行时必须真的把默认密码发出去（否则卡片上那句话是假的）：$sent",
+            sent.contains(":" + AccountRules.DEFAULT_INITIAL_PASSWORD + ":"),
+        )
+        assertTrue("姓名那条真机 bug 的回归网不能被绕过：$sent", sent.contains("王五"))
+    }
+
+    @Test
+    fun `新建账号的参数表里密码可省_说明写明不填用默认`() {
+        // 这一条钉**给模型看的那份说明**：模型只照参数说明写字 ——
+        // 说明里写着"必填"，它就会先去问用户（那正是这条规定要消灭的行为）。
+        val action = AiWrites.ALL.first { it.id == AiWrites.USERS_CREATE }
+        val pwd = action.params.first { it.name == "password" }
+        assertFalse("密码不该再是必填参数：${pwd.hint}", pwd.required)
+        assertTrue(
+            "参数说明要写明不填用哪个默认值：${pwd.hint}",
+            pwd.hint.contains(AccountRules.DEFAULT_INITIAL_PASSWORD),
+        )
+        assertTrue("「不要自己编一个」这条限制仍然要留着：${pwd.hint}", pwd.hint.contains("不要自己编一个"))
+        assertTrue(
+            "手机号仍然是必填（不能顺手把建号变成「什么都能空」）",
+            action.params.first { it.name == "phone" }.required,
+        )
+    }
+
+    @Test
+    fun `新建账号给了密码就用给的_不是默认那个`() = runBlocking {
+        // 同一条规定的另一半：用户明确给了密码时，默认值**不许盖掉他给的那个**。
+        val r = Rig()
+        val card = ok(
+            r.svc.preview(
+                AiWrites.USERS_CREATE,
+                p("phone" to "13900000001", "password" to "Wx8-Qw2-By7", "role" to "货主"),
+            ),
+        )
+        val text = card.summary + "\n" + card.detailLines.joinToString("\n")
+        assertFalse("用户给的密码不许上卡片：$text", text.contains("Wx8-Qw2-By7"))
+        assertFalse("给了密码时卡片不该说「用默认」：$text", text.contains(AccountRules.DEFAULT_PASSWORD_NOTE))
+        r.svc.execute(card.token)
+        assertTrue(
+            "必须用用户给的那个：${r.ds.masterCalls}",
+            r.ds.masterCalls.single().contains(":Wx8-Qw2-By7:"),
+        )
     }
 
     @Test

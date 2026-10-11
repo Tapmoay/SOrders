@@ -5,6 +5,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.phone import MobilePhone, OptionalMobilePhone
+from app.core.security import DEFAULT_INITIAL_PASSWORD
 from app.models.enums import UserRole
 from app.schemas.money import MoneyInput
 
@@ -69,7 +70,13 @@ class UserCreate(MoneyInput):
     # 已收拢到唯一实现处；`max_length=11` 与规则同宽，只是给"文本上界"审计一个可读的界）。
     phone: MobilePhone = Field(..., max_length=11)
     username: str | None = Field(None, min_length=3, max_length=32)
-    password: str = Field(..., min_length=6, max_length=128)
+    # 初始密码：**不给就用规定的默认值**（用户 2026-10-11：「我们的所有账号初始密码默认是 123321，
+    # 这是规定死的……我叫它创建一个账号，它直接帮我创建好、不要问我密码是什么」，见 CHG-0118）。
+    # 原来这里是 `Field(...)`（必填）——那等于逼建号的人（或 AI）先去问一个密码，而这条规定
+    # 本来就是"不用问"。语义上仍与 UserUpdate 一致：**不传 = 用默认**，传了就按传的。
+    # ⛔ 默认值只有这一处（`core/security.py::DEFAULT_INITIAL_PASSWORD`）；
+    # ⛔ 密码永不进返回体（`UserOut` 里没有这个字段）与操作日志（`users.py::create_user` 的 payload）。
+    password: str = Field(DEFAULT_INITIAL_PASSWORD, min_length=6, max_length=128)
     full_name: str = Field(default="", max_length=128)
     role: UserRole
     is_member: bool = False

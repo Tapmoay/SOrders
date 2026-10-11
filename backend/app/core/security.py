@@ -44,6 +44,22 @@ WEAK_JWT_SECRETS = frozenset(
 MIN_SECRET_LEN = 32
 
 
+#: **所有账号的初始密码默认值** —— 用户 2026-10-11 定的规定（原话见 CHG-0118）：
+#: 「我们的所有账号初始密码默认是 123321，这是规定死的。AI 也要知道 —— 我叫它创建一个账号，
+#:   它直接帮我创建好、不要问我密码是什么。」
+#:
+#: 建号端点（`POST /users`）在**没给密码**时用它。默认值**只有一处**：
+#: `schemas/user.py::UserCreate.password` 的字段默认值引用这里（⛔ 别在端点里再写一遍字面量）。
+#: App 侧有一份同源副本（`android/app/src/main/java/com/tapmoay/sorders/core/AccountRules.kt`），
+#: 判据 `_tools/qa/_check_default_password.py` 会核对两侧的字符串一致。
+#:
+#: ⚠️ 它**不是**"开发库那个口令"：本机开发库三个测试号的口令恰好也是 123321，但那是**环境事实**
+#:    （见 `docs/PROJECT_MAP/05_TESTING.md`），与这条**产品规定**是两件事，别互相引用。
+#: ⛔ 它是"初始"密码：改密码（`PATCH /users/{id}`、AI 的 `users.set_password`）**不适用**这条，
+#:    那里仍然必须由用户明确给出新密码（没有"默认的新密码"这种东西）。
+DEFAULT_INITIAL_PASSWORD = "123321"
+
+
 #: 回落密钥的落盘位置：**必须共享**，否则多 worker 各生成一个 → token 随机失效。
 #: 放在 backend/ 下（与 sorders.db 同级），权限 600。⚠️ 这是一条**活密钥**，两道防线都在：
 #: ① `.gitignore` 的 `.jwt_secret*` 规则忽略它；② `_tools/qa/_check_secrets.py` 认得"整行只有

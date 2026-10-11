@@ -172,6 +172,9 @@ def create_user(
     u = User(
         username=un,
         phone=body.phone,
+        # 没给密码时 `body.password` **已经是规定的默认初始密码**（用户 2026-10-11 的规定）：
+        # 默认值只有一处 —— `schemas/user.py::UserCreate.password` ← `core/security.py::DEFAULT_INITIAL_PASSWORD`。
+        # 这里不重复写默认值（两处写同一个字面量迟早会分叉），也不把它记进任何日志。
         password_hash=hash_password(body.password),
         full_name=body.full_name,
         role=body.role,

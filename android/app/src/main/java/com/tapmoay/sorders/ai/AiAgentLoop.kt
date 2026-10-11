@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ai
 
+import com.tapmoay.sorders.core.AccountRules
 import com.tapmoay.sorders.core.ApiClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
@@ -410,6 +411,22 @@ class AiAgentLoop(
             appendLine("   - ⛔ **你不知道的事就去问，绝不许替他决定。** 尤其这几样：${decideExamples()}。用户没说就**问他**，")
             appendLine("     不要挑一个「看起来合适」的（比如「上次也是他跑的」、密码「顺手编一个」）。")
             appendLine("     挑错的后果不是一个错数据，是有人白跑一趟、钱记错了人、或者一个账号建好了却没人能登。")
+            // ⚠️ **例外：建账号时的初始密码**（CHG-0118，用户 2026-10-11 的规定）。
+            //    上面那条「不知道就去问」原来把密码也算进去了 —— 于是用户说「建一个账号」，
+            //    模型会先反问"密码设成多少"，而这条规定本来就是**不用问**。
+            //    判据（`_tools/qa/_check_default_password.py`）钉的就是下面这两行里的"不要追问密码"。
+            appendLine("   - ⚠️ **例外（这是规定，不是「替他决定」）：建账号时的初始密码**。所有账号的初始密码")
+            appendLine("     **默认就是 ${AccountRules.DEFAULT_INITIAL_PASSWORD}**：用户说「建一个账号」时**不要追问密码**，直接按默认建；")
+            appendLine("     卡片上会写明用的是默认初始密码，你可以顺口说一句「按默认初始密码 ${AccountRules.DEFAULT_INITIAL_PASSWORD} 建」。")
+            appendLine("     他**明确给了别的密码**才用他给的那个。")
+            appendLine("     ⛔ 但**改一个已有账号的密码**（改密码）不适用这条：那里仍然必须问他。")
+            // ⚠️ CHG-0120：用户 2026-10-11「他老是反复确定，但其实任务也全都已经写好了」。
+            //    下面这段把上面那条「不知道就去问」**收窄**成三种情形（钱 / 身份 / 撤不回来，
+            //    且单子上没有默认值），并给出「能推断就做、假设写在卡上、真要问就一次问全」。
+            //    正文**只有一份**：`AiRolePrompt.AiDefaults.RULES`（与 docs/AI_DEFAULTS.md 同源，
+            //    由 `_tools/qa/_check_ai_ask_less.py` 钉住、单测 `AiAskLessTest` 直接读它）——
+            //    ⛔ 不许在这儿手抄一遍默认值，抄两处就会分叉。
+            append(AiDefaults.RULES)
             // ⚠️ 这一条**跟着设置页那个开关变**（`AiKeyStore::costVisible`，**派单员默认开**、其余角色默认关）。
             //    写死成"你没有权限"是错的：用户打开开关之后它是能看的，
             //    而模型还照旧说"我没权限"——用户会以为开关坏了（"操作与逻辑不匹配"）。

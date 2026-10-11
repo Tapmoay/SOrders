@@ -3,6 +3,7 @@ package com.tapmoay.sorders.ui.dispatcher
 import androidx.compose.runtime.*
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tapmoay.sorders.core.AccountRules
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.api.UserCreateRequest
@@ -311,7 +312,9 @@ class UsersManageViewModel(
         editing = null
         draftPhone = ""
         draftName = ""
-        draftPassword = ""
+        // 新建预填**默认初始密码**（用户 2026-10-11：所有账号初始密码默认 123321）——
+        // 这一页与「账户管理」两处建号链路必须同一个默认（唯一一份在 core/AccountRules.kt）。
+        draftPassword = AccountRules.passwordDraft(isEdit = false)
         draftVehicleType = "large"
         draftCategory = ""
         draftRuleId = null
@@ -323,7 +326,8 @@ class UsersManageViewModel(
         editing = u
         draftPhone = u.phone
         draftName = u.fullName
-        draftPassword = ""
+        // 编辑时留空 = 不改密码（预填会把密码重置成默认值）。
+        draftPassword = AccountRules.passwordDraft(isEdit = true)
         draftVehicleType = if (u.vehicleType == "trailer") "trailer" else "large"
         draftCategory = u.category
         draftRuleId = u.driverRuleId

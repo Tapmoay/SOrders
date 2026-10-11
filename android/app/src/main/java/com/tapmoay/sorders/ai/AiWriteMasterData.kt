@@ -1,5 +1,6 @@
 package com.tapmoay.sorders.ai
 
+import com.tapmoay.sorders.core.AccountRules
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -335,10 +336,16 @@ internal object AiWriteMasterData {
             title = "新建账号",
             risk = AiWriteRisk.HIGH,
             group = AiWrites.G_USER,
-            blurb = "新建一个登录账号（货主 / 司机 / 派单员）。**需要用户提供手机号和初始密码。**",
+            // 用户 2026-10-11 的规定：初始密码有默认值，所以这里**不再**说"需要用户提供初始密码"
+            // ——那正是模型会去追问密码的原因（见 AiWriteMasterData 里密码字段那条说明）。
+            blurb = "新建一个登录账号（货主 / 司机 / 派单员）。**需要用户提供手机号**；" +
+                "初始密码不填就用规定的默认值（不用问用户，卡片上会写明）。",
             fields = listOf(
                 textField("phone", "手机号", "必填，登录用", required = true, maxChars = 20),
-                textField("password", "初始密码", "必填。必须由用户明确给出——**不要自己编一个**", required = true, maxChars = 64).copy(secret = true),
+                // ⚠️ **不是必填**（用户 2026-10-11 的规定：所有账号初始密码默认 123321）：
+                //    不填 = 用默认值，所以模型**不该为了密码去追问用户**；用户明确给了别的密码才填。
+                //    "不要自己编一个"这条限制仍然成立，只是它的含义收窄了：**只能是默认值或用户给的**。
+                textField("password", "初始密码", "**不用问用户**：不填就用默认初始密码 ${AccountRules.DEFAULT_INITIAL_PASSWORD}；用户明确给了别的密码才填——⛔ 不要自己编一个", required = false, maxChars = 64).copy(secret = true),
                 enumField(
                     "role", "角色", "必填",
                     listOf("shipper", "driver", "dispatcher"),
@@ -351,19 +358,28 @@ internal object AiWriteMasterData {
                 "新建${roleCn(c.str("role"))}账号：${c.str("name") ?: c.str("phone")}"
             },
             details = { c ->
+                // 密码那行分两种说法（⛔ 两种都**不许**出现密码值本身）：
+                //  · 用户给了密码 → 老口径「已设置，不显示」；
+                //  · 没给（按默认建）→ **必须写出用的是默认初始密码**：用户口径是"AI 直接帮我创建好、
+                //    不要问我密码"，那就得让他看得见"这个账号的密码是什么"，否则他只能靠猜。
+                //    这句话与 commit 里真正用的值是同一个常量（AccountRules），不可能分叉。
+                val givenPassword = !c.str("password").isNullOrBlank()
                 listOfNotNull(
                     "手机号：${c.str("phone")}",
                     c.str("name")?.let { "姓名：$it" },
                     "角色：${roleCn(c.str("role"))}",
                     if (c.bool("is_member") == true) "身份：批发商（高级货主）" else null,
                     // ⛔ 密码绝不回显，也绝不进 payload 之外的任何地方。
-                    "密码：已设置，不显示",
+                    if (givenPassword) "密码：已设置，不显示" else "密码：" + AccountRules.DEFAULT_PASSWORD_NOTE,
                 )
             },
         ) { ds, p ->
             ds.createUser(
                 phone = p.req("phone"),
-                password = p.req("password"),
+                // 没填 = 用**规定的默认初始密码**（用户 2026-10-11，常量在 core/AccountRules.kt）。
+                // 卡片上那句 `AccountRules.DEFAULT_PASSWORD_NOTE` 读的是同一个常量，
+                // 所以"卡片说用什么、实际就用什么"不可能分叉；⛔ 但值本身永远不回显。
+                password = p.str("password").orEmpty().ifBlank { AccountRules.DEFAULT_INITIAL_PASSWORD },
                 role = p.req("role"),
                 // ⚠️ 这里必须用 **payload 的键**（`full_name`），不是参数字段名（`name`）：
                 //    字段规格写的是 `textField("name", …).copy(key = "full_name")`，
