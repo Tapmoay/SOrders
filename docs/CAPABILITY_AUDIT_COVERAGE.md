@@ -3,7 +3,7 @@
 > **本文件由 `_tools/ai/_gen_capability_snapshot.py` 生成，不要手改。**
 > 重新生成：`python _tools/ai/_gen_capability_snapshot.py`
 >
-> `source_hash = sha256:89377ca7ba1b0eaeb8dd8c136d8e37a9cc8be374ddf392b567babcf88e495a83`
+> `source_hash = sha256:6e306381d7fbf82a830f7ab1601f6dd1eaa0f0858ceadbfe693997cf5a7b139d`
 
 这张表回答：**一个写能力会留下哪些审计动作码**（指南 §R3-02-C：不要假设一一对应）。
 
