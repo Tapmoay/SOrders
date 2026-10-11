@@ -7,6 +7,10 @@
       CHG-0108（2026-10-10）：原来是橙金 #FFB020（早于 CHG-0091「整体基调从蓝变绿」，
       一直没跟着换）。现在跟登录页那枚 LOGO 一个值 —— 见 Color.kt 的 PrimaryContainer。
     -->
-    <color name="ic_launcher_background">#DBE8E1</color>
-    <color name="splash_background">#DBE8E1</color>
+    <!-- ⚠️ 2026-10-11（用户口径，逐字）：「桌面那个图标……图案颜色没关系，但是那个背景图啊，是白底啊，
+         不要是有一点绿了，不要带一点绿，白底就可以了。我启动的那个界面也是一样啊，背景不要带点绿。」
+         ⇒ 图标底色与启动画面底色**一律纯白 #FFFFFF**（图案本身的颜色不动）。
+         ⛔ 别再改回带绿那版（原先照抄登录页浅绿 #DBE8E1）—— 用户看过实物之后否掉了。 -->
+    <color name="ic_launcher_background">#FFFFFF</color>
+    <color name="splash_background">#FFFFFF</color>
 </resources>

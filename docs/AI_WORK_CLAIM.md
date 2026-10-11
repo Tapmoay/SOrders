@@ -31,6 +31,14 @@
 
 ## 进行中
 
+### [2026-10-11 → ⏳ 进行中] 会话：**CHG-0116 桌面图标与启动画面底色改纯白**（DSH session-bd8fe093）
+
+- 用户口径（逐字）：「桌面那个图标……图案颜色没关系，但是那个背景图啊，是白底啊，不要是有一点绿了，不要带一点绿，白底就可以了。我启动的那个界面也是一样啊，背景不要带点绿。」
+- 改哪些文件：android/app/src/main/res/drawable/ic_launcher_background.xml、android/app/src/main/res/values/colors.xml、docs/changes/CHG-0116.md、docs/changes/README.md、本文件。
+- **明确不碰**：图标图案（ic_launcher_foreground.xml / monochrome）、themes.xml 与 values-v31/themes.xml 的结构、CHG-0115 会话正在改的 backend/app/services/inspection_due.py 与 message_producers.py、ui/dispatcher/Vehicle*.kt。
+
+
+
 ### [2026-10-11 04:4x → ⏳ 进行中] 会话：**FEAT-0022 后端：车辆年检日期的字段与提醒 ＋ 库存「偏低」按百分比启用**（DSH `7caa2bf5-63b4-436c-8ff8-16ee83e735ea`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径`（2026-10-11 逐字）：「关于这个车辆年检提醒啊，到我给那个车子建档案的时候会填一下就是这车的**上牌日期**。或者说是**上一个年检日期**啊方便我们去做一个提醒」；「**库存偏低**的话，我们**按百分比来算** —— 也就是说，他肯定会设置这个库存的报警嘛……然后我们在**报警的那个水平宽松一点**，就显示『库存偏低』，是这样子的」。纪律：「⛔ **不要构建 APK、不要部署生产、不要发布** —— 等另一个会话收工后一键一起部署」。
