@@ -718,6 +718,49 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun productCostHistory(id: Long) = api.productApi.productCostHistory(id)
 
     suspend fun restoreProduct(id: Long) = api.productApi.restoreProduct(id)
+
+    // ---- 成本价口径（FEAT-0025，2026-10-11）：一个商品可以有**多个**成本价 ----
+    //
+    // 用户原话：「我们是可以设置多个成本价的，AI 也都可以调……一般情况下默认按一个成本价，
+    // 也就是真实成本价，按那个来计算的……有时候计算的时候还有第二个成本价（加了补贴、返点之后）」。
+    //
+    // ⛔ 这一组**不碰**订单与毛利的成本口径：那仍然是 [ProductDto.costPrice]（＝列表里第一条
+    //    默认口径「真实成本价」）。这里增删改的都是"参考口径"，一个字节都不参与金额计算。
+
+    /** 某个商品的成本价口径（**第一条永远是默认口径**＝真实成本价，isDefault = true）。 */
+    suspend fun productCostPrices(productId: Long) = api.productApi.listProductCostPrices(productId)
+
+    /** 回收站里的那些口径（软删的行）—— 商品表单上的「已删除」区用。 */
+    suspend fun deletedProductCostPrices(productId: Long) =
+        api.productApi.listProductCostPrices(productId, deletedOnly = true)
+
+    /**
+     * 设置某个名称的成本价（后端是**同名 upsert**：没有就建、有就改价）。
+     *
+     * costPrice 是**字符串**（与全仓金额同一条口径）：Numeric(14,4) 经 Double 会掉精度。
+     */
+    suspend fun setProductCostPrice(productId: Long, name: String, costPrice: String) =
+        api.productApi.upsertProductCostPrice(
+            productId,
+            com.tapmoay.sorders.data.remote.api.ProductCostPriceUpsertRequest(name, costPrice),
+        )
+
+    /** 改名 / 改价 / 改顺序（只传真的变了的键；null = 不动）。 */
+    suspend fun updateProductCostPrice(
+        id: Long,
+        name: String? = null,
+        costPrice: String? = null,
+        sortOrder: Int? = null,
+    ) = api.productApi.updateProductCostPrice(
+        id,
+        com.tapmoay.sorders.data.remote.api.ProductCostPriceUpdateRequest(name, costPrice, sortOrder),
+    )
+
+    /** 软删一条附加口径（行还在回收站里）。 */
+    suspend fun deleteProductCostPrice(id: Long) = api.productApi.deleteProductCostPrice(id)
+
+    /** 把回收站里那条口径原样放回来。 */
+    suspend fun restoreProductCostPrice(id: Long) = api.productApi.restoreProductCostPrice(id)
     suspend fun uploadProductImage(productId: Long, file: File) =
         api.productApi.uploadProductImage(
             productId,

@@ -200,6 +200,14 @@ READ_METHODS = {
     #    只加复数不加单数，prepare 里这一次读会被判成"写"。
     #    真正写库的是 setArrearsUnitCreditLimit（不在白名单里，默认受「prepare 里不许写」的约束）。
     "arrearsUnit",
+    # 成本价口径（FEAT-0025，2026-10-11）：给某个商品设/改/删一条附加成本价之前，必须把
+    # **这个商品现有的口径**读回来 —— 卡片上那行「原来：3.50 元 → 现在：4.00 元」、
+    # 以及"没有同名的就新建、有同名的就改价"这个判断全靠它；回收站那一份用来提前说清
+    # "回收站里已经有一条同名的，执行后会把它放回来"（否则用户会以为删过的又冒出来了）。
+    # ⚠️ 两个都是**读**：真正写库的是 setProductCostPrice / updateProductCostPrice /
+    #    deleteProductCostPrice / restoreProductCostPrice（那四个**不在**白名单里，默认受
+    #    「prepare 里不许写」的约束）。
+    "productCostPrices", "deletedProductCostPrices",
 }
 
 

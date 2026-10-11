@@ -28,9 +28,12 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
+import java.io.File
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.util.Base64
 
 
 // 2026-09-25（整改报告 §11 第 3 步）：下面这一块是**从 AiWriteService.kt 原样搬过来的**（同一个包，一个字符没改）。
@@ -973,6 +976,61 @@ class RepoWriteDataSource(
         )
     }
 
+    // ---- 图片上传（FEAT-0024）：把聊天里那张图（data URL）变成服务器上的 URL ----
+    //
+    // 两个端点的语义不同（见 [AiWriteDataSource] 接口里那段注释）：
+    // · 商品：上传即写 image_url，所以这里不需要返回值；
+    // · 地点 / 地址：只落盘、返回 URL，调用方再把它 PATCH 进 image_urls。
+    //
+    // ⚠️ 用 java.util.Base64（minSdk = 26，android/app/build.gradle.kts:50）：android.util.Base64
+    //    在 JVM 单测里是空实现（会抛 "not mocked"），而这一层要能在单测里跑。
+
+    override suspend fun uploadProductImage(id: Long, dataUrl: String) {
+        repo.uploadProductImage(id, tempImageFile(dataUrl))
+    }
+
+    override suspend fun uploadLocationImage(dataUrl: String): String =
+        repo.uploadLocationImage(tempImageFile(dataUrl)).url
+
+    /**
+     * data URL → 一个临时文件（上传用）。
+     *
+     * 为什么落成文件而不是直接传字节：App 的既有链路（[AppRepository.uploadProductImage] /
+     * [AppRepository.uploadLocationImage]）收的是 File，手工页也是这么调的 —— 不另造一条。
+     *
+     * ⚠️ 类型与大小**先按 [AiWriteImage.parseImageDataUrl] 那一份判据验一遍**（与后端同一个
+     *    4MB 上限）：等传完再吃一个 400，用户白等几十秒，而卡片上写着"已完成"。
+     */
+    private fun tempImageFile(dataUrl: String): File {
+        val ctx = context ?: error("这台设备上取不到文件目录（Context 为空），图片传不上去。")
+        val payload = AiWriteImage.parseImageDataUrl(dataUrl)
+        val bytes = Base64.getDecoder().decode(payload.base64)
+        val dir = File(ctx.cacheDir, "ai-image-upload").apply { mkdirs() }
+        return File(dir, "upload-" + System.currentTimeMillis() + ".jpg").apply { writeBytes(bytes) }
+    }
+
+    /**
+     * 图片字段的三档读法（FEAT-0024）：**缺省 = 不改**（返回 null，调用方回填原值）/
+     * **JsonNull = 清空**（空表或空串）/ 给了值 = 换成它。
+     *
+     * ⛔ 与后端 _apply_images 的三档语义逐字对应（None = 不改、[] = 清空、非空 = 整体替换）：
+     *    把"缺省"当成"清空"的后果是 **AI 改一次电话，这条记录上的照片全没了**（2026-09-19 审计）。
+     */
+    private fun imageListOf(fields: JsonObject, key: String): List<String>? =
+        when (val e = fields[key]) {
+            null -> null
+            is kotlinx.serialization.json.JsonNull -> emptyList()
+            else -> AiWriteImage.urlsOf(e)
+        }
+
+    /** 单张图片字段的三档读法：缺省 = 不改（null）/ JsonNull = 清空（空串，后端 = 清空）。 */
+    private fun imageOneOf(fields: JsonObject, key: String): String? =
+        when (val e = fields[key]) {
+            null -> null
+            is kotlinx.serialization.json.JsonNull -> ""
+            else -> (e as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+        }
+
     override suspend fun updateProduct(id: Long, fields: JsonObject) {
         // 部分更新体空了说明**规格里的 key 和后端字段名对不上**（`pick()` 会静默丢掉认不出的键）。
         // 那种情况下 PATCH 什么都不改，而卡片上明明写着"改成 X"——最难发现的一类 bug。
@@ -986,6 +1044,9 @@ class RepoWriteDataSource(
                 isActive = fields.str("is_active")?.toBooleanStrictOrNull(),
                 unit = fields.str("unit"),
                 lowStockAlert = fields.str("low_stock_alert")?.toIntOrNull(),
+                // 图片（FEAT-0024）：缺省 = 不改（null 原样传出去）；JsonNull = 清空（写空串，
+                // 与手工页 ProductFormViewModel 的「移除图片」同口径）；字符串 = 换成这一张。
+                imageUrl = imageOneOf(fields, "image_url"),
                 // ⚠️ cost_price **不在这里判**：门开在 `AiWriteService`（所有动作的唯一入口）。
                 //    分散到各个数据源方法里迟早漏一个，而漏掉的后果是"成本价被写进去了"。
                 costPrice = fields.str("cost_price"),
@@ -994,7 +1055,6 @@ class RepoWriteDataSource(
     }
 
     override suspend fun deleteProduct(id: Long) = repo.deleteProduct(id)
-
 
     // ---- 成本价口径（FEAT-0025，2026-10-11）----
     // ⛔ 这一族**只**管附加口径；商品那一格 cost_price（默认口径＝真实成本价，订单与毛利按它算）
@@ -1019,7 +1079,9 @@ class RepoWriteDataSource(
 
     override suspend fun deleteProductCostPrice(id: Long) = repo.deleteProductCostPrice(id)
 
-    override suspend fun restoreProductCostPrice(id: Long) = repo.restoreProductCostPrice(id)
+    override suspend fun restoreProductCostPrice(id: Long) {
+        repo.restoreProductCostPrice(id)
+    }
 
     override suspend fun createPriceRule(shipperId: Long, productId: Long, price: String) {
         repo.createPriceRule(shipperId, productId, price)
@@ -1244,7 +1306,10 @@ class RepoWriteDataSource(
                 //    更糟的是撤回救不回来：`AiResources` 的 ADDRESS.readKeys 里没有 image_urls，
                 //    而卡片最后一行承诺"点它就能改回原样"。
                 //    地点那条路（`updatePlace`）一直有这一行 —— 这里是漏写。
-                imageUrls = cur.imageUrls,
+                // 图片（FEAT-0024）：三档 —— 缺省 = 不改（回填原值）、JsonNull = 清空（空表）、
+                // 「、」串 = 整体替换（AI 图片动作写的就是这个）。上面那条 2026-09-19 的教训仍然成立：
+                // **没点名图片时绝对不能传空表**，否则顺手把照片清光。
+                imageUrls = imageListOf(fields, "image_urls") ?: cur.imageUrls,
                 // ⚠️ **必须回填分类**（2026-10-04 FEAT-0009，`_check_ai_dto_defaults.py` 抓到）：
                 //    `AddressCreateRequest.category` 的默认值是 `""`（非空默认值），`encodeDefaults = true`
                 //    会把它永远发出去 → 后端 `_clean_category("")` 就是"清空"→ **每次 AI 改这条线路的
@@ -1345,7 +1410,9 @@ class RepoWriteDataSource(
                 //    而界面上只会显示「已改地点」。
                 contactName = fields.str("contact_name") ?: cur.contactName,
                 contactPhone = fields.str("contact_phone") ?: cur.contactPhone,
-                imageUrls = cur.imageUrls,
+                // 图片（FEAT-0024）：与地址同一条三档规矩（缺省 = 回填原值 / JsonNull = 清空 /
+                // 「、」串 = 整体替换）。
+                imageUrls = imageListOf(fields, "image_urls") ?: cur.imageUrls,
             ),
         )
     }

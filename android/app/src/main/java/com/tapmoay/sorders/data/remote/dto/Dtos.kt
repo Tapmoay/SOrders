@@ -1233,6 +1233,32 @@ data class ProductDto(
     @SerialName("no_discount") val noDiscount: Boolean = false,
 )
 
+/**
+ * 一条**附加成本口径**（FEAT-0025，用户 2026-10-11：「我们是可以设置多个成本价的」）。
+ *
+ * ⛔ 这一族**不是**订单与毛利的成本口径 —— 那是 [ProductDto.costPrice]（真实成本价）。
+ * 订单行的成本快照、毛利报表的成本基数一律只认它；这里装的是"加了补贴/返点之后"的参考口径。
+ *
+ * ⚠️ [isDefault] 那一条是后端**合成**出来的（id = 0、名字是「真实成本价」、金额取自
+ * products.cost_price）：它不在这张表里，所以 id = 0 与 sortOrder = -1 是"它排在最前"的
+ * 约定 —— 界面据此把它画在第一位并标注「订单/毛利按它算」，并且**不给**改名/改价/删除入口。
+ */
+@Serializable
+data class ProductCostPriceDto(
+    /** 表里那一行的编号；**默认口径那一条是 0**（它不在这张表里） */
+    val id: Long = 0,
+    @SerialName("product_id") val productId: Long = 0,
+    /** 口径名（「返点后成本」「补贴后成本」…）；默认那条固定是「真实成本价」 */
+    val name: String = "",
+    @Serializable(with = FlexibleStringSerializer::class) @SerialName("cost_price")
+    val costPrice: String = "0",
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    /** true = 默认口径（真实成本价）：订单与毛利按它算，且它不可改名/改价/删除 */
+    @SerialName("is_default") val isDefault: Boolean = false,
+    /** 后端给的口径说明：「订单与毛利按它算（真实成本价）」/「参考口径：不参与订单与毛利的计算」 */
+    val note: String = "",
+)
+
 // ===== 商品分类名册 =====
 /**
  * 商品分类名册里的一行（**顺序由派单员定**，不是按商品数推出来的）。

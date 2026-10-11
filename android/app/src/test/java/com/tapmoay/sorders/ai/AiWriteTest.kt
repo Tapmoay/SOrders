@@ -99,6 +99,20 @@ class AiWriteTest {
             return shippers.also { boom() }
         }
         override suspend fun products() = products.also { boom() }
+
+        // ---- 图片上传（FEAT-0024）----
+        // 单测里不真发网络请求，只记下"要传哪一张、挂到谁身上"（真实实现见 RepoWriteDataSource）。
+        val uploadedProductImages = mutableListOf<Pair<Long, String>>()
+        val uploadedLocationImages = mutableListOf<String>()
+
+        override suspend fun uploadProductImage(id: Long, dataUrl: String) {
+            uploadedProductImages += id to dataUrl
+        }
+
+        override suspend fun uploadLocationImage(dataUrl: String): String {
+            uploadedLocationImages += dataUrl
+            return "/static/uploads/locations/fake-" + uploadedLocationImages.size + ".jpg"
+        }
         override suspend fun arrearsUnits() = units.also { boom() }
         // 忠实照抄后端 `GET /orders?q=` 的行为：**模糊匹配**单号/货主/地址，命中几万条也只回这么多。
         // 不做过滤的话，"订单号对不上"这条路径根本测不到（替身会永远回全部订单 → 变成"对上多个"）。

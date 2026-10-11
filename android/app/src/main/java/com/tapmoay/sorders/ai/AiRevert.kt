@@ -483,13 +483,14 @@ object AiRevert {
      * 它在"给模型看的参数说明""正向卡片的摘要"里已经用了一次，这里用第二次——
      * **声明一次、多处同源**，不会分叉；也不必给每个资源手抄一份 payload 键名。
      *
-     * ### 三档顺序
-     * 资源中文名 → 动作字段中文名 → 原样返回键名。
+     * ### 四档顺序
+     * 资源中文名 → 资源里那份「只在 payload 出现」的中文名（[AiResource.payloadLabels]，
+     * v3.46 为图片上传这类**带文件的写动作**补的）→ 动作字段中文名 → 原样返回键名。
      * 最后一档正常**不该出现**：`AiWriteTest` 里那条"撤回卡上的每个 payload 键都要有中文名"
      * 会逐个动作、逐个键算出来对账（清单由脚本自己算，不手写）。
      */
     fun cnOf(res: AiResource, actionId: String, key: String): String =
-        res.labels[key] ?: AiWrites.byId(actionId)?.crud?.let { spec ->
+        res.labels[key] ?: res.payloadLabels[key] ?: AiWrites.byId(actionId)?.crud?.let { spec ->
             spec.fields.firstOrNull { it.key == key }?.cn
                 ?: spec.targets.firstOrNull { it.key == key }?.cn
         } ?: key
@@ -969,6 +970,24 @@ class AiResource(
      * 那类键必须在这里点名，否则那句警告就是**假话**，用户会以为撤不回来。
      */
     val nullableWritable: Set<String> = emptySet(),
+    /**
+     * **只在 payload 里出现、读不回来**的键 → 中文名（v3.46，图片上传那一轮 FEAT-0024）。
+     *
+     * ### 为什么需要第三处来源
+     * [cnOf] 原来只有两处：资源表的 [labels]（读回来的东西叫什么）与动作自己的 crud 字段规格
+     * （[AiWrites.byId] 的 crud）。而「带文件的写动作」（图片上传：payload 里装着图片字节与
+     * 「加还是换」这两个**不可能读回来**的键）两处都够不着 —— 于是撤回卡上会印出
+     * image_data / mode 这种裸英文键。
+     *
+     * 把它们塞进 [readKeys] 是**假话**（快照里根本没有这两项，读回来的是 null）；
+     * 给动作补一份 crud 规格又会把手写处理器顶掉（见 [AiWriteService] 里那段声明式注册：
+     * 凡是带 crud 规格的动作一律交给 CrudWriteHandler）。所以单开这一处。
+     *
+     * ⚠️ 这里的键**必须同时挂在**该资源某个动作的 [AiRevertAction.drop]（或 negate）上：
+     *    没有 drop 声明的键会被 [AiRevert.patchPlan] 当成「读不回旧值」而报「这一项撤不回来」，
+     *    而那份警告是给用户看的假话。判据钉在 _tools/qa/_check_ai_image_upload.py。
+     */
+    val payloadLabels: Map<String, String> = emptyMap(),
     val read: suspend (AiWriteDataSource, Long) -> AiBefore?,
     val restore: AiInverse? = null,
     val restoreLines: List<String>? = null,

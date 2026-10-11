@@ -65,6 +65,9 @@ internal object AiResources {
         readKeys = setOf(
             "receiver_name", "phone", "detail_address", "origin_address", "remark",
             GEO_LAT, GEO_LNG,
+            // 图片（FEAT-0024）：它**读得回来**（AddressDto.imageUrls），所以进 readKeys + labels ——
+            // 撤回卡上那一行「图片：… → 撤回到 …」的旧值就是从这里来的。
+            "image_urls",
         ),
         labels = mapOf(
             "receiver_name" to "收货人",
@@ -76,14 +79,32 @@ internal object AiResources {
             // 读不回来时那行警告会落到 `stuck` 里，那时候卡片上不能出现 `address_lat` 这种裸键。
             GEO_LAT to "纬度",
             GEO_LNG to "经度",
+            "image_urls" to "图片",
         ),
         // 坐标跟着地址文字走：改了地址文字，坐标必须一起回退，否则司机会被带去旧地址。
         // 但它不该单独占一行（用户核对的是地址文字）。
         silent = setOf(GEO_LAT, GEO_LNG),
+        // 图片**原来没有图**时也撤得回去：payload 里给 JsonNull，后端收到空表就是"清空"
+        // （shipper.py 的 _apply_images：None = 不改、[] = 清空）。不点名这一项，
+        // 撤回卡会落到「这一项原来就是空的，而这个接口清不掉它」——那是句假话。
+        nullableWritable = setOf("image_urls"),
+        // payload 里那两个**读不回来**的键（cnOf 的第四档来源）：图片字节与「加还是换」。
+        // 它们与该动作的 drop 声明成对出现 —— 撤回不重新上传、也不重放这两个键。
+        payloadLabels = mapOf(
+            "image_data" to "这次贴的图（上传用）",
+            "mode" to "加到后面还是整套换掉",
+        ),
         actions = listOf(
             update(AiWrites.ADDRESS_UPDATE),
             delete(AiWrites.ADDRESS_DELETE),
             paired(AiWrites.ADDRESS_RESTORE, AiInverse(AiWrites.ADDRESS_DELETE, mapOf("address_id" to AiRevert.ID)), idKey = "target_id"),
+            // 图片（FEAT-0024，2026-10-11）：加一张或整套换掉。图片字节在发卡那一刻就钉进了
+            // payload，撤回只要把 image_urls 写回旧值 —— **不重新上传**（旧 URL 一直在服务器上）。
+            update(
+                AiWrites.ADDRESS_IMAGE,
+                drop = setOf("image_data", "mode"),
+                note = "撤回只把图片列表改回原来那几张（不会重新上传文件）；新传上去的那张图不会被删。",
+            ),
         ),
         read = { ds, id -> ds.snapshot("address", id) },
         restore = AiInverse(AiWrites.ADDRESS_RESTORE, mapOf("target_id" to AiRevert.ID)),
@@ -98,18 +119,33 @@ internal object AiResources {
             // 地点绑定的收货联系人（2026-09-24）：**必须读回来**，否则 AI 改一次地点名，
             // 撤回卡手里没有旧值 → 绑定的联系人回不去（而 `updateLocation` 是整体替换语义）。
             "contact_name", "contact_phone",
+            // 图片（FEAT-0024）：与地址同一套（LocationDto.imageUrls 读得回来）。
+            "image_urls",
         ),
         labels = mapOf(
             "name" to "地点名", "detail_address" to "地址", "remark" to "备注",
             "category" to "分组",
             "contact_name" to "收货联系人", "contact_phone" to "收货电话",
             GEO_LAT to "纬度", GEO_LNG to "经度",
+            "image_urls" to "图片",
         ),
         silent = setOf(GEO_LAT, GEO_LNG),
+        // 与地址同一条口径：原来没有图也要撤得回去（payload 给 JsonNull，后端收到空表 = 清空）。
+        nullableWritable = setOf("image_urls"),
+        payloadLabels = mapOf(
+            "image_data" to "这次贴的图（上传用）",
+            "mode" to "加到后面还是整套换掉",
+        ),
         actions = listOf(
             update(AiWrites.LOCATION_UPDATE),
             delete(AiWrites.LOCATION_DELETE),
             paired(AiWrites.LOCATION_RESTORE, AiInverse(AiWrites.LOCATION_DELETE, mapOf("location_id" to AiRevert.ID)), idKey = "target_id"),
+            // 图片（FEAT-0024）：同上，撤回只写回 image_urls、不重新上传。
+            update(
+                AiWrites.LOCATION_IMAGE,
+                drop = setOf("image_data", "mode"),
+                note = "撤回只把图片列表改回原来那几张（不会重新上传文件）；新传上去的那张图不会被删。",
+            ),
         ),
         read = { ds, id -> ds.snapshot("location", id) },
         restore = AiInverse(AiWrites.LOCATION_RESTORE, mapOf("target_id" to AiRevert.ID)),
@@ -285,6 +321,9 @@ internal object AiResources {
         idKey = "product_id",
         readKeys = setOf(
             "name", "default_unit_price", "unit", "low_stock_alert", "active",
+            // 图片（FEAT-0024）：商品只有一张（ProductDto.imageUrl），读得回来 ⇒ 进读回集，
+            // 撤回卡上那一行「商品图片：… → 撤回到 …」的旧值就是它。
+            "image_url",
         ),
         labels = mapOf(
             "name" to "商品名",
@@ -292,7 +331,12 @@ internal object AiResources {
             "unit" to "单位",
             "low_stock_alert" to "库存报警阈值",
             "active" to "是否在售",
+            "image_url" to "商品图片",
         ),
+        // 商品原本没有图时也撤得回去：payload 给 JsonNull，数据源把它写成空串（后端 = 清空，
+        // 与手工页 ProductFormViewModel 的「移除图片」同一条口径）。
+        nullableWritable = setOf("image_url"),
+        payloadLabels = mapOf("image_data" to "这次贴的图（上传用）"),
         actions = listOf(
             update(
                 AiWrites.PRODUCTS_UPDATE,
@@ -330,6 +374,13 @@ internal object AiResources {
                 dropWrite = mapOf("note" to "撤回：刚才那次库存调整（由撤回入口发起）"),
                 note = "库存按「相反方向再记一条流水」来撤回（原来那条留着——库存变动本来就该留痕）；" +
                     "进货价与商品成本价不跟着撤回。",
+            ),
+            // 图片（FEAT-0024，2026-10-11）：把用户贴的那张图设成展示图。上传端点的语义是
+            // "上传即写 image_url"，所以正向只有一步；撤回是把 image_url 写回旧值（或空串）。
+            update(
+                AiWrites.PRODUCTS_IMAGE,
+                drop = setOf("image_data"),
+                note = "撤回只把商品图片换回原来那张（不会重新上传文件）；新传上去的那张不会被删。",
             ),
             paired(AiWrites.PRODUCTS_RESTORE, AiInverse(AiWrites.PRODUCTS_DELETE, mapOf("product_id" to AiRevert.ID)), idKey = "target_id"),
         ),
@@ -1354,6 +1405,11 @@ internal object AiRevertRead {
         put("remark", d.remark)
         text(GEO_LAT, d.addressLat)
         text(GEO_LNG, d.addressLng)
+        // 图片（FEAT-0024）：**「、」串成一个可读串**再进快照，而不是原样的 JSON 数组 ——
+        // 撤回卡那一行是「图片：… → 撤回到 /static/uploads/locations/a.jpg、…」，
+        // 而 AiRevertJson.textOf 对数组只会原样 toString（带方括号和引号，很难读）。
+        // 空表 → JsonNull（=「原来没有图」，撤回时走 nullableWritable 那条"清空"路）。
+        text("image_urls", AiWriteImage.joinUrls(d.imageUrls).takeIf { it.isNotEmpty() })
     }
 
     fun location(d: LocationDto): JsonObject = buildJsonObject {
@@ -1365,6 +1421,8 @@ internal object AiRevertRead {
         put("contact_phone", d.contactPhone)
         text(GEO_LAT, d.addressLat)
         text(GEO_LNG, d.addressLng)
+        // 图片（FEAT-0024）：与 address 同一条口径（同一个可读串 + 空表写成 JsonNull）。
+        text("image_urls", AiWriteImage.joinUrls(d.imageUrls).takeIf { it.isNotEmpty() })
     }
 
     fun contact(d: ContactDto): JsonObject = buildJsonObject {
@@ -1531,6 +1589,9 @@ internal object AiRevertRead {
         put("low_stock_alert", JsonPrimitive(d.lowStockAlert))
         // 动作里这个键叫 `active`（模型给的参数名），后端字段是 is_active
         put("active", JsonPrimitive(d.isActive))
+        // 图片（FEAT-0024）：商品只有一张。null 写成 JsonNull =「原来没有图」，
+        // 撤回时走 nullableWritable 那条路（数据源把它写成空串 = 后端清空）。
+        text("image_url", d.imageUrl)
     }
 
     fun priceRule(d: PriceRuleDto): JsonObject = buildJsonObject {

@@ -82,6 +82,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import com.tapmoay.sorders.ai.AiAttachment
 import com.tapmoay.sorders.ai.AiAttachmentLoader
+import com.tapmoay.sorders.ai.AiCardBatchTableSheet
 import com.tapmoay.sorders.ai.AiCardTable
 import com.tapmoay.sorders.ai.AiContainer
 import com.tapmoay.sorders.ai.AiContext
@@ -2595,7 +2596,10 @@ private fun WriteCard(
                     .heightIn(max = DetailMaxHeight)
                     .verticalScroll(rememberScrollState()),
             ) {
-                CardInfoTable(p.detailLines)
+                // 批量卡画**长表格**（一个人一行 / 一列一个字段）；单条卡照旧画「标签 / 值」两列。
+                // 用户 2026-10-11：「那个表格卡是多个、长表格显示多个人，这样就省事。」（CHG-0119）
+                val batchTable = p.table
+                if (batchTable != null) BatchCardTable(batchTable) else CardInfoTable(p.detailLines)
             }
 
             Spacer(Modifier.height(8.dp))
@@ -2611,7 +2615,10 @@ private fun WriteCard(
             //    照抄默认值的后果是"卡片上那句有效期是假话" —— 而用户是拿它当真的看的。
             val validMinutes = ((p.expiresAtMs - p.createdAtMs) / 60_000L).coerceAtLeast(1L)
             Text(
-                "$validMinutes 分钟内有效，过期后重新说一次就行。",
+                // 过期这一句**说人话**（CHG-0119）：批量卡是 30 分钟，一句轻描淡写的
+                // 「重新说一次就行」不够 —— 用户真机上就是这么丢了 40 条批发商专属价
+                // （14:21 连续 4 条「没写成：确认卡已经失效了」）。
+                "$validMinutes 分钟内有效。过期了也不要紧 —— 重新说一句我就再给你发一张。",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -2650,6 +2657,77 @@ private fun WriteCard(
             }
         }
     }
+}
+
+/** 批量表最多几列还**平分宽度**；超过这个列数就退回定宽 + 横向滚。 */
+private val BatchTableFitColumns = 4
+
+/** 批量表定宽时的列宽：再窄下去「12.5 → 9.9」这种值会被折成两行，反而更难扫。 */
+private val BatchColumnMin = 96.dp
+
+/**
+ * 批量确认卡的**长表格**（CHG-0119）—— 用户 2026-10-11：
+ * > 那个表格卡是多个、长表格显示多个人，这样就省事。
+ *
+ * ### 与 [CardInfoTable] 的分工
+ * [CardInfoTable] 是「标签 / 值」两列（一条记录的全部字段，值可以换行）；
+ * 这一张是**一条一行**的数据网格（序号 / 对象 / 改前 → 改后 / 各条自己的字段）。
+ * 批量卡一屏有几十行，两列排版会把「这一行是哪个人」彻底糊掉 ——
+ * 表格才是让用户**一眼扫完再点确认**的形状（他要的就是"直接看表格然后直接点确认"）。
+ *
+ * ### 列宽：列少就平分，列多才横滑
+ * 列数不超过 [BatchTableFitColumns] 时每列 weight(1f) 平分卡片宽度（不用横滑，少一个动作）；
+ * 更多列才退回 [BatchColumnMin] 定宽 + horizontalScroll（与聊天里的 Markdown 表格同一个取舍）。
+ *
+ * ⛔ 表格只是**显示**：写下去多少条与表格里列了多少行无关，
+ *    被截掉的行数由 [AiCardBatchTableSheet.note] 说清（不许静默）。
+ */
+@Composable
+private fun BatchCardTable(sheet: AiCardBatchTableSheet) {
+    if (sheet.rows.isEmpty()) return
+    val line = MaterialTheme.colorScheme.outlineVariant
+    val fixed = sheet.headers.size > BatchTableFitColumns
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, line, RoundedCornerShape(10.dp))
+            .then(if (fixed) Modifier.horizontalScroll(rememberScrollState()) else Modifier),
+    ) {
+        Row(Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh)) {
+            sheet.headers.forEach { h -> BatchCell(h, fixed, header = true) }
+        }
+        sheet.rows.forEach { row ->
+            Box(Modifier.fillMaxWidth().height(1.dp).background(line))
+            Row { row.forEach { c -> BatchCell(c, fixed, header = false) } }
+        }
+        if (sheet.note.isNotBlank()) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(line))
+            Text(
+                sheet.note,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** 批量表的一格：表头一行是列名（灰字），数据行是值。 */
+@Composable
+private fun RowScope.BatchCell(text: String, fixed: Boolean, header: Boolean) {
+    Text(
+        text,
+        modifier = (if (fixed) Modifier.width(BatchColumnMin) else Modifier.weight(1f))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        style = MaterialTheme.typography.bodySmall,
+        fontWeight = if (header) FontWeight.SemiBold else FontWeight.Normal,
+        color = if (header) {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        },
+    )
 }
 
 /**

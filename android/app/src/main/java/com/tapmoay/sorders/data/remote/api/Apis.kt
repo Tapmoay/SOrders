@@ -879,6 +879,47 @@ interface ProductApi {
     @GET("products/cost-history")
     suspend fun productCostHistory(@Query("product_id") productId: Long): List<ProductCostHistoryDto>
 
+    /**
+     * 商品的**成本价口径**列表（FEAT-0025，2026-10-11）。
+     *
+     * 第一条永远是**默认口径**（isDefault = true，名字是「真实成本价」，金额取自
+     * products.cost_price）—— 订单与毛利按它算；其余是**参考口径**（加了补贴/返点之后的），
+     * 一个字节都不参与金额计算。
+     *
+     * ⚠️ 为什么商品是**查询参数**而不是路径参数：与 products/cost-history 同一条硬规矩 ——
+     * AI 也必须有这个能力，而**模型看不到任何内部编号**（带 {} 的端点对它是死的，
+     * _gen_ai_read_catalog.py 按"路径里有没有 {}"排除）。模型说商品名 → App 解析成编号 → 调这条。
+     *
+     * @param deletedOnly 只看回收站里被删掉的那些（默认那一条不在库里，所以回收站里不会出现它）
+     */
+    @GET("products/cost-prices")
+    suspend fun listProductCostPrices(
+        @Query("product_id") productId: Long? = null,
+        @Query("deleted_only") deletedOnly: Boolean = false,
+    ): List<ProductCostPriceDto>
+
+    /** 新增或改价（后端是**同名 upsert**：有就改、没有就建；回收站里同名的会被放回来）。 */
+    @POST("products/{productId}/cost-prices")
+    suspend fun upsertProductCostPrice(
+        @Path("productId") productId: Long,
+        @Body body: ProductCostPriceUpsertRequest,
+    ): ProductCostPriceDto
+
+    /** 改名 / 改价 / 改顺序（部分更新：null = 不动这一项）。 */
+    @PATCH("products/cost-prices/{rowId}")
+    suspend fun updateProductCostPrice(
+        @Path("rowId") rowId: Long,
+        @Body body: ProductCostPriceUpdateRequest,
+    ): ProductCostPriceDto
+
+    /** 删掉一条附加口径（**软删**：行还在回收站里，可以 [restoreProductCostPrice] 放回来）。 */
+    @DELETE("products/cost-prices/{rowId}")
+    suspend fun deleteProductCostPrice(@Path("rowId") rowId: Long)
+
+    /** 把回收站里那条口径**原样放回来**（逐字段照搬，不是重建）。 */
+    @POST("products/cost-prices/{rowId}/restore")
+    suspend fun restoreProductCostPrice(@Path("rowId") rowId: Long): ProductCostPriceDto
+
     @Multipart
     @POST("products/{productId}/image")
     suspend fun uploadProductImage(
@@ -1033,6 +1074,30 @@ data class ProductUpdateRequest(
     @SerialName("sort_order") val sortOrder: Int? = null,
     /** 「不参与打折」：算折扣时跳过它（⛔ 不是"价格不能变"；传 null = 不改）。 */
     @SerialName("no_discount") val noDiscount: Boolean? = null,
+)
+
+/**
+ * 新增/设置一条**附加成本口径**（FEAT-0025）。
+ *
+ * ⚠️ "默认那个口径"不在这里：它是 products.cost_price，改它只有一条路
+ * （[ProductUpdateRequest.costPrice]，会写成本价时间轴）。
+ */
+@Serializable
+data class ProductCostPriceUpsertRequest(
+    val name: String,
+    @SerialName("cost_price") @Serializable(with = FlexibleStringSerializer::class)
+    val costPrice: String,
+    /** 不传 = 排到最后（新建的口径加在末尾，用户不用自己管顺序）。 */
+    @SerialName("sort_order") val sortOrder: Int? = null,
+)
+
+/** 改名 / 改价 / 改顺序（null = 不动这一项；三项都没给后端会 400）。 */
+@Serializable
+data class ProductCostPriceUpdateRequest(
+    val name: String? = null,
+    @SerialName("cost_price") @Serializable(with = FlexibleStringSerializer::class)
+    val costPrice: String? = null,
+    @SerialName("sort_order") val sortOrder: Int? = null,
 )
 
 interface ArrearsApi {

@@ -58,6 +58,22 @@ interface AiWriteDataSource {
     suspend fun contacts(): List<AiName>
     suspend fun priceRules(): List<AiName>
 
+    // ---- 图片上传（FEAT-0024，2026-10-11）----
+    //
+    // 用户给 AI 一张图，让它设成商品图 / 地点图 / 地址图。两个上传端点**语义不同**，
+    // 所以是两个方法（不是一个带开关的方法）：
+    // · 商品那个**上传即写 image_url**（POST /products/{id}/image）⇒ 没有返回值；
+    // · 地点那个**只落盘**、返回 URL（POST /shipper/locations/image）⇒ 有返回值，
+    //   拿到之后再随对象 PATCH 进 image_urls（手工页走的也是这两步）。
+    // 两个都收 **data URL**（用户贴的图就是 data:image/...;base64,...，见 [AiImageInbox]）：
+    // 「字节 → 临时文件」那一步在实现里做（只有实现手上有 Context）。
+
+    /** 上传商品展示图（那个端点自己就把 image_url 写了）。 */
+    suspend fun uploadProductImage(id: Long, dataUrl: String)
+
+    /** 上传一张图到服务器的地点目录，返回它的 URL（还没有挂到任何记录上）。 */
+    suspend fun uploadLocationImage(dataUrl: String): String
+
     /**
      * 单位换算表（**全库共用**那一份，"1 车 = 8 方"）—— 改/删换算时的目标池。
      *
@@ -497,6 +513,7 @@ interface AiWriteDataSource {
      */
     suspend fun updateProduct(id: Long, fields: JsonObject)
     suspend fun deleteProduct(id: Long)
+
     /**
      * 某个商品的**全部成本价口径**：第一条是合成的默认口径（`isDefault = true`、名字「真实成本价」、
      * 金额就是 `products.cost_price`），后面的才是附加口径（返点后 / 补贴后…）。FEAT-0025。
@@ -1124,6 +1141,12 @@ class AiWriteService(
             DiscountOrderHandler(ds, store),
             DiscountClearHandler(ds, store),
             CreditLimitWriteHandler(ds, store),
+            // 图片三条（FEAT-0024，2026-10-11）：用户贴一张图 → 设成商品图 / 地点图 / 地址图。
+            // 三条都超出声明式的表达力：要先把图**传上去**才有一个值可写，而且要按"现在有几张"
+            // 算出最终列表（撤回方向则是把 payload 里的旧列表写回去）。见 [ImageWriteHandler]。
+            ImageWriteHandler(AiWrites.PRODUCTS_IMAGE, AiWriteImage.Kind.PRODUCT, ds, store),
+            ImageWriteHandler(AiWrites.LOCATION_IMAGE, AiWriteImage.Kind.LOCATION, ds, store),
+            ImageWriteHandler(AiWrites.ADDRESS_IMAGE, AiWriteImage.Kind.ADDRESS, ds, store),
             // 成本价口径两条（FEAT-0025，2026-10-11）：用户要「多个成本价」，AI 必须能设第二条。
             // 「设/改一条」超出声明式的表达力：要按"这个商品现有的口径"决定是新建还是改价、
             // 还要在卡片上写清「原来 → 现在」。见 [SetCostPriceHandler] / [DeleteCostPriceHandler]。
@@ -1278,17 +1301,37 @@ class AiWriteService(
     suspend fun execute(token: String): AiWriteOutcome {
         val p = store.take(token)
         if (p == null) {
-            // 连点第二下的那一支：第一下真的写进去了，这一下不能再写，也不该说"没写成"。
+            // 连点第二下的那一支：第一下真的写进去了，这一下不能再写。
+            // CHG-0119 起这一支**说人话**，不再报成"⚠️ 没写成" ——
+            // 用户原话：「还有这个确认卡，我点快了点多了，就会出现『没写成』的这种情况。」
+            // 于是这里改说"已经执行过了"，并把上一次的逐行结果（`commitNote`）一并带上。
             if (store.hasWritten(token)) {
+                val done = store.writtenNote(token)
                 return AiWriteOutcome.Rejected(
-                    "这一次已经写进去了（同一张确认卡只生效一次），没有写第二遍。" +
-                        "要改回来的话，点上面那条「撤回」；没有撤回按钮就是这个动作撤不回来。",
+                    buildString {
+                        append("这张卡已经执行过了，没有写第二遍 —— ")
+                        append("这一次已经写进去了（同一张确认卡只生效一次）。")
+                        // 批量卡会把逐行结果留在这里（`commitNote`）：点快了也要能看见"哪几行没成"。
+                        if (!done.isNullOrBlank()) append("\n上次的结果：").append(done)
+                        append("\n要改回来的话，点上面那条「撤回」；没有撤回按钮就是这个动作撤不回来。")
+                    },
                     alreadyWritten = true,
                 )
             }
+            // 被新卡顶掉的那一支（CHG-0119）：它既没写成功、也不算"过期" ——
+            // 说成过期就是在让用户去查一个不存在的有效期。
+            if (store.wasDropped(token)) {
+                return AiWriteOutcome.Rejected(
+                    "这张卡被新的一张顶掉了（同时最多留 ${AiWritePreviewStore.MAX_PENDING} 张待确认卡），" +
+                        "这一次什么都没写。要一次办好几条的话，把它们合成一句再说一遍 ——" +
+                        "我一次就给你一张长表格卡，点一下全办完。",
+                )
+            }
             return AiWriteOutcome.Rejected(
-                "这张确认卡已经失效了（有效期 ${AiWritePreviewStore.DEFAULT_TTL_MS / 60000} 分钟，" +
-                    "App 重启或新开对话也会清掉），这一次什么都没写。要办的话请重新发起。",
+                // 过期这一句必须**说人话**：截图里那 4 条「没写成：这张确认卡已经失效了
+                // （有效期 5 分钟…）」用户看了一头雾水（CHG-0119）。
+                "这张卡过期了：这一次什么都没写。要办的话请重新发起。" +
+                    "你重新说一句我就再给你发一张。",
             )
         }
         val handler = handlers[p.actionId]
@@ -1348,6 +1391,9 @@ class AiWriteService(
             // 批量动作（按表格调价）会在这里补一句**逐行结果**；其余动作返回 null，行为不变。
             // 少了这一句，20 行里失败的 2 行会被"已完成"盖住——那正是最坏的一种反馈。
             val note = handler.commitNote()
+            // 把这一句**留下来**（CHG-0119）：用户连点第二下时，回执里要能说出
+            // 「这一批 40 条：成功 38 条，失败 2 条 —— …」，而不是干巴巴一句"已经写过了"。
+            store.noteResult(token, note)
             // 卡片上答应过"会出现撤回"，结果没挂上——**必须说**。
             // 不然用户回头去点一个不存在的按钮，或者更糟：以为事情撤掉了。
             // 出现这种情况只有一个原因：写之前读不到那条记录（已被别人删掉/没权限）。

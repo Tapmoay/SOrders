@@ -214,6 +214,17 @@ data class AiPendingWrite(
     val payload: JsonObject,
     val createdAtMs: Long,
     val expiresAtMs: Long,
+    /**
+     * 批量卡的**长表格**（CHG-0119）；单条卡一律 null。
+     *
+     * ### 为什么单独留一份，而不是让界面去解析 [detailLines]
+     * [detailLines] 是给人读的**逐行明细**（超过 `BatchWriteHandler.VERBOSE_MAX` 条时会被压成
+     * "1. 甲 · 价格：10 → 12"那种一行一条的文本）。用户要的是**一张表**：一个人一行、
+     * 一列一个字段、一眼扫完（原话：「那个表格卡是多个、长表格显示多个人」）。
+     * 把"怎么排成表"放进界面的话，界面就得再解析一遍正文 —— 而正文的写法是各处理器定的。
+     * 表格在这里（数据层）算好，界面只画。
+     */
+    val table: AiCardBatchTableSheet? = null,
 ) {
     // ⛔ 这里**删掉过**两个方法（2026-09-21 精简轮）：`expired(now)` 与 `secondsLeft(now)` ——
     //    全仓搜只有它们自己的声明（界面从来没有按"还剩几秒"画过东西；过期与否由
@@ -242,6 +253,13 @@ class AiWritePreviewStore(
     private val maxPending: Int = MAX_PENDING,
     private val now: () -> Long = { System.currentTimeMillis() },
     private val newToken: () -> String = ::randomToken,
+    /**
+     * **批量卡**的有效期（[BATCH_TTL_MS]，30 分钟）；单条卡照旧用 [ttlMs]（5 分钟）。
+     *
+     * 为什么排在最后一位：单测里 `AiWritePreviewStore(ttlMs = …)` 的具名调用与
+     * `AiWritePreviewStore()` 都还在，插在中间会把位置参数的含义整体挪一格。
+     */
+    private val batchTtlMs: Long = BATCH_TTL_MS,
 ) {
     private val lock = Any()
     private val items = ArrayList<AiPendingWrite>(2)
@@ -252,6 +270,24 @@ class AiWritePreviewStore(
      * 只留最近 [DONE_KEEP] 个：连点、来回切对话都是短时间内的动作，8 个够覆盖。
      */
     private val doneTokens = LinkedHashSet<String>()
+
+    /**
+     * 每个"已经写进去了"的 token 对应的**那一句结果**（CHG-0119）。
+     *
+     * 为什么留着：用户连点第二下时，回执要说得比"已经写进去了"更具体 ——
+     * 「这张卡已经执行过了……这一批 40 条：成功 38 条，失败 2 条 —— …（见上面的结果）」。
+     * 没有它，点快了只看到一句干巴巴的"写过了"，而**哪几行没成**就再也找不回来。
+     */
+    private val doneNotes = LinkedHashMap<String, String>()
+
+    /**
+     * 被新卡**顶掉**的 token（超过 [maxPending] 张时丢最旧的，见 [offer]）。
+     *
+     * 为什么要单独记：那些卡既没写成功、也不算"过期"，回执必须说准是哪一种 ——
+     * 过期、取消、重启、被顶掉，是四件不同的事（BUG-0021 的同一条原则：
+     * 不许把它们合成一句让用户猜钱记没记上）。
+     */
+    private val droppedTokens = LinkedHashSet<String>()
 
     /** 登记一次待确认，返回它（含 token）。超过 [maxPending] 时丢**最旧**的。 */
     fun offer(
@@ -277,6 +313,13 @@ class AiWritePreviewStore(
          * 用户点完确认发现没有按钮，而卡片答应过有。
          */
         batch: Boolean = false,
+        /**
+         * 批量卡要画的那张**长表格**（CHG-0119；见 [AiCardBatchTableSheet]）。单条卡不传。
+         *
+         * 为什么不从 [detailLines] 现推：那是给人读的逐行明细（超过 `VERBOSE_MAX` 条时
+         * 会被压成"1. 甲 · 价格：10 → 12"），而表格要的是"一个人一行、一列一个字段"。
+         */
+        table: AiCardBatchTableSheet? = null,
     ): AiPendingWrite {
         synchronized(lock) {
             pruneLocked()
@@ -304,10 +347,13 @@ class AiWritePreviewStore(
                 bodyLines = detailLines,
                 payload = payload,
                 createdAtMs = at,
-                expiresAtMs = at + ttlMs,
+                // 批量卡 30 分钟、单条卡 5 分钟（用户 2026-10-11 踩过"一堆卡全过期"，见 BATCH_TTL_MS）。
+                expiresAtMs = at + if (batch) batchTtlMs else ttlMs,
+                table = table,
             )
             items += p
-            while (items.size > maxPending) items.removeAt(0)
+            // 被顶掉的 token 记一笔：连点它时要说"被新的一张顶掉了"，不许谎报成"过期"。
+            while (items.size > maxPending) rememberDroppedLocked(items.removeAt(0).token)
             return p
         }
     }
@@ -341,6 +387,7 @@ class AiWritePreviewStore(
         risk: AiWriteRisk = AiWrites.byId(actionId)!!.risk,
         isUndo: Boolean = false,
         batch: Boolean = false,
+        table: AiCardBatchTableSheet? = null,
     ): AiPendingWrite = offer(
         actionId = actionId,
         title = title,
@@ -350,6 +397,7 @@ class AiWritePreviewStore(
         payload = payload,
         isUndo = isUndo,
         batch = batch,
+        table = table,
     )
 
     /** 当前所有未过期的待确认（界面按这个渲染卡片，最新的在最后）。 */
@@ -395,6 +443,37 @@ class AiWritePreviewStore(
     /** 这个 token 是不是**已经写成功过**（[markWritten] 记的）。false = 什么都没写。 */
     fun hasWritten(token: String): Boolean = synchronized(lock) { token in doneTokens }
 
+    /**
+     * 记下这一次写完之后处理器报的那句结果（[AiWriteHandler.commitNote] 的那一份，CHG-0119）。
+     *
+     * ⛔ 与 [markWritten] 一样，**只准在写成功之后调**：写失败时记一句"结果"，第二次点击
+     *    就会被谎报成"已经写进去了"（那条单测钉的正是这件事）。
+     */
+    fun noteResult(token: String, note: String?) {
+        if (note.isNullOrBlank()) return
+        synchronized(lock) {
+            doneNotes.remove(token)
+            doneNotes[token] = note
+            while (doneNotes.size > DONE_KEEP) doneNotes.remove(doneNotes.keys.first())
+        }
+    }
+
+    /** [noteResult] 记下的那句结果（没有 = 这个动作本来就不报逐行结果）。 */
+    fun writtenNote(token: String): String? = synchronized(lock) { doneNotes[token] }
+
+    /**
+     * 这个 token 是不是**被新的一张卡顶掉**了（超过 [maxPending] 张，见 [offer]）。
+     *
+     * false = 没见过它（过期 / 取消 / App 重启 / 新开对话）。四件事的出路不同，所以分开问。
+     */
+    fun wasDropped(token: String): Boolean = synchronized(lock) { token in droppedTokens }
+
+    private fun rememberDroppedLocked(token: String) {
+        droppedTokens.remove(token)
+        droppedTokens += token
+        while (droppedTokens.size > DROPPED_KEEP) droppedTokens.remove(droppedTokens.first())
+    }
+
     /** 用户点了取消。返回是否真的取消掉了一个（false = 已经没了）。 */
     fun cancel(token: String): Boolean = synchronized(lock) {
         val i = items.indexOfFirst { it.token == token }
@@ -415,6 +494,18 @@ class AiWritePreviewStore(
         /** 待确认有效期：5 分钟。够用户看完摘要、也短到不会变成一个"遗留的按钮"。 */
         const val DEFAULT_TTL_MS: Long = 5 * 60 * 1000L
 
+        /**
+         * **批量卡**的有效期：30 分钟（CHG-0119）。
+         *
+         * ### 为什么批量卡要比单条卡长 6 倍
+         * 用户 2026-10-11 真机踩过：40 条批发商专属价被拆成几十张卡，他在 14:21 连着看到
+         * 「没写成：这张确认卡已经失效了（有效期 5 分钟…）」——**卡还没点就过期了，活儿白干**。
+         * 两个理由：① 批量卡是一张**长表格**，用户要逐行读完再决定，5 分钟不够；
+         * ② 它一过期作废的是**几十条**动作（单条卡只作废一条），代价完全不是一个量级。
+         * 30 分钟与「撤回」的窗口同口径（[AiUndo.DEFAULT_TTL_MS]），用户只需要记一个数。
+         */
+        const val BATCH_TTL_MS: Long = 30 * 60 * 1000L
+
         /** 最多同时挂几张卡片。超过就丢最旧的（正常一次只会有一张）。 */
         const val MAX_PENDING: Int = 4
 
@@ -425,6 +516,14 @@ class AiWritePreviewStore(
          * "连点 / 来回切对话"这种真实节奏，又不至于在长会话里一直涨。
          */
         const val DONE_KEEP: Int = 8
+
+        /**
+         * 记住多少个"被新卡顶掉"的 token（见 `AiWritePreviewStore.droppedTokens`）。
+         *
+         * 与 [DONE_KEEP] 同一个数、同一个理由：只为了把回执说准，
+         * 覆盖"连点 / 来回切对话"这种真实节奏即可。
+         */
+        const val DROPPED_KEEP: Int = 8
 
         private val seq = AtomicLong(0)
 
@@ -1395,6 +1494,7 @@ object AiWrites {
     const val PRODUCTS_DELETE = "products.delete"
     /** 用户给一张表、要按它一次建多个商品（v3.32）。见 [ApplyProductTableHandler]。 */
     const val PRODUCTS_APPLY_TABLE = "products.apply_table"
+
     /**
      * 商品的**附加成本价口径**三条（FEAT-0025，2026-10-11）。
      *
@@ -1409,6 +1509,13 @@ object AiWrites {
     /** 撤回专用（`undoOnly`）：把删掉的那条口径从回收站放回来。 */
     const val PRODUCTS_COST_PRICE_RESTORE = "products.cost_price.restore"
 
+    /**
+     * 把用户**贴在聊天里的一张图**设成商品展示图（FEAT-0024，2026-10-11）。
+     *
+     * 用户原话：「我们的那个 AI 要支持上传商品图片的 —— 我给它一个图片，他能帮我上传商品图片」。
+     * 链路 = POST /products/{id}/image（那个端点的语义就是「上传并写进 image_url」）。
+     */
+    const val PRODUCTS_IMAGE = "products.image"
     const val PRICE_RULES_SET = "price_rules.set"
     const val PRICE_RULES_UPDATE = "price_rules.update"
     const val PRICE_RULES_DELETE = "price_rules.delete"
@@ -1497,12 +1604,29 @@ object AiWrites {
     const val ADDRESS_UPDATE = "address.update"
     const val ADDRESS_DELETE = "address.delete"
     const val ADDRESS_SET_DEFAULT = "address.set_default"
+
+    /**
+     * 给线路（收货地址）**加/换图片**（FEAT-0024）：写 shipper_addresses.image_urls。
+     *
+     * 与 [LOCATION_IMAGE] 共用同一个上传端点（POST /shipper/locations/image，纯落盘返回 URL）——
+     * 手工页也是这么做的（ui/shipper/AddressViewModel.kt:577-579）。
+     */
+    const val ADDRESS_IMAGE = "address.image"
     const val CONTACT_UPSERT = "contact.upsert"
     const val CONTACT_UPDATE = "contact.update"
     const val CONTACT_DELETE = "contact.delete"
     const val LOCATION_CREATE = "location.create"
     const val LOCATION_UPDATE = "location.update"
     const val LOCATION_DELETE = "location.delete"
+
+    /**
+     * 给地点**加/换图片**（FEAT-0024）：写 shipper_locations.image_urls。
+     *
+     * 图片先落到 POST /shipper/locations/image（那个端点**只落盘**、返回 URL），
+     * 再随这一行一起 PATCH 进 image_urls —— 多图三档语义（不传=不改 / []=清空 / 非空=替换）
+     * 由后端 _apply_images 那一处实现（backend/app/api/v1/shipper.py:49-55）。
+     */
+    const val LOCATION_IMAGE = "location.image"
     const val ARREARS_UNIT_CREATE = "arrears_unit.create"
     const val ARREARS_UNIT_UPDATE = "arrears_unit.update"
     const val ARREARS_UNIT_DELETE = "arrears_unit.delete"
@@ -1811,7 +1935,12 @@ object AiWrites {
             // 发票台账六条（2026-10-08 CHG-0086：手工页早就能做这六件事，这次是排期）
             AiWriteInvoices.ACTIONS +
             // 钱相关四条（2026-10-08 CHG-0087：定价 / 让价 / 取消让价 / 挂账额度）
-            AiWriteMoney.ACTIONS +            // 成本价口径三条（FEAT-0025，2026-10-11：用户要「多个成本价」，AI 必须能设第二条）            AiWriteCostPrices.ACTIONS
+            AiWriteMoney.ACTIONS +
+            // 图片三条（FEAT-0024，2026-10-11：用户贴一张图，AI 把它设成商品图 / 地点图 / 地址图）
+            AiWriteImage.ACTIONS +
+            // 成本价口径三条（FEAT-0025，2026-10-11：用户要「多个成本价」，AI 必须能设第二条）
+            AiWriteCostPrices.ACTIONS
+
     /** 手写处理器的动作清单（订单 / 账目 / 消息）。 */
     private val MANUAL: List<AiWriteAction> = listOf(
         AiWriteAction(
@@ -2848,12 +2977,15 @@ object AiWrites {
         ADDRESS_UPDATE,
         ADDRESS_DELETE,
         ADDRESS_SET_DEFAULT,
+        // 图片（FEAT-0024）：地址与地点都是货主自己名下的，后端上传端点是 ShipperOrDispatcher
+        ADDRESS_IMAGE,
         CONTACT_UPSERT,
         CONTACT_UPDATE,
         CONTACT_DELETE,
         LOCATION_CREATE,
         LOCATION_UPDATE,
         LOCATION_DELETE,
+        LOCATION_IMAGE,
         // 单位换算（2026-09-24 用户要求：一车 = 8 方）——「我们的**货主**和派单员，
         // 他可以自动的设置单位」：货主端工作台上就有那一格，所以他的助手也要能做。
         // ⚠️ 不进白名单 = 货主的 AI 看不见这四个动作（默认 fail-closed），
