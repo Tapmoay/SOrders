@@ -40,7 +40,7 @@ class SelfContactTest {
     }
 
     @Test
-    fun `姓名拿不到 → 不显示这一项（null / 空串 / 纯空白都算拿不到）`() {
+    fun `姓名拿不到 → 不显示这一项（null、空串、纯空白都算拿不到）`() {
         assertNull(SelfContact.of(null, "13800000001"))
         assertNull(SelfContact.of("", "13800000001"))
         assertNull(SelfContact.of("   ", "13800000001"))
@@ -67,7 +67,7 @@ class SelfContactTest {
     }
 
     @Test
-    fun `从 /users/me 的返回造；fullName 是空的 → 不显示`() {
+    fun `从「我的资料」接口的返回造；fullName 是空的 → 不显示`() {
         val self = SelfContact.of(me())
         assertEquals(SelfContact.SELF_ID, self?.id)
         assertEquals("王老板", self?.displayName)

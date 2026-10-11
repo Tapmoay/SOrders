@@ -12,7 +12,9 @@ import sys
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-R = r"D:\AProjects\ASDH\orders"
+# ⚠️ 根目录必须从 __file__ 推：写死检出位置的话，本机跑得通、CI 上那个路径不存在 →
+#    这个判据会变成恒 SKIP（_tools/qa/_check_tool_scripts.py 专门盯这一条）。
+R = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 fails = []
 
 

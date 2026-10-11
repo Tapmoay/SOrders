@@ -70,7 +70,7 @@ class AiAskLessTest {
     }
 
     @Test
-    fun `清单里那几条口径写得明白（成本价 / 单价 / 单位 / 专属价）`() {
+    fun `清单里那几条口径写得明白（成本价、单价、单位、专属价）`() {
         val p = rules
         assertTrue("成本价存进货成本 → $p", p.contains("那一格填**进货成本**"))
         assertTrue("返点后成本不是那一格 → $p", p.contains("返点后成本"))
