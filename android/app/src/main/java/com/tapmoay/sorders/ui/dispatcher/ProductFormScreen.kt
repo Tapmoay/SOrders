@@ -311,6 +311,15 @@ fun ProductFormScreen(
                             placeholder = "这个价从什么时候到什么时候",
                             onClick = { vm.openCostHistory() },
                         )
+                        // 「多个成本价」（FEAT-0025，用户 2026-10-11 派单）：AI 在聊天里给他设不了
+                        // 第二个成本价，是因为原来系统里就只有一个 —— 这里就是那个入口。
+                        // 右边只报"另有几条"（数据），口径怎么算由弹层里照抄后端的那句话负责。
+                        FormPickRow(
+                            label = "成本价口径",
+                            value = if (vm.extraCostPriceCount > 0) "另有 " + vm.extraCostPriceCount + " 条" else "",
+                            placeholder = "查看与设置",
+                            onClick = { vm.openCostPrices() },
+                        )
                         FormRow(label = "删除商品", onClick = { confirmingDelete = true }) {
                             Text(
                                 "删 除",
@@ -340,6 +349,18 @@ fun ProductFormScreen(
                 Spacer(Modifier.height(6.dp))
                 Hint(
                     "成本价用于报表计算毛利率，留空按 0 计；改过之后会记一段生效区间，上面那一行「成本价历史」里能查。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+                // 用户 2026-10-11：「我们是可以设置多个成本价的……一般情况下是默认按一个成本价，
+                // 也就是真实成本价，按那个来计算的……有时候还有第二个成本价 —— 可能是加了补贴等等之后的」。
+                // 这句与弹层里那句说的是同一件事（这里给"看得见"，弹层里给"改得动"）。
+                Spacer(Modifier.height(4.dp))
+                // ⚠️ 与上面那句不同：这一句是**钱的口径**（关键解释句）⇒ 走 Text 不走 Hint，
+                //    关掉提示开关的人也必须看得见"订单与毛利算的是哪一个成本价"。
+                Text(
+                    "一个商品可以有好几个成本价：这一格填的是订单与毛利算账用的那个（真实成本价）；加了运费、补贴或者返点之后的成本，在下面「成本价口径」里另存一条参考口径，它们不参与订单与毛利的计算。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                     modifier = Modifier.padding(horizontal = 4.dp),
@@ -427,6 +448,24 @@ fun ProductFormScreen(
             rows = vm.costHistory,
             loading = vm.costHistoryLoading,
             onDismiss = { vm.showCostHistory = false },
+        )
+    }
+
+    // 成本价口径（FEAT-0025）：默认那条是订单与毛利的算法口径（只读），其余几条是参考口径 ——
+    // 能加、能改名改价、能软删，软删掉的在同一张弹层下面的「回收站」里放回来。
+    if (loaded != null && vm.showCostPrices) {
+        ProductCostPriceSheet(
+            productName = vm.name,
+            unit = vm.unit,
+            rows = vm.costPrices,
+            deletedRows = vm.deletedCostPrices,
+            loading = vm.costPricesLoading,
+            busy = vm.costPriceBusy,
+            error = vm.costPriceError,
+            onSave = { rowId, name, amount, done -> vm.saveCostPrice(rowId, name, amount, done) },
+            onDelete = { vm.deleteCostPrice(it) },
+            onRestore = { vm.restoreCostPrice(it) },
+            onDismiss = { vm.showCostPrices = false },
         )
     }
 }

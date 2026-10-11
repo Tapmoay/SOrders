@@ -11,6 +11,7 @@ import com.tapmoay.sorders.data.remote.api.ProductCreateRequest
 import com.tapmoay.sorders.data.remote.api.ProductUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.ProductCategoryDto
 import com.tapmoay.sorders.data.remote.dto.ProductCostHistoryDto
+import com.tapmoay.sorders.data.remote.dto.ProductCostPriceDto
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.DEFAULT_PRODUCT_NAME_COLOR
@@ -378,6 +379,146 @@ class ProductFormViewModel(
      * 后端 `POST /products/{id}/restore` 仍在，但那扇门只服务 **AI 自己发起的删除**
      * （AI 撤回卡，见 `AiWriteMasterData.kt` 的 `restoreAction("商品", …)`）；人手删的没有这条退路。
      */
+    // ------------------------------------------------------- 成本价口径（FEAT-0025）
+    //
+    // 用户 2026-10-11 的原话：「我们是可以设置多个成本价的……只不过我们一般情况下是默认按一个成本价，
+    // 也就是真实成本价，按那个来计算的……当然，我们有时候计算的时候还有第二个成本价 ——
+    // 这个成本价可能是加了其他东西、或者比如说有补贴啊等等之后的成本价。」
+    //
+    // ⛔ 这一族 **不是** 订单与毛利的成本口径：那两个口径只认 `products.cost_price`
+    //    （列表里那条合成的「真实成本价」）→ 订单行的 `cost_price_snapshot` → 毛利。
+    //    这里能加 / 能改 / 能删的只有 **参考口径**：它们一个字节都不参与金额计算。
+    //    每一条的口径说明由后端给（`note` 字段），界面照抄，⛔ 不另写一套说法。
+
+    /** 「成本价口径」那个弹层开着没有。 */
+    var showCostPrices by mutableStateOf(false)
+
+    /**
+     * 这个商品的口径列表：**第一条永远是默认口径**（`isDefault = true`、`id = 0`）——
+     * 它是后端从 `products.cost_price` 合成出来的投影，不在这张表里，
+     * 所以它**没有**改名 / 改价 / 删除入口（改它只有编辑页那个「成本价」输入框，会写成本价时间轴）。
+     */
+    var costPrices by mutableStateOf<List<ProductCostPriceDto>>(emptyList())
+
+    /**
+     * 回收站里那几条（软删掉的参考口径）。
+     *
+     * ⚠️ 删除入口就在同一张卡里，所以**手边必须有恢复入口**（用户 2026-09-20 的硬规矩）。
+     * 它与商品本身的删除不是一回事：商品界面上没有回收站（见 [delete]），参考口径删错了要能放回来。
+     */
+    var deletedCostPrices by mutableStateOf<List<ProductCostPriceDto>>(emptyList())
+
+    var costPricesLoading by mutableStateOf(false)
+
+    /** 弹层自己的错（名字空 / 金额不合法 / 重名 409 / 网络）：画在**弹层里**，⛔ 不写页面级 [error]。 */
+    var costPriceError by mutableStateOf<String?>(null)
+
+    /** 一次网络往返期间禁用按钮：再点一次就是发两遍（软删 / 恢复的第二遍必然失败）。 */
+    var costPriceBusy by mutableStateOf(false)
+
+    /** 除默认那条之外有几条参考口径（编辑页那一行右边显示「另有 N 条」）。 */
+    val extraCostPriceCount: Int get() = costPrices.count { !it.isDefault }
+
+    fun openCostPrices() {
+        if (productId == null) return
+        showCostPrices = true
+        costPriceError = null
+        costPricesLoading = true
+        viewModelScope.launch {
+            try {
+                reloadCostPrices()
+            } catch (e: Exception) {
+                // 拉失败要**说出来**：不能显示成「这个商品还没有别的成本价」——
+                // 那两句是完全不同的结论（一句是网络问题，一句是「就是没有」），同 [openCostHistory]。
+                costPriceError = toApiException(e).message
+            } finally {
+                costPricesLoading = false
+            }
+        }
+    }
+
+    private suspend fun reloadCostPrices() {
+        val id = productId ?: return
+        costPrices = container.repo.productCostPrices(id)
+        deletedCostPrices = container.repo.deletedProductCostPrices(id)
+    }
+
+    /**
+     * 新增或修改一条参考口径。
+     *
+     * @param rowId `null` = 新增（后端按**名字** upsert：已经有同名的就改那一条的金额，
+     *   不会出现两条同名 —— 「没有就建、有就改」正是 AI 那条 `.set` 的同一个后端语义）；
+     *   非 null = 改这一条（名字与金额都能改）。
+     * @param onDone 成功之后（调用方用它清掉正在编辑的草稿）。
+     */
+    fun saveCostPrice(rowId: Long?, name: String, price: String, onDone: () -> Unit) {
+        if (productId == null || costPriceBusy) return
+        val clean = name.trim()
+        if (clean.isBlank()) { costPriceError = "请填写口径名称（比如「返点后成本」）"; return }
+        val amount = price.trim().ifBlank { "0" }
+        if (amount.toBigDecimalOrNull() == null || amount.toBigDecimalOrNull()!!.signum() < 0) {
+            costPriceError = "请输入正确的成本价"; return
+        }
+        // ⛔ 默认那条口径的名字**不写死在这里**：它由后端给（列表里 isDefault 那一条的 `name`）。
+        //    写死一份就会出现「后端改了名字、这边的校验没改」——那种假校验谁也看不出来。
+        val defaultName = costPrices.firstOrNull { it.isDefault }?.name
+        if (defaultName != null && clean == defaultName) {
+            costPriceError = "「" + clean + "」是订单与毛利用的那个成本价，改它请在编辑页改「成本价」那一格；这里加的是参考口径"
+            return
+        }
+        costPriceBusy = true
+        costPriceError = null
+        viewModelScope.launch {
+            try {
+                if (rowId == null) {
+                    container.repo.setProductCostPrice(productId, clean, amount)
+                } else {
+                    container.repo.updateProductCostPrice(rowId, clean, amount)
+                }
+                reloadCostPrices()
+                onDone()
+            } catch (e: Exception) {
+                costPriceError = toApiException(e).message
+            } finally {
+                costPriceBusy = false
+            }
+        }
+    }
+
+    /** 软删一条参考口径（行还在 → 弹层下面那个回收站里的「恢复」放回来）。 */
+    fun deleteCostPrice(rowId: Long) {
+        if (costPriceBusy) return
+        costPriceBusy = true
+        costPriceError = null
+        viewModelScope.launch {
+            try {
+                container.repo.deleteProductCostPrice(rowId)
+                reloadCostPrices()
+            } catch (e: Exception) {
+                costPriceError = toApiException(e).message
+            } finally {
+                costPriceBusy = false
+            }
+        }
+    }
+
+    /** 把回收站里那条放回来（口径名、金额、排序都和删掉之前一模一样）。 */
+    fun restoreCostPrice(rowId: Long) {
+        if (costPriceBusy) return
+        costPriceBusy = true
+        costPriceError = null
+        viewModelScope.launch {
+            try {
+                container.repo.restoreProductCostPrice(rowId)
+                reloadCostPrices()
+            } catch (e: Exception) {
+                costPriceError = toApiException(e).message
+            } finally {
+                costPriceBusy = false
+            }
+        }
+    }
+
     fun delete(onDone: (String) -> Unit) {
         val id = productId ?: return
         val name = baseline?.name ?: name

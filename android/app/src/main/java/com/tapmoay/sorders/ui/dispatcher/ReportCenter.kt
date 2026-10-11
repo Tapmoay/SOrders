@@ -1162,6 +1162,13 @@ private fun actionLabel(action: String): String = when (action) {
     "PRODUCT_UPDATE" -> "修改商品"
     "PRODUCT_DELETE" -> "删除商品"
     "PRODUCT_RESTORE" -> "恢复商品"
+    // 成本价口径（FEAT-0025，2026-10-11）：一个商品可以有多个成本价（默认那个＝真实成本价，
+    // 订单与毛利按它算；其余是加了补贴/返点之后的参考口径）。
+    // ⚠️ 这四条与上面四条**不是一回事**：上面记的是 products.cost_price 的变动，这四条记的是附加口径。
+    "PRODUCT_COST_PRICE_UPSERT" -> "设置成本价口径"
+    "PRODUCT_COST_PRICE_UPDATE" -> "修改成本价口径"
+    "PRODUCT_COST_PRICE_DELETE" -> "删除成本价口径"
+    "PRODUCT_COST_PRICE_RESTORE" -> "恢复成本价口径"
     "PRICE_RULE_UPSERT" -> "修改批发价"
     // 批发商给自己那本下游账定价（CHG-0077 / 台账 L-38）：与上一行**不是同一个价** ——
     // 上一行是"派单员给他定的批发价"，这一行是"他自己给下游客户定的价"。
