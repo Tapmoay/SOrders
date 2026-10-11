@@ -17,14 +17,17 @@ App 也照样跑**，只有把日期拿去手工算一遍、或者拿两个窗�
 
 1-2    PATCH 语义：编辑时把没填的日期也原样发出去（清空老车本来填过的日期）、
        新建时没填也发一格空日期；
-3-4    分档：过期那条画成 warn（红变橙）、30 天以内那档干脆不存在（没有分档）；
-5      消息族：新增的 vehicle.inspection_overdue 漏出车辆族（竖条从 #00AAAE 掉回系统灰）；
+3-4    分档：过期那条画成 warn（红变橙）、**90 天那一档**干脆不存在（提前量退回 30 天）；
+5      消息族：vehicle.inspection_overdue 漏出车辆族（竖条从 #00AAAE 掉回系统灰）；
 6-7    唯一算法：卡片里长出第二套算法、后端给的下次年检日期被丢掉不用；
 8      DTO：上牌日期那一格消失（老库的日期读不回来）；
 9      表单：日期选择器被换成别的控件；
 10-12  库存：偏低盖掉低库存、库存页自己判偏低、偏低不再用 warn 橙；
 13     本脚本自己摘掉注入锁（注入期间的结论从此不可信）。
 14     表单：未来日期在选择层就能选中（后端不做范围校验，填了只是永远不提醒）。
+15     **CHG-0115 新增的 30 天那一档不存在**（只剩一个月仍显示橙色"该安排年检了"，
+       用户以为还早）—— 这一条与 ④ 是**两条不同的线**：④ 打的是 90 天那条，本条打的是 30 天那条；
+16     **紧急那条漏出车辆族**（新类型名忘了进 setOf ⇒ 竖条掉回系统灰）。
 """
 from __future__ import annotations
 
@@ -56,6 +59,11 @@ NL = chr(10)
 #: 只删一半的话判据那一条照样是绿的）。
 LOCK = "lock_reverse_verify"
 
+#: 车辆族集合那三行（CHG-0115 之后是多行的）—— 三个类型名的**整段**字面量，
+#: 用它做注入锚点：少一个名字就是"那一类掉回系统灰"。
+VEHICLE_SET_ALL = (Q + "vehicle.inspection_due" + Q + ", " + Q + "vehicle.inspection_urgent" + Q + ", "
+                   + Q + "vehicle.inspection_overdue" + Q + ",")
+
 
 # --------------------------------------------------------------- 13 条注入
 
@@ -79,15 +87,25 @@ def _overdue_painted_warn(s: str) -> str:
 
 
 def _warn_band_disappears(s: str) -> str:
-    """30 天以内那档不存在了（剩余天数没有分档，到期前也不变色）。"""
-    return s.replace("daysLeft <= INSPECTION_WARN_DAYS -> MessageRisk.WARN",
-                     "daysLeft <= INSPECTION_WARN_DAYS -> MessageRisk.INFO")
+    """90 天那一档不存在了（提前量只剩 30 天，等于"等到了年检期才说"）。"""
+    return s.replace("daysLeft <= INSPECTION_DUE_SOON_DAYS -> MessageRisk.WARN",
+                     "daysLeft <= INSPECTION_DUE_SOON_DAYS -> MessageRisk.INFO")
+
+
+def _urgent_band_disappears(s: str) -> str:
+    """**CHG-0115 新增的 30 天那一档**不存在了（只剩一个月时还是橙色"该安排年检了"）。"""
+    return s.replace("daysLeft <= INSPECTION_URGENT_DAYS -> MessageRisk.DANGER",
+                     "daysLeft <= INSPECTION_URGENT_DAYS -> MessageRisk.WARN")
 
 
 def _overdue_type_falls_out_of_family(s: str) -> str:
-    """新类型漏出车辆族（竖条从 #00AAAE 掉回系统灰，与其它提醒混在一堆）。"""
-    return s.replace("setOf(" + Q + "vehicle.inspection_due" + Q + ", " + Q + "vehicle.inspection_overdue" + Q + ")",
-                     "setOf(" + Q + "vehicle.inspection_due" + Q + ")")
+    """已过期那条漏出车辆族（竖条从 #00AAAE 掉回系统灰，与其它提醒混在一堆）。"""
+    return s.replace(VEHICLE_SET_ALL, Q + "vehicle.inspection_due" + Q + ", " + Q + "vehicle.inspection_urgent" + Q + ",")
+
+
+def _urgent_type_falls_out_of_family(s: str) -> str:
+    """**紧急那条**漏出车辆族（CHG-0115 新增的类型名忘了进集合）。"""
+    return s.replace(VEHICLE_SET_ALL, Q + "vehicle.inspection_due" + Q + ", " + Q + "vehicle.inspection_overdue" + Q + ",")
 
 
 def _card_grows_second_algorithm(s: str) -> str:
@@ -143,9 +161,9 @@ def _self_drops_injection_lock(s: str) -> str:
 CASES = [
     ("① 编辑把没填的日期也发出去（清空老数据）", SCREEN, _edit_sends_untouched_date, "不许原样发"),
     ("② 新建没填也发一格空日期（清空）", SCREEN, _create_sends_blank_date, "新建走「填了才发」"),
-    ("③ 过期那档也画成 warn（分档）", INSPECTION, _overdue_painted_warn, "三档顺序"),
-    ("④ 30 天以内那档不存在（没有分档）", INSPECTION, _warn_band_disappears, "三档顺序"),
-    ("⑤ 新类型漏出车辆族", GRADING, _overdue_type_falls_out_of_family, "车辆族集合"),
+    ("③ 过期那档也画成 warn（分档）", INSPECTION, _overdue_painted_warn, "四档顺序"),
+    ("④ 90 天那一档不存在（提前量退回 30 天）", INSPECTION, _warn_band_disappears, "四档顺序"),
+    ("⑤ 已过期那条漏出车辆族", GRADING, _overdue_type_falls_out_of_family, "三个年检类型都进已有的车辆族集合"),
     ("⑥ 卡片里长出第二套算法", SCREEN, _card_grows_second_algorithm, "界面不许自己算下次年检"),
     ("⑦ 后端给的下次年检日期被丢掉", INSPECTION, _backend_date_ignored, "后端给了就用后端的"),
     ("⑧ 上牌日期那一格从 DTO 里消失", DTOS, _dto_loses_registration_date, "上牌日期在新增"),
@@ -155,6 +173,9 @@ CASES = [
     ("⑫ 偏低不再用 warn 橙", CARDKIT, _near_low_not_warn_color, "偏低的字色"),
     ("⑭ 未来日期又能选了（选择器没封顶今天）", SCREEN, _picker_allows_future, "选择层那条规则来自唯一实现"),
     ("⑬ 本脚本自己摘掉注入锁", SELF, _self_drops_injection_lock, "反向验证先上锁"),
+    ("⑮ CHG-0115 新增的 30 天那档不存在（只剩一个月还是橙色）", INSPECTION, _urgent_band_disappears, "四档顺序"),
+    ("⑯ 紧急那条漏出车辆族（新类型名忘了进集合）", GRADING, _urgent_type_falls_out_of_family,
+     "三个年检类型都进已有的车辆族集合"),
 ]
 
 # --------------------------------------------------------------- 脚手架

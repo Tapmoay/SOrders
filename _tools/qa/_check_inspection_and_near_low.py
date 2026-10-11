@@ -4,6 +4,9 @@
 用户口径（2026-10-11，逐字）：
   · 「关于这个车辆年检提醒啊，到我给那个车子建档案的时候会填一下就是这车的**上牌日期**。
      或者说是**上一个年检日期**啊方便我们去做一个提醒」；
+  · CHG-0115：「这个车辆年检是**不能逾期**的。意思就是说，我们不能等已经到了年检期、
+     或者说年检期过了 —— 这是不可能的，因为**一旦过了的话那车子是不能上路的**。
+     我们按照我们的交规来提醒，我们的交规是大概在**一个月，还是三个月前**就会有提醒的」；
   · 「**库存偏低**的话，我们**按百分比来算** —— 也就是说，他肯定会设置这个库存的报警嘛……
      然后我们在**报警的那个水平宽松一点**，就显示『库存偏低』，是这样子的。」
 
@@ -18,6 +21,8 @@
 | 两个日期都空也算到期 | 系统**自己编**一个到期日出来提醒用户（比不提醒坏得多） | 用户（"这车我没录过"） |
 | 两格都录了却拿上牌日期算 | 到期日差好几年，而界面完全看不出来 | 没人 |
 | 2/29 那天算错一天 | 四年才撞一次，真出问题时没人会想到是这里 | 没人 |
+| 30 天以内那一档**没有自己的类型** | 要么掉回 warn（该红的不红）、要么同一天连着发两条（90 天那条 + 紧急那条） | 用户（"到底去不去"） |
+| 提前量被改成 0 / 只剩当天才说 | 用户收到时已经来不及预约年检 —— 等于没提醒，而界面上看着一切正常 | 用户（过期上路被罚款扣车） |
 | 幂等键里没有到期日 | 同一次年检每天刷一条；或第二年的提醒永远发不出来 | 用户（"怎么老提醒"） |
 | 逾期那条被降到 warn | 年检过期上路要罚款扣车，界面却按"待办"显示 | 没人 |
 | 已经做了的类型留在 NOT_PRODUCED | 下一单以为它还缺字段，再"补"一遍 | 下一个人 |
@@ -26,6 +31,13 @@ R4-BOUNDARY-JUSTIFICATION: 本判据**只读文本**（backend 的迁移 / 模�
 入口 / 单测 ＋ 四份文档），不连库、不起服务、不写任何文件；
 反向验证 _reverse_verify_inspection_and_near_low.py 注入后**逐字节还原**。
 判据里的边界声明：
+  · 「还剩 90 天」开口是**用户口径**（"大概在**一个月，还是三个月前**就会有提醒的"）的落点：
+    第一次提醒必须落在这里 —— 90 天够预约、够安排上线检测；
+  · 「还剩 30 天」= **转紧急**那条线（danger）：这一档的措辞是"必须去年检了"。
+    ⚠️ 它与"已过期"**同色**（都是红）—— 颜色分不出这两档，所以**文案必须分得出来**
+    （判据同时钉住「必须去年检了」与「该安排年检了」两句话，以及「车辆不能上路」那句后果）；
+  · **三档互斥**：`inspection_kind()` 返回的是**单个**类型名 ⇒ 同一天不可能发两条
+    （`test_every_day_hits_exactly_one_band` 逐天走一遍钉着，防"先发 90 天、再发 30 天"那种写法）；
   · 「恰好等于阈值 = 偏低」是**用户口径**（"在报警的那个水平宽松一点"），不是我们自己挑的：
     等于阈值说明还没有跌破它，所以归 warn 而不是 danger；
   · 「到期日当天 = 临期」与既有的 `payable_kind`（第 0 天 = 临期）**同形** ——
@@ -64,12 +76,17 @@ TEST_MSG = ROOT / "backend/tests/test_message_producers.py"
 TEST_DUE = ROOT / "backend/tests/test_inspection_due.py"
 DESIGN = ROOT / "docs/MESSAGE_CARD_DESIGN.md"
 CHANGE = ROOT / "docs/changes/FEAT-0022.md"
+CHANGE_0115 = ROOT / "docs/changes/CHG-0115.md"
 CHANGES_README = ROOT / "docs/changes/README.md"
 CLAIM = ROOT / "docs/AI_WORK_CLAIM.md"
 APP_DIR = ROOT / "backend/app"
 
-#: 年检提前多少天提醒（与 `inspection_due.INSPECTION_DUE_SOON_DAYS` 对账）。
-DUE_SOON_DAYS = 30
+#: 年检**开始提醒**的提前量（与 `inspection_due.INSPECTION_DUE_SOON_DAYS` 对账）。
+#: ⚠️ CHG-0115 把它从 30 改成 **90**（用户口径「大概在**一个月，还是三个月前**就会有提醒的」）——
+#: 30 那一档没有消失，它变成下面的 `URGENT_DAYS`（"必须去了"）。
+DUE_SOON_DAYS = 90
+#: 年检**转紧急**的提前量（与 `inspection_due.INSPECTION_URGENT_DAYS` 对账）。
+URGENT_DAYS = 30
 #: 偏低线的百分比（与 `message_producers.NEAR_LOW_RATIO_PERCENT` 对账）。
 NEAR_LOW_RATIO = 20
 #: 单测条数下限（任务书要求 ≥10；这里两个文件合起来远超它）。
@@ -155,6 +172,7 @@ src_test = read(TEST_MSG)
 src_due = read(TEST_DUE)
 src_design = read(DESIGN)
 src_change = read(CHANGE)
+src_change_0115 = read(CHANGE_0115)
 src_readme = read(CHANGES_README)
 src_claim = read(CLAIM)
 
@@ -258,7 +276,11 @@ defs_kind = count_defs(APP_DIR, "def inspection_kind(")
 ok(defs_kind == ["backend/app/services/inspection_due.py"],
    "def inspection_kind( 必须只在 inspection_due.py 出现一次（分档只有一处），实际：" + repr(defs_kind))
 ok("INSPECTION_DUE_SOON_DAYS = " + str(DUE_SOON_DAYS) in src_svc,
-   "inspection_due 的提前提醒天数不是 " + str(DUE_SOON_DAYS) + " 天")
+   "inspection_due 的**开始提醒**天数不是 " + str(DUE_SOON_DAYS) + " 天"
+   "（CHG-0115 要求提前 3 个月开口，不能等只剩一个月）")
+ok("INSPECTION_URGENT_DAYS = " + str(URGENT_DAYS) in src_svc,
+   "inspection_due 的**转紧急**天数不是 " + str(URGENT_DAYS) + " 天"
+   "（年检拆成三档之后，30 天那一档必须有它自己的常量）")
 next_due = func(src_svc, "next_due_date")
 ok("base = last_inspection_date or registration_date" in next_due,
    "next_due_date 的起点不是「上次年检日期，没有才回落到上牌日期」（两格都录时算错起点）")
@@ -277,7 +299,14 @@ ok("left = (due - day).days" in kind, "inspection_kind 没有按「距到期还�
 ok('if left < 0:\n        return "vehicle.inspection_overdue"' in kind,
    "分档的逾期边界不是 left < 0（到期日**当天**车还能合法上路，说「已逾期」是错的话）")
 ok("if left <= INSPECTION_DUE_SOON_DAYS:" in kind and 'return "vehicle.inspection_due"' in kind,
-   "分档的临期边界不是 left <= INSPECTION_DUE_SOON_DAYS")
+   "分档的开始提醒边界不是 left <= INSPECTION_DUE_SOON_DAYS")
+ok('if left <= INSPECTION_URGENT_DAYS:\n        return "vehicle.inspection_urgent"' in kind,
+   "分档里没有「还剩 <= INSPECTION_URGENT_DAYS ⇒ vehicle.inspection_urgent」那一档 ——"
+   " 30 天以内会掉回 warn（或者干脆没有类型可发），而那一档才是「必须去了」")
+ok(kind.find("INSPECTION_URGENT_DAYS") < kind.find("INSPECTION_DUE_SOON_DAYS"),
+   "转紧急那一档必须排在开始提醒之前（两档的先后反了：90 天以内会被判成紧急）")
+ok('return "vehicle.inspection_urgent"' in kind and 'return "vehicle.inspection_due"' in kind,
+   "三档里少了一个类型名（年检必须同时有 due / urgent / overdue 三条出路）")
 
 
 # ---------------------------------------------------------------------------
@@ -347,14 +376,21 @@ ok("inspection_due.next_due_date(vehicle.registration_date, vehicle.last_inspect
 ok("if due is None:\n        return 0" in insp,
    "notify_inspection 没有「算不出到期日 ⇒ 一个字都不发」那一支"
    "（两格都空的车会被硬报一条出来）")
-ok('if kind == "vehicle.inspection_overdue":' in insp,
-   "notify_inspection 没有按 overdue / due 分两套文案")
+ok('if kind == "vehicle.inspection_overdue":' in insp
+   and 'elif kind == "vehicle.inspection_urgent":' in insp,
+   "notify_inspection 没有按 overdue / urgent / due 分**三**套文案（年检已经拆成三档）")
 ok('days_text = str(-left) + " 天"' in insp,
-   "逾期那条没有把「已逾期 N 天」的 N 算进 days_text")
-ok('的年检已逾期 " + days_text' in insp,
+   "逾期那条没有把「已过期 N 天」的 N 算进 days_text")
+ok('的年检已过期 " + days_text' in insp,
    "逾期那条的正文不是由 days_text 拼出来的（emphasis_for 会把片段静默丢掉）")
+ok("车辆不能上路" in insp,
+   "逾期那条没有说清后果「车辆不能上路，请立即处理」—— 它是兜底，措辞必须让人立刻去办")
 ok('"还有 " + str(left) + " 天"' in insp and '"今天到期"' in insp,
-   "临期那条没有「还有 N 天 / 今天到期」两种说法（到期日当天必须说得出话）")
+   "开始提醒那条没有「还有 N 天 / 今天到期」两种说法（到期日当天必须说得出话）")
+ok('"只剩 " + str(left) + " 天"' in insp,
+   "紧急那条没有「只剩 N 天」的说法（30 天以内不能还说「还有」）")
+ok("必须去年检了" in insp and "该安排年检了" in insp,
+   "两档的措辞没有分开：90 天那一档要说「该安排年检了」、30 天以内要说「必须去年检了」")
 ok('"，" + days_text' in insp,
    "临期那条的正文不是由 days_text 拼出来的 —— emphasis_for 的「片段必须在正文里」"
    "那道闸会把片段静默丢掉（消息照发，卡片上少一个落点）")
@@ -365,10 +401,12 @@ ok('idem_key=kind + ":" + str(int(vehicle.id)) + ":" + due.isoformat(),' in insp
    "去掉车辆会让两台车互相顶掉")
 ok('"vehicle_id": int(vehicle.id)' in insp and "永远不跳" in insp,
    "车辆那条的 payload 没有写清「§五：车辆族永远不跳」—— 下一个人会把 vehicle_id 当深链键")
-ok('title = "车辆年检已逾期：" + plate_text' in insp,
-   "逾期那条的标题不是「车辆年检已逾期：车牌」（标题正好等于固定新闻词会被 emphasis 丢掉）")
+ok('title = "车辆年检已过期：" + plate_text' in insp,
+   "逾期那条的标题不是「车辆年检已过期：车牌」（标题正好等于固定新闻词会被 emphasis 丢掉）")
+ok('title = "车辆年检快到期：" + plate_text' in insp,
+   "紧急那条的标题不是「车辆年检快到期：车牌」")
 ok('title = "车辆年检将到期：" + plate_text' in insp,
-   "临期那条的标题不是「车辆年检将到期：车牌」")
+   "开始提醒那条的标题不是「车辆年检将到期：车牌」")
 scan_insp = func(src_p, "scan_inspection_due")
 ok("Vehicle.is_active.is_(True)" in scan_insp,
    "年检扫描没有只扫在用车（停用 = 卖了 / 封存，再催年检是噪音）")
@@ -377,8 +415,10 @@ ok("or_(" in scan_insp and "Vehicle.registration_date.is_not(None)" in scan_insp
    "年检扫描没有先按「两格至少一个非空」收窄（会白扫全表；但⛔ 这不是分档判据）")
 ok("inspection_due.inspection_kind(" in scan_insp,
    "年检扫描没有走 inspection_due.inspection_kind（自己又比了一遍日期 = 第二个分档口径）")
-ok("-> tuple[int, int]" in scan_insp.split("\n")[0],
-   "scan_inspection_due 的返回值不是两个计数（临期 / 逾期）")
+ok("-> tuple[int, int, int]" in scan_insp.split("\n")[0],
+   "scan_inspection_due 的返回值不是三个计数（临期 / 紧急 / 逾期）")
+ok('elif kind == "vehicle.inspection_urgent":\n            urgent += sent' in scan_insp,
+   "扫描没有把「紧急」那一档单独计数（它会混进临期，日报上看不出「必须去了」的有几台）")
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +426,8 @@ ok("-> tuple[int, int]" in scan_insp.split("\n")[0],
 # ---------------------------------------------------------------------------
 prod_region = region(src_p, "PRODUCED: tuple[str, ...] = (", "\n)")
 produced = set(re.findall(r'"([a-z0-9_.]+)"', prod_region))
-for t in ("stock.near_low", "vehicle.inspection_due", "vehicle.inspection_overdue"):
+for t in ("stock.near_low", "vehicle.inspection_due", "vehicle.inspection_urgent",
+          "vehicle.inspection_overdue"):
     ok(t in produced,
        "PRODUCED 里没有 " + t + "（这一类现在有生产者了，却没登记 —— 下一单会以为它还没做）")
 
@@ -413,20 +454,27 @@ ok(sev.get("stock.near_low") == "SEVERITY_WARN",
 ok(sev.get("stock.low") == "SEVERITY_DANGER",
    "stock.low 的档位不是 danger（偏低做了之后很容易被顺手改成一档）")
 ok(sev.get("vehicle.inspection_due") == "SEVERITY_WARN",
-   "vehicle.inspection_due 的档位不是 warn，实际：" + repr(sev.get("vehicle.inspection_due")))
+   "vehicle.inspection_due（提前 90 天）的档位不是 warn，实际：" + repr(sev.get("vehicle.inspection_due")))
+ok(sev.get("vehicle.inspection_urgent") == "SEVERITY_DANGER",
+   "vehicle.inspection_urgent（只剩 30 天）的档位不是 danger —— 这一档的措辞是「必须去年检了」，"
+   "降成 warn 会和「还有三个月」显示成同一个橙色，实际：" + repr(sev.get("vehicle.inspection_urgent")))
 ok(sev.get("vehicle.inspection_overdue") == "SEVERITY_DANGER",
    "vehicle.inspection_overdue 的档位不是 danger —— 年检过期上路要罚款扣车，"
-   "降成 warn 会让它和「还有 30 天」显示成同一个颜色，实际：" + repr(sev.get("vehicle.inspection_overdue")))
+   "降成 warn 会让它和「该安排年检了」显示成同一个颜色，实际：" + repr(sev.get("vehicle.inspection_overdue")))
 emph = table_rows(src_c, "EMPHASIS_BY_TYPE: dict[str, tuple[str, ...]] = {")
 ok("库存偏低" in emph.get("stock.near_low", ""),
    "EMPHASIS_BY_TYPE 里没有 stock.near_low 的固定新闻词「库存偏低」")
-ok("已逾期" in emph.get("vehicle.inspection_overdue", ""),
-   "EMPHASIS_BY_TYPE 里没有 vehicle.inspection_overdue 的固定新闻词「已逾期」")
+ok("已过期" in emph.get("vehicle.inspection_overdue", ""),
+   "EMPHASIS_BY_TYPE 里没有 vehicle.inspection_overdue 的固定新闻词「已过期」"
+   "（CHG-0115 把措辞从「已逾期」改成说清后果的「已过期」）")
 ok("年检" in emph.get("vehicle.inspection_due", ""),
    "EMPHASIS_BY_TYPE 里没有 vehicle.inspection_due 的固定新闻词「年检」")
+ok("年检" in emph.get("vehicle.inspection_urgent", ""),
+   "EMPHASIS_BY_TYPE 里没有 vehicle.inspection_urgent 的固定新闻词「年检」")
 ok("severity" not in code_p,
    "生产者里出现了 severity —— 档位判定只有 message_center.severity_for 一处")
-for lit in ("stock.low", "stock.near_low", "vehicle.inspection_due", "vehicle.inspection_overdue"):
+for lit in ("stock.low", "stock.near_low", "vehicle.inspection_due", "vehicle.inspection_urgent",
+            "vehicle.inspection_overdue"):
     ok('"' + lit + '"' in src_p,
        "生产者里找不到类型名字面量 " + repr(lit) + "（PRODUCED 里写着有生产者，代码里却没有）")
 
@@ -437,7 +485,7 @@ for lit in ("stock.low", "stock.near_low", "vehicle.inspection_due", "vehicle.in
 daily = func(src_p, "run_daily_scan")
 for needle in ("scan_stock_low(db, day=when)", "scan_inspection_due(db, day=when)"):
     ok(needle in daily, "每日兜底扫描没有调用 " + needle + "（那一类漏发就再没人补）")
-for key in ("stock_low", "stock_near_low", "inspection_due", "inspection_overdue"):
+for key in ("stock_low", "stock_near_low", "inspection_due", "inspection_urgent", "inspection_overdue"):
     ok('"' + key + '":' in daily, "每日兜底扫描的返回里没有 " + key + " 这个计数")
 ok("db.commit()" in daily, "每日扫描没有 commit（扫出来的消息会随请求一起被丢掉）")
 for col in ("registration_date", "last_inspection_date"):
@@ -463,10 +511,13 @@ for name, why in (
     ("test_inspection_reminds_from_registration_date", "只有上牌日期也能提醒"),
     ("test_inspection_last_date_wins_over_registration", "两格都录时以上次年检日期为准"),
     ("test_inspection_without_any_date_is_silent", "两格都空 ⇒ 一个字都不发"),
-    ("test_inspection_kind_buckets_the_three_bands", "三档与两条边界（30 天 / 到期日当天 / 过 1 天）"),
+    ("test_inspection_reminds_from_registration_date", "只有上牌日期也能提醒（且 60 天就开口）"),
+    ("test_inspection_urgent_band_says_only_thirty_days_left", "30 天那一档的措辞与档位（必须去年检了）"),
+    ("test_inspection_kind_buckets_the_three_bands", "三档与三条边界（90 天 / 30 天 / 到期日当天 / 过 1 天）"),
     ("test_inspection_scan_is_idempotent_and_skips_stopped_vehicles", "扫描幂等 + 停用车不催"),
     ("test_feb_29_clamps_to_feb_28_in_a_common_year", "2/29 落在平年夹到 2/28"),
-    ("test_kind_buckets_with_two_exact_boundaries", "分档两条边界各自钉住"),
+    ("test_kind_buckets_with_three_exact_boundaries", "分档三条边界各自钉住（含 90 / 30 两条提前量）"),
+    ("test_every_day_hits_exactly_one_band", "逐天走一遍：同一天只命中一档（「同一天不会发两条」的结构保证）"),
     ("test_no_base_date_means_no_reminder_at_all", "没有起点就没有提醒"),
 ):
     ok(("def " + name + "(") in (src_test + src_due), "少了那条单测：" + why + "（" + name + "）")
@@ -481,6 +532,17 @@ ok('next_due_date(None, date(2025, 5, 1)) == date(2026, 5, 1)' in src_due,
    "单测没有钉住「只有上次年检日期」也能算")
 ok("select(func.count()).select_from(Notification)" in src_test,
    "去重那条用例没有真的数通知条数（拿计数当判据）")
+# ⚠️ CHG-0115 新增的三条：两条提前量常量、紧急那一档的措辞、逐天一档
+ok("assert inspection_due.INSPECTION_DUE_SOON_DAYS == " + str(DUE_SOON_DAYS) in src_due
+   and "assert inspection_due.INSPECTION_URGENT_DAYS == " + str(URGENT_DAYS) in src_due,
+   "单测没有把两条提前量（" + str(DUE_SOON_DAYS) + " / " + str(URGENT_DAYS) + "）钉在纯函数上")
+ok('inspection_due.inspection_kind(_inspection_base(30), None, day=D) == "vehicle.inspection_urgent"' in src_test,
+   "消息层的单测没有钉住「还有 30 天 = 紧急那一档」（边界只写在纯函数用例里，"
+   "消费者换成别的档位时没人发现）")
+ok('first_soon, first_urgent, first_overdue = message_producers.scan_inspection_due(' in src_test,
+   "扫描的单测没有按**三个**计数解包（少一个 = 紧急那一档的计数没人看）")
+ok('"inspection_urgent": 0,' in src_test,
+   "「第二次扫描全 0」那串字面量里没有 inspection_urgent（那一档第二次跑出了东西却没人发现）")
 
 
 # ---------------------------------------------------------------------------
@@ -504,6 +566,22 @@ ok("FEAT-0022" in src_readme, "docs/changes/README.md 里没有 FEAT-0022 那一
 ok("FEAT-0022" in src_claim, "声明页 docs/AI_WORK_CLAIM.md 里没有 FEAT-0022 的条目")
 ok("vehicle.inspection_overdue" in src_design,
    "卡片规范 §二/§三 没有登记 vehicle.inspection_overdue（新类型没进颜色/档位表）")
+ok("vehicle.inspection_urgent" in src_design,
+   "卡片规范 §三 没有登记 vehicle.inspection_urgent（CHG-0115 新增的那一档没进档位表）")
+ok("90" in src_design and "提前" in src_design,
+   "卡片规范没有写清年检的提前量（90 天开口 / 30 天转紧急）")
+ok("CHG-0115" in src_readme, "docs/changes/README.md 里没有 CHG-0115 那一行")
+ok("CHG-0115" in src_claim, "声明页 docs/AI_WORK_CLAIM.md 里没有 CHG-0115 的条目")
+ok(bool(src_change_0115), "读不到 docs/changes/CHG-0115.md")
+if src_change_0115:
+    for part in ("①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨"):
+        ok("## " + part in src_change_0115, "CHG-0115 变更单缺第 " + part + " 节")
+    ok("CHG-0115" in src_change_0115, "CHG-0115 变更单里没写 ID")
+    ok("90" in src_change_0115 and "30" in src_change_0115,
+       "CHG-0115 变更单没有写清两条提前量（90 / 30）")
+    ok("幂等" in src_change_0115, "CHG-0115 变更单没有写去重靠幂等键（三段各一条）")
+    ok("兜底" in src_change_0115 or "不让它发生" in src_change_0115,
+       "CHG-0115 变更单没有写清「逾期那条是兜底、设计目标是不让它发生」")
 ok("20%" in src_design, "卡片规范 §三 没有把偏低线写成百分比口径（还写着旧的「建议水位」）")
 ok("永远不跳" in src_design, "卡片规范 §五 没有写清车辆族永远不跳")
 ok("恰好等于阈值" in src_design, "卡片规范 §三 没有写「恰好等于阈值算偏低」这条边界")
@@ -513,6 +591,7 @@ for msg in FAIL:
     print("  ❌ " + msg)
 if FAIL:
     sys.exit(1)
-print("  ✅ 两格日期只有一处算法、恰好等于阈值算偏低、两档互斥、年检两档各就各位、"
-      "幂等键带到期日、档位只在 message_center、文书与规范都跟上了")
+print("  ✅ 两格日期只有一处算法、恰好等于阈值算偏低、两档互斥、年检三档各就各位"
+      "（提前 90 天 / 提前 30 天 / 已过期，一天只命中一档）、幂等键带到期日、"
+      "档位只在 message_center、文书与规范都跟上了")
 

@@ -62,7 +62,7 @@
   - **Rollback**：`git revert` 本事项两笔提交（零迁移、零数据，回滚即回到今天的样子）。
   - **Historical Data Impact**：无 —— 订单收货人一直是快照文本，历史订单不因这一行的出现或消失而改变解释。
 
-### [2026-10-11 → ⏳ 进行中] 会话：**CHG-0115 车辆年检提醒改成按交规提前（提前 3 个月 warn / 提前 1 个月 danger / 逾期兜底）**（DSH `352ec363-2301-4c4e-a57f-c1c659ecc0a9`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+### [2026-10-11 → ✅ 已完成（代码 / 判据 / 反验 / 单测 / 文书；⛔ 未 push、未构建 APK、未部署）] 会话：**CHG-0115 车辆年检提醒改成按交规提前（提前 3 个月 warn / 提前 1 个月 danger / 逾期兜底）**（DSH `352ec363-2301-4c4e-a57f-c1c659ecc0a9`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径`（2026-10-11 逐字）：「这个车辆年检是**不能逾期**的。意思就是说，我们不能等已经到了年检期、或者说年检期过了 —— 这是不可能的，因为**一旦过了的话那车子是不能上路的**。我们按照我们的交规来提醒，我们的交规是大概在**一个月，还是三个月前**就会有提醒的。」
 
@@ -72,7 +72,13 @@
 
 `核心改动`：**无** —— 为什么：`backend/app/services/inspection_due.py` / `message_producers.py` / `message_center.py` 与 `ui/**` 都不在 `_tools/qa/_core_files.txt` 里（钱/账本/订单生命周期/权限/审计/迁移一个都没碰；`schema_bootstrap` 一个字未动）。
 
-- 状态：⏳ **进行中**（2026-10-11；代码 ＋ 判据 ＋ 反验 ＋ 单测 ＋ 文书收尾中）。
+`判据 / 反验`：`python _tools/qa/_check_inspection_and_near_low.py`（**203 项全绿**）＋ `python _tools/qa/_reverse_verify_inspection_and_near_low.py`（**11/11 注入全被抓 ＋ 逐字节还原**，本轮新增 ⑧ 90 天改成 0、⑨ 把 30 天那档并回 warn、⑩ 三段共用一个幂等键、⑪ 紧急档降成 warn）；`python _tools/qa/_check_vehicle_inspection_ui.py`（**9 层 171 项全绿**）＋ `python _tools/qa/_reverse_verify_vehicle_inspection_ui.py`（**16/16**，新增 ⑮ 紧急档不存在、⑯ 紧急档漏出车辆族）；随动的 `_tools/qa/_check_message_producers.py` **208/208**（`TEN`→`ALL_TYPES` 十一类、GRADE 加 urgent、扫描八键）与 `_tools/qa/_check_notification_severity.py` **PASS = 77**（一行未改）。
+
+`单测 / 编译`：`cd backend; python -m pytest tests/test_inspection_due.py tests/test_message_producers.py -q` = **32 passed**；Android `gradle -p android :app:compilePhoneDebugKotlin :app:testEmuDebugUnitTest --tests "*Vehicle*" --tests "*MessageGrading*"` = **BUILD SUCCESSFUL in 1m 1s**（`VehicleInspectionTest` **19** / `VehicleManageScreenTest` 8 / `MessageGradingTest` **27**，failures=0 errors=0）；`_check_dev_spec.py` 5 项、`_check_tool_scripts.py` 707 个脚本全过。
+
+⚠️ `_check_all.py` 退出码 1，红的**没有一处是本单的文件**：图标底色=`CHG-0116`、联系人「我自己」那一串=`CHG-0117`、三份生成物过期=别的会话加了端点与 `.kt`（333 vs 331，提示目录里根本没我的文件）、R3-D02=别人一条没带 ID 的发布记录提交、另有两条是并发注入锁造成的**瞬时**红（当场复跑 72/72 与 158/158 全绿）。
+
+- 状态：✅ **已完成**（2026-10-11 14:3x CST；代码 ＋ 判据 ＋ 反验 ＋ 单测 ＋ 文书已落地，分 3 笔提交）。⛔ **未 push、未构建 APK、未部署生产、未发布** —— 等父会话统一推。
 
 ### [2026-10-11 → ⏳ 进行中] 会话：**CHG-0116 桌面图标与启动画面底色改纯白**（DSH session-bd8fe093）
 

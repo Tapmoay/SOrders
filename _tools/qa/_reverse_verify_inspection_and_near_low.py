@@ -5,7 +5,9 @@
 "**它们错的时候判据真的会红**"。少了这一步，一条恒真的检查也能自称全绿 ——
 本仓库在这上面栽过（清单为空 ⇒ 检查恒真；GBK 下 UnicodeEncodeError 崩掉，看着像跑过了）。
 
-八条注入对应八条用户口径 / 八种真实错法（每条在判据里都有一句专门的失败文案）：
+十一条注入对应十一条用户口径 / 十一种真实错法（每条在判据里都有一句专门的失败文案）。
+⚠️ CHG-0115（2026-10-11）把年检从两档拆成三档（提前 90 天 / 提前 30 天 / 已过期），
+所以本轮的注入里**有三条专门打这次新增的边界**（⑧ ⑨ ⑩）：
 
 | 注入 | 它模拟的真实错误 | 判据必须红在哪一句 |
 | --- | --- | --- |
@@ -16,7 +18,10 @@
 | ⑤ 幂等键去掉到期日 | 同一次年检每天刷一条（或第二年的提醒永远发不出来） | 年检的幂等键不是「类型:车辆:到期日」 |
 | ⑥ NOT_PRODUCED 里留着已做的类 | 下一单以为它还缺字段，再"补"一遍 | NOT_PRODUCED 里还有 |
 | ⑦ 算不出到期日照发 | 没录日期的车被硬报一条年检提醒 | 没有「算不出到期日 ⇒ 一个字都不发」那一支 |
-| ⑧ 提前提醒天数改成 0 | 只剩到期当天才提醒（年检要预约，来不及） | inspection_due 的提前提醒天数不是 30 天 |
+| ⑧ **开始提醒的提前量改成 0**（原为 30，CHG-0115 改成 90） | 只剩到期当天才提醒（年检要预约，来不及）—— 正是用户说的"不能等已经到了年检期" | inspection_due 的**开始提醒**天数不是 90 天 |
+| ⑨ **把 30 天那一档去掉**（紧急档并回 warn） | 只剩一个月时还显示橙色"该安排年检了"，用户以为还早 | 分档里没有「还剩 <= INSPECTION_URGENT_DAYS ⇒ vehicle.inspection_urgent」那一档 |
+| ⑩ **三段共用一个幂等键**（键里不带类型名） | 90 天那条把 30 天那条顶掉（或反过来）—— 该响的那一档永远发不出来 | 年检的幂等键不是「类型:车辆:到期日」 |
+| ⑪ **紧急档降成 warn** | 30 天以内与"还有三个月"变成同一个橙色 | vehicle.inspection_urgent（只剩 30 天）的档位不是 danger |
 
 口径（与 _reverse_verify_message_producers.py / _reverse_verify_notification_severity.py 同）：
   1. **先跑未注入的基线** —— 判据自己就红的话直接退出（否则后面每条都会红，什么都没验证到）；
@@ -75,10 +80,22 @@ MUTATIONS: list[tuple[Path, str, str, str, str]] = [
      "    if due is None:\n        return 0\n",
      "    if due is None:\n        due = day\n",
      "notify_inspection 没有「算不出到期日 ⇒ 一个字都不发」那一支"),
-    (SERVICE, "⑧ 提前提醒天数改成 0（只剩到期当天才提醒）",
-     "INSPECTION_DUE_SOON_DAYS = 30\n",
+    (SERVICE, "⑧ 开始提醒的提前量改成 0（只剩到期当天才提醒）",
+     "INSPECTION_DUE_SOON_DAYS = 90\n",
      "INSPECTION_DUE_SOON_DAYS = 0\n",
-     "inspection_due 的提前提醒天数不是 30 天"),
+     "inspection_due 的**开始提醒**天数不是 90 天"),
+    (SERVICE, "⑨ 把 30 天那一档去掉（紧急档并回 warn）",
+     '    if left <= INSPECTION_URGENT_DAYS:\n        return "vehicle.inspection_urgent"\n',
+     '    if left <= INSPECTION_URGENT_DAYS:\n        return "vehicle.inspection_due"\n',
+     "分档里没有「还剩 <= INSPECTION_URGENT_DAYS ⇒ vehicle.inspection_urgent」那一档"),
+    (PRODUCERS, "⑩ 三段共用一个幂等键（90 天那条会把 30 天那条顶掉）",
+     '        idem_key=kind + ":" + str(int(vehicle.id)) + ":" + due.isoformat(),\n',
+     '        idem_key="vehicle.inspection" + ":" + str(int(vehicle.id)) + ":" + due.isoformat(),\n',
+     "年检的幂等键不是「类型:车辆:到期日」"),
+    (CENTER, "⑪ 紧急档降成 warn（30 天以内与还有三个月同一个橙色）",
+     '"vehicle.inspection_urgent": SEVERITY_DANGER,',
+     '"vehicle.inspection_urgent": SEVERITY_WARN,',
+     "vehicle.inspection_urgent（只剩 30 天）的档位不是 danger"),
 ]
 
 
@@ -150,7 +167,8 @@ def main() -> int:
     if red != len(MUTATIONS) or not same:
         print("⛔ 反向验证没过：要么有注入没被抓住，要么还原不干净。")
         return 1
-    print("== FEAT-0022 判据的反向验证通过：八条注入全部被抓，树已逐字节还原。")
+    print("== FEAT-0022 / CHG-0115 判据的反向验证通过：" + str(len(MUTATIONS))
+          + " 条注入全部被抓，树已逐字节还原。")
     return 0
 
 

@@ -12,8 +12,13 @@ R4-BOUNDARY-JUSTIFICATION:
        **只有一处实现**（ui/dispatcher/VehicleInspection.kt）；
     ② 后端出参带了 next_inspection_date 时**必须用后端的**，本地只作兜底；
     ③ 编辑保存走 PATCH 差量：没动过的那一格**一个键都不发**（原样发 = 清空）；
-    ④ 分档只有一条线（30 天）：大于 30 天常规 / 30 天以内 warn 橙 / 已过期 danger 红，
-       颜色只能取消息中心那张表（emphasisColor），界面里不许出现色值字面量；
+    ④ 分档有**两条**线（CHG-0115：提前 3 个月开口、提前 1 个月转红）：
+       「>90」常规 / 「31~90」warn 橙 / 「0~30」danger 红 / 已过期 danger 红 +「已过期 N 天」；
+       30 天以内与已过期**同色**，靠文案分开；颜色只能取消息中心那张表（emphasisColor），
+       界面里不许出现色值字面量；
+       ⚠️ 客户端这两个常量必须与后端 inspection_due.INSPECTION_DUE_SOON_DAYS /
+       INSPECTION_URGENT_DAYS **同值** —— 不同值的表现是"界面上说的日子"与"收到的提醒"
+       不是同一档，而两边都不报错；
     ⑤ 新消息类型 vehicle.inspection_overdue 必须归**已有的**车辆族（竖条色 #00AAAE），
        且只改那一个映射集合、不改渲染逻辑；
     ⑥ 「偏低」是 warn 橙的第三档角标，**不许盖掉**"低库存"（到报警线）那一档。
@@ -157,16 +162,27 @@ def check_unique(c, sources):
     ):
         total = sum(count(s, sig) for s in sources.values())
         c.equals(total, 1, sig + f" 整个 App 只有一处（实际 {total} 处）")
-    c.present(ins, "internal const val INSPECTION_WARN_DAYS = 30L", "30 天这条线是常量")
+    c.present(ins, "internal const val INSPECTION_DUE_SOON_DAYS = 90L", "90 天那条线是常量（提前 3 个月开口）")
+    c.present(ins, "internal const val INSPECTION_URGENT_DAYS = 30L", "30 天那条线是常量（提前 1 个月转红）")
     c.ok(
         re.search(
             r"daysLeft < 0 -> MessageRisk\.DANGER\s+"
-            r"daysLeft <= INSPECTION_WARN_DAYS -> MessageRisk\.WARN\s+"
+            r"daysLeft <= INSPECTION_URGENT_DAYS -> MessageRisk\.DANGER\s+"
+            r"daysLeft <= INSPECTION_DUE_SOON_DAYS -> MessageRisk\.WARN\s+"
             r"else -> MessageRisk\.INFO",
             ins,
         ),
-        "三档顺序：已过期 danger / 30 天以内 warn / 其余 info",
+        "四档顺序：已过期 danger / 30 天以内 danger / 90 天以内 warn / 其余 info",
     )
+    c.absent(ins, "INSPECTION_WARN_DAYS", "旧的单线常量 INSPECTION_WARN_DAYS 不许留下（会与两条新线漂移）")
+    # ⚠️ 两侧的提前量必须同值：后端是权威，客户端是兜底实现 —— 不同值时"界面上说的日子"
+    #    与"收到的提醒"不是同一档，而两边都不报错。
+    back = read(ROOT / "backend/app/services/inspection_due.py")
+    c.present(back, "INSPECTION_DUE_SOON_DAYS = 90", "后端那条开始提醒的线也是 90 天")
+    c.present(back, "INSPECTION_URGENT_DAYS = 30", "后端那条转紧急的线也是 30 天")
+    c.equals(count(back, "INSPECTION_DUE_SOON_DAYS ="), 1, "后端开始提醒那条线只有一处定义")
+    c.equals(count(back, "INSPECTION_URGENT_DAYS ="), 1, "后端转紧急那条线只有一处定义")
+    c.present(back, "if left <= INSPECTION_URGENT_DAYS:", "后端分档真的用了转紧急那条线")
     c.present(ins, "DateTimeParseException", "坏日期串当没填（解析失败不抛）")
     c.equals(count(ins, "plusYears(1)"), 1, "加一年用 plusYears（不是加 365 天）")
     c.equals(count(ins, "internal fun inspectionDateAllowed("), 1, "未来日期不可选只有一处实现")
@@ -307,10 +323,13 @@ def check_family(c, sources):
     print("== 6. 消息族：新类型归车辆族，渲染逻辑未动 ==")
     g = kt(GRADING)
     all_main = "\n".join(sources.values())
+    # ⚠️ 三个类型名写在不同行上（CHG-0115 之后这个 setOf 是多行的）⇒ 先把空白压平再比。
+    flat = re.sub(r"\s+", " ", g)
     c.present(
-        g,
-        'private val VEHICLE_TYPES = setOf("vehicle.inspection_due", "vehicle.inspection_overdue")',
-        "两个年检类型都进已有的车辆族集合（唯一改动点）",
+        flat,
+        'private val VEHICLE_TYPES = setOf( "vehicle.inspection_due", "vehicle.inspection_urgent", '
+        '"vehicle.inspection_overdue", )',
+        "三个年检类型都进已有的车辆族集合（唯一改动点）",
     )
     c.present(g, "t in VEHICLE_TYPES -> MessageFamily.VEHICLE", "族映射那一条没改")
     c.equals(count(g, "const val MSG_COLOR_VEHICLE = 0xFF00AAAEL"), 1, "车辆族竖条色仍是 #00AAAE")
@@ -322,8 +341,9 @@ def check_family(c, sources):
     ):
         c.equals(sum(count(s, sig) for s in sources.values()), 1, sig + " 仍然只有一处")
     c.ok(re.search(r"enum class MessageRisk\s*\{\s*INFO,\s*WARN,\s*DANGER\s*\}", g), "三档风险枚举没动")
-    c.equals(count(all_main, '"vehicle.inspection_overdue"'), 1, "新类型字面量只出现在族映射那一处")
-    c.present(all_main, "vehicle.inspection_due", "到期那条仍在")
+    c.equals(count(all_main, '"vehicle.inspection_overdue"'), 1, "已过期那个类型字面量只出现在族映射那一处")
+    c.equals(count(all_main, '"vehicle.inspection_urgent"'), 1, "紧急那个类型字面量只出现在族映射那一处")
+    c.present(all_main, "vehicle.inspection_due", "开始提醒那条仍在")
     c.absent(g, '"vehicle.inspection_overdue" ->', "不许另开一条 when 分支去换色")
 
 
@@ -364,7 +384,7 @@ def check_tests(c, sources):
     ti = kt(T_INSPECTION)
     tg = kt(T_GRADING)
     tk = kt(T_CARDKIT)
-    c.need(count(ti, "@Test"), 8, "年检单测至少 8 例")
+    c.need(count(ti, "@Test"), 10, "年检单测至少 10 例（CHG-0115 加了四档分档与两条常量）")
     c.present(ti, "class VehicleInspectionTest", "类名带 Vehicle（gradle --tests *Vehicle* 收得到）")
     c.present(tk, "class ProductCardKitTest", "角标单测仍在")
     for name in (
@@ -377,8 +397,19 @@ def check_tests(c, sources):
         "后端给了下次年检日期就用后端的",
         "没动过的日期一个键都不发",
         "原来有值而用户清空了",
+        "九十天与三十天那两条线各自两边一档",
+        "两条提前量与后端那两个常量同值",
+        "三十天以内与已过期是同一个红，靠文案分开",
     ):
         c.present(ti, name, f"单测里有「{name}」这条")
+    # CHG-0115：两条提前量的值必须被单测钉住（不是只写在常量注释里）
+    c.present(ti, "assertEquals(90L, INSPECTION_DUE_SOON_DAYS)", "断定了 90 天那条线")
+    c.present(ti, "assertEquals(30L, INSPECTION_URGENT_DAYS)", "断定了 30 天那条线")
+    c.present(ti, "assertEquals(MessageRisk.DANGER, inspectionRisk(30))", "断定了 30 天以内是红档")
+    c.present(ti, "assertEquals(MessageRisk.WARN, inspectionRisk(31))", "断定了 31 天还是橙档")
+    c.present(ti, "assertEquals(MessageRisk.INFO, inspectionRisk(91))", "断定了 91 天不打扰")
+    c.present(ti, "assertEquals(MSG_TEXT_DANGER, emphasisColor(inspectionRisk(30)))",
+              "断定了「必须去」那一档用的是 danger 红（取自消息中心那张表）")
     for risk in ("MessageRisk.INFO", "MessageRisk.WARN", "MessageRisk.DANGER"):
         c.present(ti, risk, f"三档都断言了 {risk}")
     c.present(ti, "assertNull(changedDateOrNull(", "断言：没改过就不发")
@@ -388,6 +419,9 @@ def check_tests(c, sources):
     c.present(ti, 'assertTrue(inspectionDateAllowed("2026-10-11", today))', "断言：今天可以选")
     c.present(ti, "assertFalse(inspectionDateSelectable(isoDateToMillis(tomorrowIso)!!))", "断言：毫秒那条回调同样封顶")
     c.present(ti, "MSG_TEXT_WARN", "断言：warn 色取自消息中心那张表")
+    c.present(tg, 'familyOf("vehicle.inspection_urgent")', "消息单测认紧急那个新类型")
+    c.present(tg, 'assertEquals(0xFF00AAAEL, familyOf("vehicle.inspection_urgent").color)',
+              "断言紧急那条的竖条色也是车辆族 #00AAAE")
     c.present(tg, 'familyOf("vehicle.inspection_overdue")', "消息单测认新类型")
     c.present(tg, 'assertEquals(0xFF00AAAEL, familyOf("vehicle.inspection_overdue").color)', "断言新类型竖条色 = #00AAAE")
     c.present(tg, 'assertEquals(MessageRisk.DANGER, riskOf("danger"))', "断言过期那条上 danger 档")

@@ -37,6 +37,17 @@ R4-BOUNDARY-JUSTIFICATION: 本判据只**读文本**（backend 的服务 / 端�
 3. 每日扫描从四项变成七项（多了 `stock_near_low` / `inspection_due` / `inspection_overdue`），
    单测里"第二次全是 0"的那串字面量跟着变长。
 
+### CHG-0115（2026-10-11）之后本判据跟着变的两处
+
+年检从**两档**拆成**三档**（提前 90 天 `vehicle.inspection_due` warn / 提前 30 天
+**`vehicle.inspection_urgent`** danger / 已过期 `vehicle.inspection_overdue` 兜底）⇒
+
+1. 全集从**十类**变成**十一类**（`ALL_TYPES`），`GRADE` 里 `vehicle.inspection_urgent` = danger；
+   单测那条"每类 ≥2 条用例"因此也要求新类型在单测里出现；
+2. 每日扫描从七项变成**八项**（多了 `inspection_urgent`）—— `run_daily_scan` 的键与单测里
+   "第二次全 0"的字面量都跟着变长。
+   ⚠️ `vehicle.inspection_overdue` 的固定新闻词从「已逾期」改成「已过期」（措辞改成说清后果）。
+
 判据口径（本仓库既有约定）：
   1. 认**代码形状**不认文字：先剥注释与三引号再看结构（散文骗过判据的坑踩过）；
   2. 需要看注释/文案的地方用**原文切片**（不剥注释）；切片为空必须由调用方自己 ok(...) 报红；
@@ -68,14 +79,16 @@ DESIGN = ROOT / "docs/MESSAGE_CARD_DESIGN.md"
 CHANGE = ROOT / "docs/changes/FEAT-0021.md"
 CLAIM = ROOT / "docs/AI_WORK_CLAIM.md"
 
-#: 新消息的全集（FEAT-0021 的九类 ＋ FEAT-0022 新增的 `vehicle.inspection_overdue`）。
-TEN = (
+#: 新消息的全集（FEAT-0021 的九类 ＋ FEAT-0022 的 stock.near_low / 两类年检
+#: ＋ **CHG-0115 的 vehicle.inspection_urgent**）。
+ALL_TYPES = (
     "stock.low", "stock.near_low", "arrears.over_limit", "payable.due_soon", "payable.overdue",
-    "invoice.issued", "vehicle.inspection_due", "vehicle.inspection_overdue",
-    "account.new_device_login", "account.device_unfrozen",
+    "invoice.issued", "vehicle.inspection_due", "vehicle.inspection_urgent",
+    "vehicle.inspection_overdue", "account.new_device_login", "account.device_unfrozen",
 )
-#: 有生产者的类 —— FEAT-0022 之后**十类全都有**（所以 `NOT_PRODUCED` 必须是空的）。
-PRODUCED_TYPES = TEN
+#: 有生产者的类 —— FEAT-0022 之后**十类全都有**，CHG-0115 再加年检紧急那一档 ⇒ **十一类**
+#: （所以 `NOT_PRODUCED` 必须是空的）。
+PRODUCED_TYPES = ALL_TYPES
 #: 档位（§三：由数据判，不由文案判）。
 GRADE = {
     "stock.low": "SEVERITY_DANGER",
@@ -85,6 +98,7 @@ GRADE = {
     "payable.overdue": "SEVERITY_DANGER",
     "invoice.issued": "SEVERITY_INFO",
     "vehicle.inspection_due": "SEVERITY_WARN",
+    "vehicle.inspection_urgent": "SEVERITY_DANGER",
     "vehicle.inspection_overdue": "SEVERITY_DANGER",
     "account.new_device_login": "SEVERITY_DANGER",
     "account.device_unfrozen": "SEVERITY_INFO",
@@ -262,7 +276,7 @@ for label, src, path in (
 code_p = code_only(src_p)
 
 # ---------------------------------------------------------------------------
-# 一组：九类各归其位（有生产者 / 如实不做）
+# 一组：十一类各归其位（有生产者 / 如实不做）
 # ---------------------------------------------------------------------------
 FUNCS = (
     "_send", "_to_dispatchers", "stock_band", "notify_stock_low", "scan_stock_low", "payable_due_date",
@@ -292,7 +306,8 @@ ok("NOT_PRODUCED: dict[str, str] = {" in src_p,
 ok(len(notproduced) == 0,
    "NOT_PRODUCED 里还有 " + repr(sorted(notproduced)) + " —— FEAT-0022 之后**十类全都有生产者**，"
    "这张表必须是空的（⚠️ 已经做了的类型留在里面 = 告诉下一个人「它还缺字段」，而它已经在发了）")
-ok(set(produced) == set(TEN), "PRODUCED 不是" + repr(sorted(TEN)) + "，实际：" + repr(sorted(produced)))
+ok(set(produced) == set(ALL_TYPES),
+   "PRODUCED 不是" + repr(sorted(ALL_TYPES)) + "，实际：" + repr(sorted(produced)))
 ok(not (set(produced) & set(notproduced)),
    "同一类既在 PRODUCED 又在 NOT_PRODUCED：" + repr(sorted(set(produced) & set(notproduced))))
 
@@ -357,7 +372,7 @@ ok("active_dispatchers" in func(src_c, "active_dispatchers") or "def active_disp
 
 sev_table = table_rows(src_c, "SEVERITY_BY_TYPE")
 ok(len(sev_table) >= 10, "读不出 SEVERITY_BY_TYPE 的行（表头写法变了？）")
-for t in TEN:
+for t in ALL_TYPES:
     ok(sev_table.get(t) == GRADE[t],
        t + " 的档位不是 " + GRADE[t] + "（实际 " + repr(sev_table.get(t)) + "）")
 
@@ -461,12 +476,15 @@ for fname in PRODUCER_FUNCS:
 
 # 固定新闻词必须与正文对得上（正文里找不到就静默丢掉）
 news = table_rows(src_c, "EMPHASIS_BY_TYPE")
-for t in TEN:
+for t in ALL_TYPES:
     ok(bool(news.get(t)), "EMPHASIS_BY_TYPE 里没有 " + t + " 的固定新闻词")
 ok("库存不足" in news.get("stock.low", ""), "stock.low 的固定新闻词不是「库存不足」")
 ok("已逾期" in news.get("payable.overdue", ""), "payable.overdue 的固定新闻词不是「已逾期」")
-ok("已逾期" in news.get("vehicle.inspection_overdue", ""),
-   "vehicle.inspection_overdue 的固定新闻词不是「已逾期」（逾期不说「逾期」，用户看不出严重性）")
+ok("已过期" in news.get("vehicle.inspection_overdue", ""),
+   "vehicle.inspection_overdue 的固定新闻词不是「已过期」（CHG-0115 把措辞改成说清后果的那一句，"
+   "新闻词必须跟着正文走 —— 对不上的会被 emphasis_for 静默丢掉）")
+ok("年检" in news.get("vehicle.inspection_urgent", ""),
+   "vehicle.inspection_urgent 的固定新闻词不是「年检」（CHG-0115 新增的那一档没登记）")
 ok("新设备登录" in news.get("account.new_device_login", ""),
    "account.new_device_login 的固定新闻词不是「新设备登录」")
 login_title = re.search(r'title = "([^"]*)"', code_only(sl["notify_new_device_login"]))
@@ -509,7 +527,7 @@ ok("_check_message_producers.py" in src_design, "规范里没有指向本判据�
 test_blocks = [b for b in re.split(r"^def (test_[a-z0-9_]+)\(", src_test, flags=re.M)[1:]]
 test_names = re.findall(r"^def (test_[a-z0-9_]+)\(", src_test, re.M)
 ok(len(test_names) >= MIN_TESTS, "单测只有 " + str(len(test_names)) + " 条（< " + str(MIN_TESTS) + "）")
-for t in TEN:
+for t in ALL_TYPES:
     hit = sum(1 for b in test_blocks if '"' + t + '"' in b)
     ok(hit >= 2, t + " 只有 " + str(hit) + " 条用例（< 2）")
 ok("test_daily_scan_reruns_without_adding_a_single_row" in src_test,
@@ -519,8 +537,9 @@ ok(src_test.count("select(func.count()).select_from(Notification)") >= 2,
 # ⚠️ 这一串是**七项**（FEAT-0022 加了库存偏低与两类年检）：少一项就等于
 # "那一类第二次跑出了东西却没人发现"。写成连续字面量是为了让它一眼可核对。
 ok('"stock_low": 0, "stock_near_low": 0, "payable_due_soon": 0, "payable_overdue": 0,' in src_test
-   and '"arrears_over_limit": 0, "inspection_due": 0, "inspection_overdue": 0,' in src_test,
-   "第二次扫描的七个计数没有被断言为 0（第二次跑出了东西却没人发现）")
+   and '"arrears_over_limit": 0, "inspection_due": 0, "inspection_urgent": 0,' in src_test
+   and '"inspection_overdue": 0,' in src_test,
+   "第二次扫描的八个计数没有被断言为 0（第二次跑出了东西却没人发现）")
 ok("def _assert_emphasis_ok" in src_test and "in text" in src_test,
    "单测没有断言「重点词必须原样出现在标题/正文里」")
 ok("MAX_EMPHASIS" in src_test, "单测没有把「最多 4 个片段」钉住")
@@ -546,4 +565,4 @@ for msg in FAIL:
     print("  ❌ " + msg)
 if FAIL:
     sys.exit(1)
-print("  ✅ 十类各归其位、档位只有一处、幂等键钉住去重、钩子在同一事务、重点词在正文里、深链键齐全")
+print("  ✅ 十一类各归其位、档位只有一处、幂等键钉住去重、钩子在同一事务、重点词在正文里、深链键齐全")
