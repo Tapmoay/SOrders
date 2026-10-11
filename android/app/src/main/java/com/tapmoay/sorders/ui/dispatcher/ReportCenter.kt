@@ -1219,12 +1219,12 @@ private fun actionLabel(action: String): String = when (action) {
     // 都叫「改分类」就分不出来了。车辆那三条同理（名册各管各的列）。
     "USER_CATEGORY_UPSERT" -> "改账号分类"
     "USER_CATEGORY_DELETE" -> "删账号分类"
-        // FEAT-0026（2026-10-11）：模块自有名册（批发商/货主/司机各自的分类，只有一级）——
-        // 与账号册那四条分开写，别让卡片上显示原始码。
-"MODULE_CATEGORY_UPSERT" -> "改模块分类",
-"MODULE_CATEGORY_DELETE" -> "删模块分类",
-"MODULE_CATEGORY_REORDER" -> "模块分类排序",
-"MODULE_CATEGORY_RESTORE" -> "恢复模块分类",
+    // FEAT-0026（2026-10-11）：模块自有名册（批发商/货主/司机各自的分类，只有一级）——
+    // 与账号册那四条分开写，别让卡片上显示原始码。
+    "MODULE_CATEGORY_UPSERT" -> "改模块分类"
+    "MODULE_CATEGORY_DELETE" -> "删模块分类"
+    "MODULE_CATEGORY_REORDER" -> "模块分类排序"
+    "MODULE_CATEGORY_RESTORE" -> "恢复模块分类"
     "USER_CATEGORY_REORDER" -> "调账号分类顺序"
     "VEHICLE_CATEGORY_UPSERT" -> "改车辆分类"
     "VEHICLE_CATEGORY_DELETE" -> "删车辆分类"
