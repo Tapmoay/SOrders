@@ -99,6 +99,8 @@ MODULE_CN: dict[str, str] = {
     # 账号 / 车辆分类名册（FEAT-0010，2026-10-05）：账户 / 司机 / 货主 / 批发商四页共用一份
     # （账号分类），车辆管理页一份（车辆分类）。
     "user_categories": "账号分类",
+    # 模块自有名册（FEAT-0026，2026-10-11）：批发商/货主/司机各自的分类名册，只有一级。
+    "module_categories": "模块分类名册",
     "vehicle_categories": "车辆分类",
     "price_rules": "批发商定价",
     "inventory": "库存管理",
