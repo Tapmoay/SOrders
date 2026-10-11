@@ -101,6 +101,9 @@ internal class BatchWriteHandler(
             risk = action.risk,
             summary = "批量${action.title}：${rows.size} 条",
             detailLines = detailLines(rows),
+            // 一张**长表格**：一个人/一条价一行（CHG-0119，用户原话「长表格显示多个人」）。
+            // ⛔ 表格只影响**显示**：写下去的仍然是下面 payload 里那 N 条，一条不少。
+            table = AiCardBatchTable.sheet(rows),
             payload = buildJsonObject {
                 putJsonArray(BATCH_PAYLOAD) { rows.forEach { add(it.payload) } }
             },
