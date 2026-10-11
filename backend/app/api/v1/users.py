@@ -1,6 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 
 from app.api.v1.user_categories import ensure_user_category
+from app.services.user_category import auto_category
 from app.core.pagination import finish_page
 from app.core.user_search import name_or_phone_like
 from sqlalchemy import select
@@ -181,7 +182,9 @@ def create_user(
         is_member=body.is_member,
         salary=body.salary,
         vehicle_type=(body.vehicle_type or "").strip() or None,
-        category=(body.category or "").strip()[:32],
+        # 分类**不再由人挑**：按身份自动推导（用户 2026-10-11 口径：「既然挂上了不同的身份，我们就自动分类，
+        # 不用我们再手动分类了」）—— 唯一实现 `services/user_category.py::auto_category`。
+        category=auto_category(body.role, body.is_member, (body.vehicle_type or "").strip() or None),
         billing_mode=resolve_billing_mode(
             (body.vehicle_type or "").strip() or None,
             body.billing_mode or None,
@@ -420,10 +423,13 @@ def update_user(
             u.billing_mode = resolve_billing_mode(u.vehicle_type, None)
     # 账号分类（2026-10-05）：与工资/车型同一档，**仅派单员可改** —— 分类决定四个名册页
     # 左侧那一列怎么分组，司机自己改等于自己挑一个组。
-    if body.category is not None:
-        if not is_dispatcher:
-            raise HTTPException(status_code=403, detail="仅派单员可修改账号分类")
-        u.category = (body.category or "").strip()[:32]
+    # 账号分类（2026-10-11 修订）：**不再由人挑**，一律按身份自动推导 —— 改角色/会员/车型之后分类跟着走。
+    # 用户案例（这条修订的由来）：一个账号分类写着「批发商」、身份却是**货主** ⇒ 在批发商管理里按分类
+    # 一筛就把他筛出来了（"他应该分到货主那里去"）。`body.category` 现在**忽略**（不再 403、也不再写库），
+    # 分类是身份的投影，改身份就够 —— 唯一实现 `services/user_category.py::auto_category`。
+    derived_category = auto_category(u.role, u.is_member, u.vehicle_type)
+    if u.category != derived_category:
+        u.category = derived_category
         ensure_user_category(db, u.category)
 
     after = {

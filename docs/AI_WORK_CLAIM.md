@@ -31,6 +31,28 @@
 
 ## 进行中
 
+### [2026-10-11 → ✅ 已完成] 会话：**CHG-0121 账号分类按身份自动推导**（DSH session-bd8fe093）
+
+- 用户口径（逐字要点）：「既然挂上了不同的身份，我们就**自动分类**啊，不用我们再手动分类了……身份显示的居然是货主，这肯定是错的，他应该分到货主那里去。」
+- 改哪些文件：backend/app/services/user_category.py（新）、backend/app/api/v1/users.py（建号 + 更新两处）、backend/tests/test_auto_user_category.py（新）、_tools/qa/_check_auto_user_category.py（新）、_tools/ops/_fix_user_categories.py（新）、docs/changes/CHG-0121.md（新）、docs/changes/README.md、本文件。
+- **明确不碰**：六个分类名与顺序、user_categories 的两级结构（CHG-0112）、车型代码口径、金额/订单/账本算法、其它会话正在改的文件。
+
+
+
+### [2026-10-11 → ⏳ 进行中] 会话：**FEAT-0025 商品支持多个成本价（默认那个＝真实成本价，订单/毛利仍按它算；AI 也能设第二个）**（DSH `09bc1202-26f5-44a8-b9a2-91ee9cee448a`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径`（2026-10-11 逐字）：「我们要，**我们是可以设置多个成本价的**，**AI 也都可以调**。只不过我们一般情况下是默认按**一个成本价**，也就是**真实成本价**，按那个来计算的，一般订单都是按那个来计算的。当然，我们有时候计算的时候还有**第二个成本价** —— 这个成本价可能是**加了其他东西、或者比如说有补贴啊等等之后的成本价**。所以**一定要有多个成本价**啊。我在跟他聊天的过程当中，他就**没办法设置第二个成本价**。」
+
+`改哪些文件`：`backend/app/models/product.py`（新增 `ProductCostPrice`：表 `product_cost_prices`，`(product_id, name)` 唯一，金额列**刻意**叫 `cost_price`）、`backend/app/models/__init__.py`、`backend/app/models/enums.py`（**核心区**：只追加 4 个审计码）、`backend/app/migrations/034_product_cost_prices.py`（新）、`backend/app/schemas/product.py`（`ProductCostPriceCreate/Update/Out`）、`backend/app/api/v1/products.py`（5 个端点：`GET /products/cost-prices`、`POST /products/{id}/cost-prices`、`PATCH /products/cost-prices/{row_id}`、`DELETE .../cost-prices/{row_id}`（软删）、`POST .../cost-prices/{row_id}/restore`）、`backend/tests/test_product_cost_prices.py`（新，16 例）、`_tools/qa/_check_cost_history.py`（加 1 条按匹配片段索引的书面例外）、`android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteCostPrices.kt`（新：4 条动作 + 3 个处理器）、`ai/AiWrite.kt`（只追加 4 个 id 常量与一段拼接 `+ AiWriteCostPrices.ACTIONS`）、`ai/AiWriteService.kt`（**核心区**：接口 4 个方法 + 注册 3 个处理器）、`ai/AiWriteDataSource.kt`、`ai/AiResources.kt`（撤销声明）、`data/remote/api/Apis.kt`、`data/remote/dto/Dtos.kt`、`ai/AiReadCatalog.kt` 与 `docs/ai/*.json`（生成物）、`ui/dispatcher/ProductFormScreen.kt` / `ProductFormViewModel.kt`（能看、能加、能改名改价、能删 + 手边有恢复入口）、`ui/dispatcher/ReportCenter.kt`（4 个中文名）、`_tools/qa/_check_product_cost_prices.py`（新）、`_tools/qa/_reverse_verify_product_cost_prices.py`（新，≥6 条注入）、`docs/changes/FEAT-0025.md`（新）、`docs/changes/README.md`（一行）、本页。
+
+**明确不碰**：⛔ 订单 / 账单 / 毛利 / 快照的**任何**计算路径（`products.cost_price` 仍只由 `services/cost_history.py::record_cost` 写；新增的口径表一个字节都不参与金额计算）；⛔ `ai/AiWriteMasterData.kt`（CHG-0118 在改）、`ai/AiCard*.kt`（CHG-0119）、`ai/AiAgentLoop.kt` / `AiRolePrompt.kt`（CHG-0120）、`ai/AiAttachment*` / `AiVision.kt`（FEAT-0024）、`ui/common/ContactPickerSheet.kt`（CHG-0117）、`ui/dispatcher/Vehicle*.kt` + `backend/app/services/inspection_due.py` / `message_producers.py`（CHG-0115 / FEAT-0022）、`android/app/src/main/res/**`（CHG-0116）；⛔ `backend/app/core/schema_bootstrap.py`（新表走迁移 034，新表**不许**进 bootstrap）；⛔ 不给报表加"按第二个成本价看"的开关（钱的口径要用户拍板 —— 写进变更单的「下一单」）；⛔ 不构建 APK、不部署、不发布、**不 push**。
+
+核心改动：backend/app/models/enums.py —— 为什么必须动核心：审计动作码是全项目共用的取值表（`_tools/qa/_core_files.txt:56` 把它列为核心区），"谁加/改了某个附加成本口径""谁把它删了""谁把它放回来了"要留痕就只能在这里加码，没有第二个合法入口；本次**只追加** `PRODUCT_COST_PRICE_UPSERT` / `_UPDATE` / `_DELETE` / `_RESTORE` 四个成员，既有成员一个没动，而且这四条**都不写 `products.cost_price`**（订单与毛利的成本口径仍旧是 `PRODUCT_CREATE` / `PRODUCT_UPDATE` 那两笔）。
+
+核心改动：android/app/src/main/java/com/tapmoay/sorders/ai/AiWriteService.kt —— 为什么必须动核心：它是 AI 写闸门（`preview → 确认卡 → execute` 的唯一写入口，`_tools/qa/_core_files.txt:61`），新开的这个写域必须在"动作 id → 处理器"那张表里注册三个手写处理器（+3 行 `put(...)`）并在接口上补三个取数方法 —— 那是**注册**，不是判定；闸门本身（风险分级、成本开关、幂等、撤回、`execute` 的语义）一行未动。新动作的参数键里含 `cost_price` ⇒ **自动落进既有的成本开关**（开关关着就不许传），这正是本单要的：成本价一旦进模型上下文就会留在聊天记录里。
+
+- 状态：⏳ **进行中**（2026-10-11；后端已落地并自测通过，AI 动作 / App / 判据 / 反验 / 文书收尾中）。
+
 ### [2026-10-11 → ⏳ 进行中] 会话：**CHG-0120 AI 少问：有已文档化的默认值就直接执行（并把假设写在确认卡上）**（DSH `6a744b78-a715-4108-9135-d508bd6aebaf`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
 
 `用户口径`（2026-10-11 逐字）：「这个 AI 啊**太过繁琐**了 —— 教他执行任务了，他**老是反复确定**，但其实任务其实**也全都已经写好了、基本是已经确认的**。」
