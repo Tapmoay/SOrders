@@ -995,6 +995,32 @@ class RepoWriteDataSource(
 
     override suspend fun deleteProduct(id: Long) = repo.deleteProduct(id)
 
+
+    // ---- 成本价口径（FEAT-0025，2026-10-11）----
+    // ⛔ 这一族**只**管附加口径；商品那一格 cost_price（默认口径＝真实成本价，订单与毛利按它算）
+    //    的读写路径一个字都没动 —— 它仍然只走 createProduct / updateProduct。
+    override suspend fun productCostPrices(productId: Long): List<AiCostPriceRef> =
+        repo.productCostPrices(productId).map {
+            AiCostPriceRef(id = it.id, name = it.name, costPrice = it.costPrice, isDefault = it.isDefault)
+        }
+
+    override suspend fun deletedProductCostPrices(productId: Long): List<AiCostPriceRef> =
+        repo.deletedProductCostPrices(productId).map {
+            AiCostPriceRef(id = it.id, name = it.name, costPrice = it.costPrice, isDefault = it.isDefault)
+        }
+
+    override suspend fun setProductCostPrice(productId: Long, name: String, costPrice: String) {
+        repo.setProductCostPrice(productId, name, costPrice)
+    }
+
+    override suspend fun updateProductCostPrice(id: Long, name: String?, costPrice: String?) {
+        repo.updateProductCostPrice(id, name, costPrice)
+    }
+
+    override suspend fun deleteProductCostPrice(id: Long) = repo.deleteProductCostPrice(id)
+
+    override suspend fun restoreProductCostPrice(id: Long) = repo.restoreProductCostPrice(id)
+
     override suspend fun createPriceRule(shipperId: Long, productId: Long, price: String) {
         repo.createPriceRule(shipperId, productId, price)
     }
@@ -2491,6 +2517,10 @@ class RepoWriteDataSource(
             // **成对动作**（撤回走的是另一个动作自己，`restore` 里全是 ID），所以**不需要读现场**；
             // 这条分支存在的意义同样是「这条资源真有读法」——红线会逐个资源对账，缺一个就红。
             "shipper_price" -> null
+            // 附加成本价口径（FEAT-0025，2026-10-11）：与下游价**同一种情况** —— 删 / 放回来
+            // 是一对**成对动作**（撤回走的是另一个动作自己，payload 里全是 ID），**不需要读现场**；
+            // 这条分支存在的意义同样是「这条资源真有读法」——红线会逐个资源对账，缺一个就红。
+            "cost_price" -> null
             // 认不出的资源标识 = **撤不回来**（不是"不需要撤"）。
             // 静默返回一份空现场会让撤回卡弹出来却什么都没写回去——那比没有撤回更糟。
             else -> null

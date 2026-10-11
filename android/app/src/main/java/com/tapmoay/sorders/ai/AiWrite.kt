@@ -1395,6 +1395,20 @@ object AiWrites {
     const val PRODUCTS_DELETE = "products.delete"
     /** 用户给一张表、要按它一次建多个商品（v3.32）。见 [ApplyProductTableHandler]。 */
     const val PRODUCTS_APPLY_TABLE = "products.apply_table"
+    /**
+     * 商品的**附加成本价口径**三条（FEAT-0025，2026-10-11）。
+     *
+     * 用户原话：「我们是可以设置多个成本价的，AI 也都可以调……有时候计算的时候还有第二个成本价
+     * ——这个成本价可能是加了其他东西、或者比如说有补贴啊等等之后的成本价。所以一定要有多个成本价啊。」
+     *
+     * ⛔ 默认口径一个字都不变：订单行成本快照与毛利报表**只**按 `products.cost_price`（真实成本价）
+     * 算，这三条只管附加口径（返点后 / 补贴后…）。见 [AiWriteCostPrices]。
+     */
+    const val PRODUCTS_COST_PRICE_SET = "products.cost_price.set"
+    const val PRODUCTS_COST_PRICE_DELETE = "products.cost_price.delete"
+    /** 撤回专用（`undoOnly`）：把删掉的那条口径从回收站放回来。 */
+    const val PRODUCTS_COST_PRICE_RESTORE = "products.cost_price.restore"
+
     const val PRICE_RULES_SET = "price_rules.set"
     const val PRICE_RULES_UPDATE = "price_rules.update"
     const val PRICE_RULES_DELETE = "price_rules.delete"
@@ -1797,8 +1811,7 @@ object AiWrites {
             // 发票台账六条（2026-10-08 CHG-0086：手工页早就能做这六件事，这次是排期）
             AiWriteInvoices.ACTIONS +
             // 钱相关四条（2026-10-08 CHG-0087：定价 / 让价 / 取消让价 / 挂账额度）
-            AiWriteMoney.ACTIONS
-
+            AiWriteMoney.ACTIONS +            // 成本价口径三条（FEAT-0025，2026-10-11：用户要「多个成本价」，AI 必须能设第二条）            AiWriteCostPrices.ACTIONS
     /** 手写处理器的动作清单（订单 / 账目 / 消息）。 */
     private val MANUAL: List<AiWriteAction> = listOf(
         AiWriteAction(

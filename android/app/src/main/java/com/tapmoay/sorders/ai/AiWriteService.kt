@@ -497,6 +497,43 @@ interface AiWriteDataSource {
      */
     suspend fun updateProduct(id: Long, fields: JsonObject)
     suspend fun deleteProduct(id: Long)
+    /**
+     * 某个商品的**全部成本价口径**：第一条是合成的默认口径（`isDefault = true`、名字「真实成本价」、
+     * 金额就是 `products.cost_price`），后面的才是附加口径（返点后 / 补贴后…）。FEAT-0025。
+     *
+     * ### 为什么带默认实现（返回空表）
+     * 单测替身不必为每个名册都写一份；空表 = 「这个商品没有附加口径」，卡片会按"新建"来讲，
+     * 它**不会写错任何东西**（写库一律走下面的写方法）。
+     * ⚠️ 生产实现 [RepoWriteDataSource] **必须**覆盖它：否则 AI 看不到已有的口径，会把"改价"
+     * 说成"新建"（同名的会被后端 upsert 救回来，但卡片上的「原来 → 现在」就没了）。
+     */
+    suspend fun productCostPrices(productId: Long): List<AiCostPriceRef> = emptyList()
+
+    /** 某个商品**回收站里**的成本价口径（判断"这个名字是不是刚被删过"用；同样是读，不是写）。 */
+    suspend fun deletedProductCostPrices(productId: Long): List<AiCostPriceRef> = emptyList()
+
+    /**
+     * 设/改一条附加成本口径（后端是**同名 upsert**：没有就建、有就改价，回收站里同名的会放回来）。
+     *
+     * ### 为什么默认实现是**抛错**而不是空实现
+     * 单测替身漏了这条时，报错远好过"假装写成功了"—— 与钱相关的口径静默失败是最坏的一种。
+     * 生产实现 [RepoWriteDataSource] 必须覆盖它（与 [snapshot] 同一条要求）。
+     */
+    suspend fun setProductCostPrice(productId: Long, name: String, costPrice: String): Unit =
+        throw UnsupportedOperationException("AiWriteDataSource.setProductCostPrice 没有实现")
+
+    /** 改一条已有口径的名字 / 金额（只传要改的那一项，另一项给 null 就是不动它）。 */
+    suspend fun updateProductCostPrice(id: Long, name: String?, costPrice: String?): Unit =
+        throw UnsupportedOperationException("AiWriteDataSource.updateProductCostPrice 没有实现")
+
+    /** 软删一条附加口径（行还在回收站里，可以用 [restoreProductCostPrice] 放回来）。 */
+    suspend fun deleteProductCostPrice(id: Long): Unit =
+        throw UnsupportedOperationException("AiWriteDataSource.deleteProductCostPrice 没有实现")
+
+    /** 把回收站里那条口径原样放回来。 */
+    suspend fun restoreProductCostPrice(id: Long): Unit =
+        throw UnsupportedOperationException("AiWriteDataSource.restoreProductCostPrice 没有实现")
+
     suspend fun createPriceRule(shipperId: Long, productId: Long, price: String)
     suspend fun updatePriceRule(ruleId: Long, price: String)
     suspend fun deletePriceRule(ruleId: Long)
@@ -1087,6 +1124,11 @@ class AiWriteService(
             DiscountOrderHandler(ds, store),
             DiscountClearHandler(ds, store),
             CreditLimitWriteHandler(ds, store),
+            // 成本价口径两条（FEAT-0025，2026-10-11）：用户要「多个成本价」，AI 必须能设第二条。
+            // 「设/改一条」超出声明式的表达力：要按"这个商品现有的口径"决定是新建还是改价、
+            // 还要在卡片上写清「原来 → 现在」。见 [SetCostPriceHandler] / [DeleteCostPriceHandler]。
+            SetCostPriceHandler(ds, store),
+            DeleteCostPriceHandler(ds, store),
         ).forEach { put(it.actionId, it) }
 
         // 声明式：凡是带 crud 规格的动作，一律由通用处理器执行

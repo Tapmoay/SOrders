@@ -1256,6 +1256,45 @@ internal object AiResources {
             "放回来之后票号、开票日期、价税合计、税率、税额、备注都和撤掉之前一模一样",
         ),
     )
+    /**
+     * 商品的**附加成本价口径**（FEAT-0025，2026-10-11）。
+     *
+     * 只有「删 / 放回来」成对：设/改那条（`products.cost_price.set`）是 upsert（有就改、没有就建），
+     * 写之前不确定该撤到哪一条，所以它**不进本资源**，改走 [AiRevert] 里 UNDO_NONE 的显式文案。
+     * 删掉那条被撤掉之后，后台是伪装删除（行还在），恢复就是逐字段照搬那一行。
+     *
+     * ⛔ 商品那一格 `cost_price`（默认口径＝真实成本价，**订单与毛利按它算**）不在这里：
+     * 它跟着商品走（[PRODUCT] 资源），本资源只管附加口径（返点后 / 补贴后…）。
+     */
+    private val COST_PRICE = AiResource(
+        key = "cost_price",
+        cn = "成本价口径",
+        idKey = "cost_price_id",
+        readKeys = setOf("product_id", "name", "cost_price"),
+        labels = mapOf(
+            "product_id" to "商品",
+            "name" to "口径名",
+            "cost_price" to "成本价",
+        ),
+        moneyKeys = setOf("cost_price"),
+        actions = listOf(
+            delete(AiWrites.PRODUCTS_COST_PRICE_DELETE),
+            paired(
+                AiWrites.PRODUCTS_COST_PRICE_RESTORE,
+                AiInverse(AiWrites.PRODUCTS_COST_PRICE_DELETE, mapOf("cost_price_id" to AiRevert.ID)),
+                idKey = "target_id",
+            ),
+        ),
+        // 与下游价同理：成对动作的撤回**不需要读现场**（参数只有主键，判据会跳过读），
+        // 而这一条被删掉之后就不在"这个商品现有的口径"里了 —— 所以如实返回 null。
+        read = { _, _ -> null },
+        restore = AiInverse(AiWrites.PRODUCTS_COST_PRICE_RESTORE, mapOf("target_id" to AiRevert.ID)),
+        restoreLines = listOf(
+            "把刚才删掉的那条成本价口径放回来（后台是伪装删除：行还在，逐字段照搬）",
+            "放回来之后口径名、金额、排序都和删掉之前一模一样；" +
+                "它只是一条参考口径 —— 订单与毛利仍按商品的「真实成本价」算",
+        ),
+    )
     /** 全部资源。红线与单测按它逐个核对（键是否齐全、动作是否都有归属）。 */
     val TABLE: List<AiResource> = listOf(
         ADDRESS, LOCATION, CONTACT, ARREARS_UNIT, UNIT_CONVERSION, FREIGHT_TEMPLATE, DRIVER_RULE,
@@ -1274,6 +1313,8 @@ internal object AiResources {
         SHIPPER_PRICE,
         // 发票台账（2026-10-08 CHG-0086）：改 / 删 / 恢复三条挂在这，建·开具·作废走 UNDO_NONE
         INVOICE,
+        // 附加成本价口径（FEAT-0025，2026-10-11）：只有「删 / 放回来」成对，设/改那条走 UNDO_NONE
+        COST_PRICE,
     )
 }
 
