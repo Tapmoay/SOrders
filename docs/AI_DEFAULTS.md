@@ -71,3 +71,24 @@ python _tools/qa/_reverse_verify_ai_ask_less.py   # 反向验证：注入若干�
   `绝不许替他决定`（原有那条，仍在）。
 - 这一页本身：`docs/PROJECT_MAP/INDEX.md` 里必须有一行指向它（否则 `backend/scripts/check_reachability.py` 会说它是孤儿文档）。
 - 文书：`docs/changes/CHG-0120.md`（九节）、`docs/changes/README.md`（登记一行）、`docs/AI_WORK_CLAIM.md`（开工声明）。
+---
+
+## 六、成本价可以**多个**（FEAT-0025 追加；默认那一格的口径不变）
+
+> 追加于 2026-10-11（FEAT-0025）。**上面第 2 条一个字没改**，这一节只补清楚「第二个成本价放哪儿」。
+
+- **可以设多个成本价**：一个商品除了那一格真实成本价，还能有若干**有名字的附加口径**
+  （如「返点后成本」「补贴后成本」），它们存在 `product_cost_prices` 表里
+  （建模 `backend/app/models/product.py`、迁移 `backend/app/migrations/034_product_cost_prices.py`）。
+- **默认那一条＝真实成本价**：仍是 `products.cost_price`，唯一写入口仍是
+  `backend/app/services/cost_history.py::record_cost`。**订单与毛利只按它算**
+  （下单时定格进订单行的 `cost_price_snapshot`，代码在 `backend/app/services/order_flow.py`）。
+  ⛔ 附加口径**一个字都不参与算钱**（判据会扫 `backend/app/**/*.py` 确认它没飘进任何算钱的文件）。
+- **AI 也能调**（用户原话：「我在跟他聊天的过程当中，他就**没办法设置第二个成本价**」）：
+  三条动作 —— `products.cost_price.set`（设某条口径的价，没有就建）/ `products.cost_price.delete` /
+  `products.cost_price.restore`；卡片必须写清**哪个商品、哪条口径、改前 → 改后**，
+  并带一行「⛔ 订单与毛利的口径不变」。
+- **钱仍然按第二节的边界办**：这一页**没有**「那条口径该填多少钱」的默认值 ——
+  表格 / 资料里给了就按给的填；没给 ⇒ **问**（⛔ 不许猜一个数字填进钱那一格）。
+- 判据：`_tools/qa/_check_product_cost_prices.py`（186 条断言）＋
+  `_reverse_verify_product_cost_prices.py`（19 条注入）；文书 `docs/changes/FEAT-0025.md`。
