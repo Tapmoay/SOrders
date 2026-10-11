@@ -30,6 +30,7 @@
 | [**../DEVELOPMENT_SPEC.md**](../DEVELOPMENT_SPEC.md) | **开发规范 v1.0（⛔ 开工前必读）**：四种 ID（FEAT / CHG / BUG / GOV）、开工六问、Must Change / Must Not Change、边界五问、Blast Radius L0–L3、四件事测试、证据格式、DoD、关闭六格。每条规则都标注了**本仓库落点**与**有没有机器判据** | **动手之前**；判据 `python _tools/qa/_check_dev_spec.py` |
 | [**../changes/README.md**](../changes/README.md) | **开发事项登记簿**：一个事项 = 一个文件 = 一个 ID（目录即台账，没有第二份手写清单） | 立项 / 找自己的事项号时 |
 | [**../ACCOUNT_RULES.md**](../ACCOUNT_RULES.md) | **账号规定**（初始密码默认 123321 等）：用户原话 + 在代码里的**唯一落点** + 机器判据。⛔ 别与"开发库测试号的口令"混淆 | 改建号 / 改密码 / 账号表单，或用户问"新建的账号密码是多少"时 |
+| [**../AI_DEFAULTS.md**](../AI_DEFAULTS.md) | **AI 默认值清单（能推断就执行）**：六条已成文的口径（初始密码 / 成本价＝进货成本 / 默认单价取表里的零售价 / 单位沿用同类既有商品 / 专属价按表格逐家设 / 其它能查到的先取来用）＋ 什么时候仍然必须问（**钱 / 身份 / 撤不回来且单子上没有默认值**；真要问就一次问全）。提示词那侧的正文在 `android/app/src/main/java/com/tapmoay/sorders/ai/AiRolePrompt.kt` 的 `AiDefaults.RULES`，两边同源 | 改 AI 提示词 / 写 AI 动作 / 卡片，或用户说"AI 老是反复确认"时 |
 | [../changes/_TEMPLATE.md](../changes/_TEMPLATE.md) | 事项定义模板（F0）：六问 / 边界 / 行为契约 / 数据契约 / CHG 专章 / 测试 / 证据 / 关闭六格 | 开新事项时**复制它** |
 
 ---

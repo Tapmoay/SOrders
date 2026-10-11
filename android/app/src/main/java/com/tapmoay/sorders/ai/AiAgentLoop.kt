@@ -178,6 +178,14 @@ class AiAgentLoop(
         images: List<String> = emptyList(),
         onEvent: (AiEvent) -> Unit,
     ): AiRunResult {
+        // ---- 00. 把这一轮带的图记进收件箱（FEAT-0024）----
+        //
+        // 写动作要在**发确认卡那一刻**把图片字节钉进 payload（见 AiWriteImage / ImageWriteHandler），
+        // 而模型给不出字节、[AiTools] 也看不到附件 —— 唯一知道"用户刚贴了哪几张图"的地方就是这里。
+        // ⛔ 放在最前面且**整份替换**：下面配置缺失会提前 return，那时也不能留着上一轮那几张图
+        //    （否则用户会说"我没贴图啊，它怎么拿上次那张改了"）。
+        AiImageInbox.set(images)
+
         // ---- 0. 配置校验：三种缺失分别给不同提示，让用户知道该去设置页补什么 ----
         val cfg = configProvider()
             ?: return AiRunResult.Failure("还没有配置模型服务，请先到「AI 助手设置」填写 API Key。", 0)

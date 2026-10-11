@@ -152,12 +152,14 @@ def main() -> int:
             got = f"构造失败：{exc}"
         c.ok("不给密码也能构造出建号请求体（'可选'在 schema 层就成立）",
              got == DEFAULT_INITIAL_PASSWORD, f"实际拿到 {got!r}")
-        try:
-            given = UserCreate(phone="13500118112", role="shipper", password="Zx9-Qw2-By7").password
-        except Exception as exc:
-            given = f"构造失败：{exc}"
+        # ⚠️ 这里的"用户给的密码"刻意用**开发值表里那个**（test1234）：本文件是被跟踪的源码，
+        #    而 `_tools/qa/_check_secrets.py` 会把 `password="…"` 这种形状判成"明文口令字面量"
+        #    （2026-09-19 那次真泄露留下的判据）。写一个表外的真口令形状会**当场把它弄红**
+        #    —— 这一处踩过：判据脚本提交之后才开始被扫（它只扫 git 跟踪的文件）。
+        given = UserCreate(phone="13500118112", role="shipper", password="test1234").password
         c.ok("给了密码就用给的（默认值不许盖掉用户给的）",
-             given == "Zx9-Qw2-By7", f"实际拿到 {given!r}")
+             given == "test1234" and given != DEFAULT_INITIAL_PASSWORD,
+             f"实际拿到 {given!r}")
         try:
             UserCreate(phone="13500118113", role="shipper", password="12345")
             short_ok = False
