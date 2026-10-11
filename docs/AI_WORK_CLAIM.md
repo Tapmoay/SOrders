@@ -31,6 +31,38 @@
 
 ## 进行中
 
+### [2026-10-11 15:0x → ✅ 已完成（代码 / 单测 / 判据 / 反验 / 文书；⛔ 未 push、未构建 APK、未部署）] 会话：**CHG-0119 批量确认卡改成「一张卡 + 一张长表格」＋ 连点幂等**（DSH `9ebceb52-f5cf-4fe8-900f-550174fa24a5`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**做了什么**：用户逐字「确认卡**不要一个（角色）一个的弹**……批量干活**只弹一个**，**长表格显示多个人**」＋「我**点快了点多了**就会出现『**没写成**』」。① 新增 `ai/AiCardBatchTable.kt`（`AiCardBatchTableSheet(headers, rows, note)`，表头 = 序号 / 对象 / **改前 → 改后** + 各条字段，`MAX_ROWS=30` `MAX_COLS=7`）；② `ai/AiWriteBatch.kt` 造卡带 `table = AiCardBatchTable.sheet(rows)`，`ui/ai/AiChatScreen.kt` 的 `BatchCardTable` 渲染（表格只是显示，payload 仍是 `_batch` 那 N 条）；③ `BATCH_TTL_MS = 30 分钟` vs 单条 `DEFAULT_TTL_MS = 5 分钟`；④ `AiWritePreviewStore` 加 `markWritten / hasWritten / noteResult / writtenNote / wasDropped`，`execute()` 三句话分开说、⛔ 不再出现「没写成 + 已经失效了」；⑤ 卡片「点下即锁」（`busyToken`）。
+
+**改哪些文件**：`android/app/src/main/java/com/tapmoay/sorders/ai/AiCardBatchTable.kt`（新）、`ai/AiWriteBatch.kt`、`ai/AiWrite.kt`、`ai/AiWriteService.kt`、`ui/ai/AiChatScreen.kt`、`android/app/src/test/java/com/tapmoay/sorders/ai/AiBatchCardTest.kt`（新）、`_tools/qa/_check_ai_batch_card.py`（新）、`_tools/qa/_reverse_verify_ai_batch_card.py`（新）、`docs/changes/CHG-0119.md`（新）。
+
+**明确不碰**：⛔ 后端一个文件都不动；⛔ `core/NotifyCenter.kt` / `core/AlertService.kt`（FEAT-0027 会话在做）；⛔ 批量写下去的条数与 `commitNote()` 的逐行汇报（一条不变）。
+
+**证据**：`python _tools/qa/_check_ai_batch_card.py` → 25 条断言全过；`python _tools/qa/_reverse_verify_ai_batch_card.py` → 8/8 条注入全部被抓、逐字节还原脏 0；单测 `AiBatchCardTest` 17 例（`:app:testEmuDebugUnitTest` 因别人的文件编译不过，待重试，见文书 §⑨）。
+
+### [2026-10-11 15:0x → ✅ 已完成（代码 / 单测 / 判据 / 反验 / 文书；⛔ 未 push、未构建 APK、未部署）] 会话：**FEAT-0024 AI 贴图写对象（商品图 / 地点图 / 线路图）**（DSH `9ebceb52-f5cf-4fe8-900f-550174fa24a5`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+**做了什么**：用户逐字「我们的那个 AI 要**支持上传商品图片**的……包括什么**地点图片**啊……他都能帮我上传」。新增三条写动作 `products.image` / `location.image` / `address.image`：图片字节**在预览那一刻**由 App 钉进确认卡的 payload，模型只说「用第几张」；链路选的是**先把文件落成 URL、再走既有 `image_url` / `image_urls` 字段更新**（与人工页 `ui/shipper/AddressViewModel.kt:577-579` 一模一样，不新增上传端点 ⇒ 不新增覆盖率缺口），撤回就是把这个键写回旧值（旧 URL 不重新上传）。没有图就拒绝（不发空卡）；多张没点名 → 列候选；追加/替换问不清 → 拒绝。`_tools/ai/_write_coverage.py` 的 `EXCLUDED` 把「模型给不出文件」那两条**移出并配动作**，剩下两条换成与文件无关的真理由，⛔ 不留化石。
+
+**改哪些文件**：`android/app/src/main/java/com/tapmoay/sorders/ai/AiImageInbox.kt`（新）、`ai/AiWriteImage.kt`（新）、`ai/AiWriteImageHandlers.kt`（新）、`ai/AiWrite.kt`、`ai/AiWriteService.kt`、`ai/AiWriteDataSource.kt`、`ai/AiResources.kt`、`_tools/ai/_write_coverage.py`、`android/app/src/test/java/com/tapmoay/sorders/ai/AiWriteImageTest.kt`（新）、`_tools/qa/_check_ai_image_actions.py`（新）、`_tools/qa/_reverse_verify_ai_image_actions.py`（新）、`docs/changes/FEAT-0024.md`（新）。
+
+**明确不碰**：⛔ 后端一个文件都不动（复用既有两条上传端点）；⛔ 多图三档语义与撤回锚一个字没改；⛔ `core/NotifyCenter.kt`（FEAT-0027 会话在做）。
+
+**证据**：`python _tools/qa/_check_ai_image_actions.py` → 33 条断言全过；`python _tools/qa/_reverse_verify_ai_image_actions.py` → 8/8 条注入全部被抓、逐字节还原脏 0；单测 `AiWriteImageTest` 13 例（运行待重试）。
+
+### [2026-10-11 → ⏳ 进行中] 会话：**FEAT-0027 消息中心的消息在「软件外」也要弹系统通知栏**（按 severity 分档 ＋ 按通知 id 去重 ＋ 点通知直达那一页 ＋ 多条合并成一条摘要）（DSH `68065096-0f5f-4918-8344-7a689f5a5f70`，父 `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`）
+
+`用户口径`（2026-10-11 逐字）：「我们这个消息中心……**它不止只有在这个软件才会有** —— 我们的**手机系统消息它也会弹一个消息窗**，就像普通的手机那个软件一样。你光在自己软件里谈消息没什么用的，有时候你要**在软件外**谈消息。」
+
+`改哪些文件`：`android/app/src/main/java/com/tapmoay/sorders/core/MessageNotify.kt`（新：severity→渠道、id 去重、前台不弹、合并摘要、深链复用的纯判定）、`core/AppForeground.kt`（新：App 是否在用户眼前）、`core/NotifyCenter.kt`（消息渠道按 severity 分三档 ＋ 深链 extras ＋ 摘要通知）、`core/AlertPrefs.kt`（`message_notify` 开关 ＋ `message_seen_ids` 去重落盘）、`core/PushTrust.kt`（`trustedRoute` 深链凭据）、`core/RealtimeHub.kt`（两处投递带上 severity/type/payload/roleKey）、`MainActivity.kt`、`core/AppContainer.kt`（`pendingRoute`）、`SOrdersApp.kt`、`ui/nav/NavGraph.kt`、`ui/profile/AlertSettingsScreen.kt`（新增「消息进通知栏」一行）、`android/app/src/test/java/com/tapmoay/sorders/core/MessageNotifyTest.kt`（新）、`_tools/qa/_check_message_system_notify.py`（新）、`_tools/qa/_reverse_verify_message_system_notify.py`（新）、`_tools/qa/_check_alert_ringback.py`（**别人的判据**：渠道计数断言随新渠道更新，见下方「交叉点」）、`docs/changes/FEAT-0027.md`（新）、`docs/changes/README.md`（一行）、本页。
+
+**明确不碰**：⛔ 司机新单那条链（`postOrder` 的渠道 `orders_alert`、语音 `NewOrderPlayer`、`NewOrderAlert` 的去重与响铃口径）一个字节不动；⛔ 别的会话正在改的文件（`ai/AiWrite*.kt` / `ai/AiCard*.kt` / `ai/AiAttachment*` / `ai/AiResources.kt` / `ai/AiRevert.kt` / `data/remote/api/Apis.kt` / `data/remote/dto/Dtos.kt` / `data/repo/AppRepository.kt` / `ui/ai/AiChatScreen.kt` / `ui/dispatcher/AccountManageScreen.kt` / `ui/dispatcher/ProductForm*` / `ui/dispatcher/ReportCenter.kt`）；⛔ 后端与数据库一个字节不动（消息仍由服务端产生与保存）；⛔ 消息中心页的既有样式与路由映射（深链**复用** `ui/messages/MessageGrading.kt::noticeRoute`，不写第二套）；⛔ 不构建 APK、不部署、**不 push**。
+
+**交叉点**：① `_tools/qa/_check_alert_ringback.py` 第 231 / 238 行把「渠道常量个数 == 5」写死；本单按 severity 新增两条渠道（`messages_warn` / `messages_info` —— 安卓渠道是**一次性**的，改 importance 对老机器无效，分档只能新 id）⇒ 这两行必红，已按**保留原意**的方式改写（旧五条一个不少 ＋ 每个渠道常量都必须真的建渠道），并跑它的反验 `_tools/qa/_reverse_verify_alert_ringback.py` 复核。② `docs/changes/README.md` 是登记簿（多会话共写），只追加一行。③ `docs/INTEGRATIONS.md §5` 若需补口径按追加式补。
+
+- 状态：⏳ **进行中**（2026-10-11；代码 ＋ 单测 ＋ 判据 ＋ 反验 ＋ 文书收尾中）。
+
 ### [2026-10-11 → ✅ 已完成] 会话：**CHG-0121 账号分类按身份自动推导**（DSH session-bd8fe093）
 
 - 用户口径（逐字要点）：「既然挂上了不同的身份，我们就**自动分类**啊，不用我们再手动分类了……身份显示的居然是货主，这肯定是错的，他应该分到货主那里去。」
