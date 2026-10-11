@@ -76,6 +76,15 @@ class AppContainer(val context: Context) {
      */
     val pendingOrderId = MutableStateFlow<Long?>(null)
 
+    /**
+     * 点**消息**通知进来时带的那一页（FEAT-0027）：整条路由，由 [MessageNotify.routeOf] 在投递时算好
+     * （与消息中心里点这张卡是同一份映射）。
+     *
+     * 与 [pendingOrderId] 同一个道理放在容器里：通知可能在 Activity 还没建好时到达（冷启动），
+     * 那一刻直接 navigate 会丢；也正因为如此，**消费点**在 AppRoot（见 `ui/nav/NavGraph.kt`）。
+     */
+    val pendingRoute = MutableStateFlow<String?>(null)
+
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     /**

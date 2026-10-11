@@ -10,6 +10,13 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.tapmoay.sorders.MainActivity
 import com.tapmoay.sorders.R
+import com.tapmoay.sorders.ui.nav.Routes
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonElement
 
 /** 通知渠道 id。**改这里必须同时改系统设置里的旧渠道**，所以定了就别动。 */
 object NotifyChannels {
@@ -38,6 +45,23 @@ object NotifyChannels {
     /** 普通站内信（2026-10-06 起实际发的是这一条）：带系统提示音、要震动。 */
     const val MESSAGES_ALERT = "messages_alert"
 
+    /**
+     * 一般消息（FEAT-0027，2026-10-11）：severity = warn 的站内信。
+     *
+     * ⛔ 为什么是**新 id** 而不是改 [MESSAGES_ALERT]：安卓的渠道是一次性的（改 importance
+     *    对老机器一点用都没有）⇒ 想按 severity 分档，只能各自一条新渠道。
+     *    重要性 DEFAULT：有系统提示音，但不弹横幅（要处理、但不着急）。
+     */
+    const val MESSAGES_WARN = "messages_warn"
+
+    /**
+     * 低优先级消息（FEAT-0027）：severity = info 的站内信（公告、设备登录这类）。
+     *
+     * 重要性 LOW：只安静地进通知栏。⛔ 不震动是有意的 —— LOW 的语义就是"知道就行"，
+     * 给安静那一档加震动，用户就没法用系统设置把它和"要马上看"的消息分开了。
+     */
+    const val MESSAGES_INFO = "messages_info"
+
     /** 前台服务常驻通知：最低优先级，只为了让用户知道"它在后台收单"并能一键停 */
     const val SERVICE = "service"
 }
@@ -57,6 +81,17 @@ const val SERVICE_NOTIFICATION_ID = 9001
 class NotifyCenter(private val context: Context, private val prefs: AlertPrefs) {
 
     private val manager = NotificationManagerCompat.from(context)
+
+    /**
+     * 摘要窗口里攒下的那些消息（判定见 [MessageNotify.plan]）。
+     *
+     * 为什么要有这个窗口：一次每日扫描会**同时**发出 N 条消息，逐条弹就是刷屏；
+     * 攒到窗口结束再看"这批有几条"，1 条照发、≥2 条合并成一条"有 N 条新消息"。
+     */
+    private val pending = mutableListOf<PendingMessage>()
+
+    /** 摘要窗口的计时器（只在**首条**消息到达时起一次，不随后续消息顺延）。 */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /** 渠道是幂等的：重复创建不会重置用户在系统里改过的设置（安卓按 id 去重） */
     fun ensureChannels() {
@@ -121,6 +156,27 @@ class NotifyCenter(private val context: Context, private val prefs: AlertPrefs) 
                     description = "关闭 App 后仍在接收消息的常驻提示"
                     setShowBadge(false)
                 },
+                // ⭐ 2026-10-11（FEAT-0027）：消息按 severity 分三档，这两条是新增的两档。
+                // ⛔ 位置必须在 SERVICE **之后**：判据 `_check_alert_ringback.py` 用
+                //    between(MESSAGES_ALERT, SERVICE) 取"消息"那一段来断言它不设 setSound ——
+                //    插在它前面会把新渠道的文字算进那一段。
+                NotificationChannel(
+                    NotifyChannels.MESSAGES_WARN,
+                    "消息提醒（一般）",
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ).apply {
+                    description = "库存偏低、应付到期这类要处理但不着急的站内消息"
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 400, 200, 400, 200, 400)
+                },
+                NotificationChannel(
+                    NotifyChannels.MESSAGES_INFO,
+                    "消息（低）",
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply {
+                    description = "公告、设备登录这类知道就行的站内消息（不响铃、不震动）"
+                    setShowBadge(true)
+                },
             )
         )
     }
@@ -152,7 +208,7 @@ class NotifyCenter(private val context: Context, private val prefs: AlertPrefs) 
     }
 
     /**
-     * 普通消息：静默进通知栏。
+     * 普通消息进系统通知栏（FEAT-0027 起：按 severity 分档、点它直达那一页、多条合并成一条摘要）。
      *
      * ⚠️ `notificationId` = **服务端那条站内信的 id**（2026-09-23 复核 H9 后加）。
      *    在这之前这里写死一个常量：[MESSAGE_ID]（9200），于是**所有**普通消息共用通知栏里的
@@ -160,27 +216,146 @@ class NotifyCenter(private val context: Context, private val prefs: AlertPrefs) 
      *    （"刚才是不是还有一条？"）。订单那条路（[postOrder]）早就按单号一格一条了，
      *    消息这条路漏了同一个道理（见它上面那段注释）。
      *    传 0 / 不传时退回常量那一格：老调用点与单测不受影响，但会退化成"只留最后一条"。
+     *
+     * 四个"不弹"的理由都在 [MessageNotify.shouldPost] 一处：没有通知权限 / 用户关掉了这个开关 /
+     * App 正在前台（界面里本来就会刷出来，不重复打扰）/ 这条 id 已经弹过
+     * （同一条站内信会从 socket 实时与重连回补**两条链**各到一次）。
+     * ⛔ 不弹**不等于**把消息丢掉：列表、未读数、已读都由原有那条链维护。
      */
-    fun postMessage(title: String, body: String, notificationId: Long = 0L) {
-        if (!canPost()) return
+    fun postMessage(
+        title: String,
+        body: String,
+        notificationId: Long = 0L,
+        severity: String? = null,
+        type: String = "",
+        payload: Map<String, JsonElement>? = null,
+        roleKey: String? = null,
+    ) {
+        // 读法与开关都在这一处问（权限的读法唯一处 = core/NotifyPermission.kt，见 canPost）
+        val allowed = canPost()
+        val now = System.currentTimeMillis()
+        val seen = MessageNotify.decodeSeen(prefs.seenMessageIds, now)
+        if (!MessageNotify.shouldPost(
+                id = notificationId,
+                allowed = allowed,
+                enabled = prefs.messageNotifyEnabled,
+                foreground = AppForeground.visible,
+                seen = seen,
+            )
+        ) {
+            return
+        }
         ensureChannels()
-        val n = NotificationCompat.Builder(context, NotifyChannels.MESSAGES_ALERT)
+        // 先记"弹过了"再发：两条链几乎同时到达时，第二遍必须被挡住（见 isDuplicate 的注释）
+        MessageNotify.markSeen(seen, notificationId, now)
+        prefs.seenMessageIds = MessageNotify.encodeSeen(seen)
+        val m = PendingMessage(
+            id = notificationId,
+            risk = MessageNotify.riskOfSeverity(severity),
+            title = title,
+            body = body,
+            route = MessageNotify.routeOf(roleKey, type, payload),
+            type = type,
+            payload = payload,
+        )
+        synchronized(pending) {
+            val first = pending.isEmpty()
+            pending += m
+            if (first) {
+                scope.launch {
+                    delay(MessageNotify.SUMMARY_WINDOW_MS)
+                    flushMessages()
+                }
+            }
+        }
+    }
+
+    /**
+     * 摘要窗口到了：把这一批发出去 —— 1 条单独一格；≥[MessageNotify.SUMMARY_MIN] 条合并成一条摘要。
+     *
+     * 为什么合并而不是逐条：一次每日扫描同时发 N 条，逐条弹就是**刷屏**（用户要点 N 次才清干净），
+     * 而它们本来就是"同一件事的一批"。摘要点进去是消息中心，那里面一条都没少。
+     */
+    private fun flushMessages() {
+        val batch = synchronized(pending) {
+            val copy = pending.toList()
+            pending.clear()
+            copy
+        }
+        when (val b = MessageNotify.plan(batch)) {
+            is MessageBatch.None -> Unit
+            is MessageBatch.Single -> notify(messageIdOf(b.message.id), singleMessageNotification(b.message))
+            is MessageBatch.Summary -> notify(SUMMARY_NOTIFICATION_ID, summaryNotification(b))
+        }
+    }
+
+    /** 单条消息：标题＝消息标题、折叠行＝正文首行（超过 [MessageNotify.BODY_PREVIEW_MAX] 截断），展开是全文。 */
+    private fun singleMessageNotification(m: PendingMessage): Notification =
+        NotificationCompat.Builder(context, MessageNotify.channelOf(m.risk))
             .setSmallIcon(R.drawable.ic_stat_order)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentTitle(m.title)
+            .setContentText(MessageNotify.preview(m.body))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(m.body))
             .setAutoCancel(true)
-            .setContentIntent(openApp(null))
+            .setContentIntent(messageIntent(m))
             .build()
-        // 加一个远大于任何订单号/占位 id 的基数，保证与 [postOrder] 那一族**永不撞号**
-        // （撞号的表现是"消息把订单通知盖掉"，比原来更难查）；越界就退回常量那一格。
-        val id = if (notificationId in 1..MESSAGE_ID_MAX) {
-            (MESSAGE_ID_BASE + notificationId).toInt()
+
+    /** 摘要：一条代表这一批（"有 N 条新消息"），点它进消息中心。 */
+    private fun summaryNotification(b: MessageBatch.Summary): Notification =
+        NotificationCompat.Builder(context, MessageNotify.channelOf(b.risk))
+            .setSmallIcon(R.drawable.ic_stat_order)
+            .setContentTitle(MessageNotify.SUMMARY_TITLE)
+            .setContentText(MessageNotify.summaryBody(b.count))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(MessageNotify.summaryBody(b.count)))
+            .setAutoCancel(true)
+            .setContentIntent(summaryIntent())
+            .build()
+
+    /**
+     * 点这条消息通知进 App：带 [EXTRA_MESSAGE_ROUTE] 就直达那一页（FEAT-0027）。
+     *
+     * 路由在**投递时**就算好（[MessageNotify.routeOf]，与消息中心里点这张卡同一份），
+     * 不是点的时候再猜一次；extras 里同时带上 id / type / payload 那些键，
+     * 是为了在真机上排查"这条通知当初带着什么"（路由已经是唯一跳转依据）。
+     * ⚠️ 与 [openApp] 一样必须带 [EXTRA_NOTIFY_TOKEN]：本 Activity 是 exported + LAUNCHER，
+     *    深链也是外部可伪造的 extra（凭据校验见 [PushTrust.trustedRoute]）。
+     */
+    private fun messageIntent(m: PendingMessage): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_NOTIFY_TOKEN, prefs.notifyToken)
+            putExtra(EXTRA_MESSAGE_ID, m.id)
+            putExtra(EXTRA_MESSAGE_TYPE, m.type)
+            MessageNotify.payloadExtras(m.payload).forEach { (k, v) -> putExtra(k, v) }
+            if (m.route != null) putExtra(EXTRA_MESSAGE_ROUTE, m.route)
+        }
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        // requestCode 与通知 id **同源**：两条不同消息各自的 PendingIntent 不许互相覆盖
+        // （覆盖的表现是"点第二条打开了第一条的页面"，而两条通知看起来都正常）。
+        return PendingIntent.getActivity(context, messageIdOf(m.id), intent, flags)
+    }
+
+    /** 摘要那一格：点它进消息中心（这一条代表的是"一批消息"，没有单一目标页）。 */
+    private fun summaryIntent(): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_NOTIFY_TOKEN, prefs.notifyToken)
+            putExtra(EXTRA_MESSAGE_ROUTE, Routes.MESSAGES)
+        }
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        return PendingIntent.getActivity(context, SUMMARY_NOTIFICATION_ID, intent, flags)
+    }
+
+    /**
+     * 消息那一族的通知 id：加一个远大于任何订单号/占位 id 的基数，保证与 [postOrder]
+     * 那一族**永不撞号**（撞号的表现是"消息把订单通知盖掉"，比原来更难查）；越界就退回常量那一格。
+     */
+    private fun messageIdOf(messageId: Long): Int =
+        if (messageId in 1..MESSAGE_ID_MAX) {
+            (MESSAGE_ID_BASE + messageId).toInt()
         } else {
             MESSAGE_ID
         }
-        notify(id, n)
-    }
 
     /**
      * 前台服务的常驻通知。文案要能回答"它到底在干什么、怎么关掉"。
@@ -233,6 +408,18 @@ class NotifyCenter(private val context: Context, private val prefs: AlertPrefs) 
 
         /** 本机通知的凭据（[AlertPrefs.notifyToken]）：对不上就忽略 [EXTRA_ORDER_ID] */
         const val EXTRA_NOTIFY_TOKEN = "sorders_notify_token"
+
+        /** 通知里那条深链（[MessageNotify.routeOf] 算出来的整条路由）：点通知直达那一页 */
+        const val EXTRA_MESSAGE_ROUTE = "sorders_message_route"
+
+        /** 这条通知对应哪一条站内信（排查用；去重与"哪一格"都用它） */
+        const val EXTRA_MESSAGE_ID = "sorders_message_id"
+
+        /** 这条通知的 type（排查用；路由已经算好，不再拿它二次判定） */
+        const val EXTRA_MESSAGE_TYPE = "sorders_message_type"
+
+        /** 摘要那一格的通知 id：同一批消息反复覆盖自己，不刷屏；点它进消息中心 */
+        const val SUMMARY_NOTIFICATION_ID = 9300
 
         private const val ORDER_FALLBACK_ID = 9100
         private const val MESSAGE_ID = 9200

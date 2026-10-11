@@ -53,6 +53,14 @@ class RealtimeHub(private val container: AppContainer) {
     private var userId: Long? = null
 
     /**
+     * 当前登录角色的**原文 key**（`s.role`，例如 `wholesaler`）——算消息深链要用它。
+     *
+     * ⛔ 不用 [role]（那是 [Role.fromKey] 折过的枚举，认不出的角色会回落成货主）：
+     *    `noticeRoute` 的判据就是"角色 key 原文比不比得上"，折过的值会让货主/批发商拿到别人的页面。
+     */
+    private var roleKey: String? = null
+
+    /**
      * 最近播报过的事件（去重键 → 时间戳）。
      *
      * 为什么需要：同一次派单后端会从**两条链路**各推一次——
@@ -67,6 +75,7 @@ class RealtimeHub(private val container: AppContainer) {
             container.tokenStore.sessionFlow.collect { s ->
                 if (s != null) {
                     role = Role.fromKey(s.role)
+                    roleKey = s.role
                     userId = s.userId
                     // 登录 / App 重启会话恢复：确保 Socket 长连接（幂等，已连接则跳过）
                     container.socketManager.connect(
@@ -86,6 +95,7 @@ class RealtimeHub(private val container: AppContainer) {
                     scope.launch { runCatching { UnitConv.ensure(container.repo, s.role) } }
                 } else {
                     userId = null
+                    roleKey = null
                     container.socketManager.disconnect()
                     _unreadCount.value = 0
                     // 退出登录：把换算表也清掉（它是全库共用的一份，但**不该跨账号留着** ——
@@ -147,7 +157,7 @@ class RealtimeHub(private val container: AppContainer) {
                             if (PushTrust.isOrderEvent(ntype)) {
                                 container.notifyCenter.postOrder(PushTrust.orderIdOf(m), title, content)
                             } else {
-                                container.notifyCenter.postMessage(title, content, id)
+                                postNotice(m, id, title, content)
                             }
                         }
                         // ③ 候选：回补里的这一条（含撤回/送达这类"不该响"的，由纯判定去挑）
@@ -186,7 +196,7 @@ class RealtimeHub(private val container: AppContainer) {
                     if (PushTrust.isOrderEvent(ntype)) {
                         container.notifyCenter.postOrder(orderId, title, content)
                     } else {
-                        container.notifyCenter.postMessage(title, content, id)
+                        postNotice(n, id, title, content)
                     }
                 }
                 // 列表刷新仍按 `order.` 前缀（不用白名单）：后端将来加一个 order.* 事件时，
@@ -321,6 +331,26 @@ class RealtimeHub(private val container: AppContainer) {
      * 解析与边界（越界/负数/非数字 → null，不回绕）只有一处实现，见 [PushTrust.orderIdOf]。
      */
     private fun orderIdOf(data: Map<*, *>?): Long? = PushTrust.orderIdOf(data)
+
+    /**
+     * 一条站内信 → 系统通知栏（**消息那一族**，FEAT-0027）。
+     *
+     * 为什么要有这一处：两条投递链（`sync` 回补 / `notification` 实时）都要把 severity、
+     * type、payload 与当前角色 key 交给通知出口 —— 各写一遍的话，两条链迟早在
+     * "哪条带了 severity、哪条没带"上分叉，而表现只是"回补来的那批没有分档/点了不跳"。
+     * ⛔ 订单那条链不走这里（[NotifyCenter.postOrder] 有它自己的渠道与去重口径）。
+     */
+    private fun postNotice(map: Map<*, *>?, id: Long, title: String, content: String) {
+        container.notifyCenter.postMessage(
+            title = title,
+            body = content,
+            notificationId = id,
+            severity = map?.get("severity") as? String,
+            type = (map?.get("type") as? String) ?: "",
+            payload = MessageNotify.payloadOf(map?.get("payload") as? Map<*, *>),
+            roleKey = roleKey,
+        )
+    }
 
     /** 登录/重连成功后同步未读数（REST 兜底） */    suspend fun syncUnreadFromApi() {
         runCatching {

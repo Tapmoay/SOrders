@@ -19,6 +19,9 @@ class SOrdersApp : Application() {
         // ⚠️ 这一发是**尽力而为**：离线 / 后端不可达就静默算了、绝不阻塞任何业务 ——
         //    往后任何一发请求发现设备头是空的，拦截器还会补一次（见 AppContainer）。
         container.deviceId.warmCache()
+        // 前台判定（FEAT-0027）：消息到达时"用户在不在看这个 App"决定要不要弹系统通知。
+        // 装在 Application 上（而不是 Activity 里）：常驻服务与 Socket 回调都可能先于界面存在。
+        com.tapmoay.sorders.core.AppForeground.install(this)
         container.ensureDeviceRegistered()
         // 高德搜索 SDK：官方要求 ServiceSettings.setApiKey 显式设置（跟 manifest 双保险）
         try {

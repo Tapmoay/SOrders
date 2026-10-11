@@ -22,6 +22,8 @@ class AlertPrefs(context: Context) {
         const val BOOST = "boost_volume"
         const val LAST_NOTIFICATION_ID = "last_notification_id"
         const val RUNG = "rung_keys"
+        const val MESSAGE_NOTIFY = "message_notify"
+        const val MESSAGE_SEEN = "message_seen_ids"
         const val NOTIFY_TOKEN = "notify_token"
     }
 
@@ -80,6 +82,28 @@ class AlertPrefs(context: Context) {
     var rungKeys: String
         get() = sp.getString(Keys.RUNG, "") ?: ""
         set(v) = sp.edit().putString(Keys.RUNG, v).apply()
+
+    /**
+     * 「消息中心的消息要不要进系统通知栏」（FEAT-0027）。默认**开**。
+     *
+     * 用户口径（2026-10-11）：「我们的手机系统消息它也会弹一个消息窗，就像普通的手机那个软件一样」。
+     *
+     * ⛔ 关掉它**只掐系统通知这一路**：站内消息照常收、照常进消息中心、未读数照常涨 ——
+     *    消息本身是服务端的数据，客户端没有"把它丢掉"的权力（用户说的是"别弹窗"，不是"别收"）。
+     */
+    var messageNotifyEnabled: Boolean
+        get() = sp.getBoolean(Keys.MESSAGE_NOTIFY, true)
+        set(v) = sp.edit().putBoolean(Keys.MESSAGE_NOTIFY, v).apply()
+
+    /**
+     * 「已经弹过系统通知的消息」：通知 id → 弹的时间，编码/裁剪见 [MessageNotify.decodeSeen]。
+     *
+     * ⛔ 为什么必须落盘：同一条站内信会从 socket 实时与重连回补**两条链**各到一次，
+     *    只存在内存里的话，进程一重启（司机端很常见）那一批就会被 sync 再补一遍、再弹一轮。
+     */
+    var seenMessageIds: String
+        get() = sp.getString(Keys.MESSAGE_SEEN, "") ?: ""
+        set(v) = sp.edit().putString(Keys.MESSAGE_SEEN, v).apply()
 
     /**
      * 「这条 intent 真的是本机通知发出来的」凭据：每安装一个随机串，只落在本机私有存储。

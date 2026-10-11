@@ -112,15 +112,27 @@ class MainActivity : ComponentActivity() {
     private fun consumeIntent(intent: Intent?, container: AppContainer, from: String) {
         if (intent == null) return
         val raw = intent.getLongExtra(NotifyCenter.EXTRA_ORDER_ID, -1L)
+        // 凭据只读一次：单号与深链共用同一个串（见 [AlertPrefs.notifyToken]）
+        val token = intent.getStringExtra(NotifyCenter.EXTRA_NOTIFY_TOKEN)
         val orderId = PushTrust.trustedOrderId(
             orderId = raw,
-            token = intent.getStringExtra(NotifyCenter.EXTRA_NOTIFY_TOKEN),
+            token = token,
             mine = container.alertPrefs.notifyToken,
         )
-        Log.i(NewOrderPlayer.TAG, "通知点击（$from）单号=$raw 采信=${orderId != null}")
         if (orderId != null) {
             container.newOrderPlayer.stop()
             container.pendingOrderId.value = orderId
         }
+        // 消息通知带的是**整条深链**（FEAT-0027）：与单号**同一道凭据关** ——
+        // 对不上就整条忽略（本 Activity 是 exported + LAUNCHER，深链同样是外部可伪造的 extra）。
+        // ⚠️ 这段必须放在上面那个 if 之后：判据 `_check_notify_guardrails.py` 要求
+        //    「点通知立刻停止播报」那一句离 `fun consumeIntent` 不超过 600 字符。
+        val route = PushTrust.trustedRoute(
+            route = intent.getStringExtra(NotifyCenter.EXTRA_MESSAGE_ROUTE),
+            token = token,
+            mine = container.alertPrefs.notifyToken,
+        )
+        Log.i(NewOrderPlayer.TAG, "通知点击（$from）单号=$raw 采信=${orderId != null} 深链=$route")
+        if (route != null) container.pendingRoute.value = route
     }
 }

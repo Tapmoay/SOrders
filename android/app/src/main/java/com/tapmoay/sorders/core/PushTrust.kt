@@ -23,6 +23,9 @@ object PushTrust {
      */
     const val MAX_ORDER_ID = Int.MAX_VALUE.toLong()
 
+    /** 深链最长有多长（见 [trustedRoute]）。深链是短路由，超过它就不是我们发的那种串了。 */
+    const val MAX_ROUTE_LEN = 200
+
     /**
      * 这条负载是不是发给我的。
      *
@@ -97,6 +100,18 @@ object PushTrust {
      */
     fun trustedOrderId(orderId: Long, token: String?, mine: String?): Long? =
         if (orderId in 1..MAX_ORDER_ID && mine != null && token == mine) orderId else null
+
+    /**
+     * 点**消息**通知进来的那条深链（FEAT-0027）能不能信 —— [trustedOrderId] 的兄弟。
+     *
+     * 同一道关：深链也是 intent extra，也能被任何 App 拼一个出来（本 Activity 是
+     * LAUNCHER + exported），所以只在"本机 [NotifyCenter] 建通知时附上的随机串对得上"时才采信。
+     * 额外的长度上限只是防一条被塞爆的串（深链是短路由，200 字符远远够）。
+     */
+    fun trustedRoute(route: String?, token: String?, mine: String?): String? =
+        route?.takeIf {
+            it.isNotBlank() && it.length <= MAX_ROUTE_LEN && mine != null && token == mine
+        }
 
     /**
      * 握手是被**服务端拒绝**了，还是网络不通？

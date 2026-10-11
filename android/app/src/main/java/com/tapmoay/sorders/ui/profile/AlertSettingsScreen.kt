@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BatteryAlert
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PlayCircle
@@ -64,6 +65,7 @@ fun AlertSettingsScreen(
     var repeat by remember { mutableIntStateOf(prefs.repeatTimes) }
     var background by remember { mutableStateOf(prefs.backgroundEnabled(role)) }
     var boost by remember { mutableStateOf(prefs.boostVolume) }
+    var messageNotify by remember { mutableStateOf(prefs.messageNotifyEnabled) }
     // 语音按角色分工（判定在 NewOrderAlert.voiceKind）：司机听「有新派单」、
     // 派单员听「有新订单待派单」，**货主一句都没有**。给货主也摆一个「新单语音提醒」
     // 开关，等于让他调一个永远不会生效的东西——**能点、但不做事**比没有更糟。
@@ -174,6 +176,22 @@ fun AlertSettingsScreen(
                 )
                 }
             }
+
+            Spacer(Modifier.height(12.dp))
+            // ⭐ FEAT-0027：消息中心的消息也要像别的 App 一样进系统通知栏。
+            // ⛔ 关掉它**只不弹系统通知**：站内消息照常收、照常进消息中心（消息一条都不丢）。
+            // 文案里点明"关掉之后还收得到"，否则用户会以为关掉=不收消息，反而不敢关。
+            SwitchRow(
+                icon = Icons.Default.Notifications,
+                color = Color(0xFF1E6FFF),
+                title = "消息进通知栏",
+                subtitle = "库存预警、账本、公告等消息在手机通知栏弹出（关掉后站内消息照常收，只是不弹）",
+                checked = messageNotify,
+                onCheckedChange = {
+                    messageNotify = it
+                    prefs.messageNotifyEnabled = it
+                },
+            )
 
             Spacer(Modifier.height(12.dp))
             SwitchRow(

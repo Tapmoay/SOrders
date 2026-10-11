@@ -140,6 +140,22 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
         }
     }
 
+    // 点**消息**通知进来带的那一页（FEAT-0027）：路由是投递时用 `MessageNotify.routeOf`
+    // （＝ `noticeRoute`）算好的整条路由，所以这里只负责导航，不再重算一次 ——
+    // ⛔ 在这里再写一遍 when(type) 就是第二套映射：App 内点卡片去 A 页、点通知去 B 页。
+    val pendingRoute by container.pendingRoute.collectAsState()
+    LaunchedEffect(pendingRoute, loggedIn) {
+        val r = pendingRoute
+        if (!r.isNullOrBlank() && loggedIn) {
+            container.pendingRoute.value = null
+            android.util.Log.i(
+                com.tapmoay.sorders.core.NewOrderPlayer.TAG,
+                "通知深链 " + r + " → 跳转",
+            )
+            navController.navigate(r)
+        }
+    }
+
     NavHost(
         navController = navController,
         startDestination = if (loggedIn) Routes.HOME else Routes.LOGIN,
