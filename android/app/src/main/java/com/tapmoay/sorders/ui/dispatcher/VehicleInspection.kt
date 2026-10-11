@@ -20,14 +20,31 @@ import java.time.temporal.ChronoUnit
  * 本文件的 [nextInspectionDue] 是**后端出参还没带 `next_inspection_date` 时的兜底**：
  * 后端一旦在出参里给了，[inspectionBadgeOf] 优先用后端的（同一条规则，不发明第二套）。
  *
+ * ## 分档（CHG-0115：提前 3 个月开口、提前 1 个月转红）
+ * `> 90` 常规 / `31~90` 橙 warn / `0~30` 红 danger / `< 0` 红 ＋「已过期 N 天」。
+ * 两个天数常量 [INSPECTION_DUE_SOON_DAYS] / [INSPECTION_URGENT_DAYS] 与后端同值。
+ *
  * ## ⛔ 本文件是「车辆年检」的唯一一处实现
  * 界面（`VehicleManageScreen.kt`）只准调这里的函数：不许自己 `LocalDate.parse` /
  * `plusYears` / 算天数 / 写 `0xFFE07B00` 这种风险色字面量（风险色唯一出处见
  * `ui/messages/MessageGrading.kt`）。判据 `_tools/qa/_check_vehicle_inspection_ui.py` 钉着。
  */
 
-/** 距到期多少天开始提醒（warn 档）。后端 `vehicle.inspection_due` 用的也是这 30 天。 */
-internal const val INSPECTION_WARN_DAYS = 30L
+/**
+ * 距到期多少天**开始提醒**（warn 档）：提前 3 个月 = 90 天。
+ * 后端 `vehicle.inspection_due` 用的是同一组天数（`inspection_due.INSPECTION_DUE_SOON_DAYS`）。
+ */
+internal const val INSPECTION_DUE_SOON_DAYS = 90L
+
+/**
+ * 距到期多少天进入**必须去**那一档（danger）：提前 1 个月 = 30 天。
+ * 后端 `vehicle.inspection_urgent` 用的是同一个天数（`inspection_due.INSPECTION_URGENT_DAYS`）。
+ *
+ * 用户 2026-10-11（CHG-0115，逐字）：「这个车辆年检是**不能逾期**的……**一旦过了的话那车子是
+ * 不能上路的**。我们按照我们的交规来提醒，我们的交规是大概在**一个月，还是三个月前**就会有
+ * 提醒的。」⇒ 90 天开口、30 天转红；⛔ 这两个数字必须与后端那两个常量同值（两份判据都钉着）。
+ */
+internal const val INSPECTION_URGENT_DAYS = 30L
 
 /**
  * 严格 ISO `YYYY-MM-DD` → [LocalDate]；空串 / 别的形状 / 解析不了 = null。
@@ -59,14 +76,24 @@ internal fun inspectionDaysLeft(due: LocalDate, today: LocalDate): Long =
     ChronoUnit.DAYS.between(today, due)
 
 /**
- * 剩余天数 → 风险档：`> 30` 常规（INFO）/ `≤ 30` 警告（WARN）/ 已过期（`< 0`）危险（DANGER）。
+ * 剩余天数 → 风险档（四档，与后端的三档**一一对应**）：
  *
+ * | 剩余天数 | 档 | 界面上的样子 |
+ * | --- | --- | --- |
+ * | `> 90` | INFO | 常规色（还没到该操心的时候） |
+ * | `31 ~ 90` | WARN | 橙 `#E07B00`（还有三个月，该安排年检了） |
+ * | `0 ~ 30` | DANGER | 红 `#D93025`（只剩一个月，必须去了） |
+ * | `< 0` | DANGER | 红 ＋ 文案说「已过期 N 天」（**兜底**：设计目标是不让它发生） |
+ *
+ * ⚠️ 「30 天以内」与「已过期」**是同一个颜色**（都 danger）—— 它们靠 [inspectionText]
+ * 的文案分开，⛔ 不靠再调一档色（用户口径是「不能逾期」，两档都该是红的）。
  * ⛔ 档→颜色不在这里：界面拿 [com.tapmoay.sorders.ui.messages.emphasisColor] 上色
  * （DANGER 红 / WARN 橙 / INFO = 不上风险色），那张表是「风险 → 颜色」的唯一一处。
  */
 internal fun inspectionRisk(daysLeft: Long): MessageRisk = when {
     daysLeft < 0 -> MessageRisk.DANGER
-    daysLeft <= INSPECTION_WARN_DAYS -> MessageRisk.WARN
+    daysLeft <= INSPECTION_URGENT_DAYS -> MessageRisk.DANGER
+    daysLeft <= INSPECTION_DUE_SOON_DAYS -> MessageRisk.WARN
     else -> MessageRisk.INFO
 }
 

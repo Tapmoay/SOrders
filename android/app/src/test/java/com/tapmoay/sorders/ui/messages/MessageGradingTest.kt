@@ -56,9 +56,21 @@ class MessageGradingTest {
         assertEquals(MessageFamily.PAYABLE, familyOf("payable.overdue"))
         assertEquals(MessageFamily.INVOICE, familyOf("invoice.issued"))
         assertEquals(MessageFamily.VEHICLE, familyOf("vehicle.inspection_due"))
+        assertEquals(MessageFamily.VEHICLE, familyOf("vehicle.inspection_urgent"))
         assertEquals(MessageFamily.ACCOUNT, familyOf("account.new_device_login"))
         assertEquals(0xFFAC7217L, familyOf("account.new_device_login").color)
         assertEquals(MessageFamily.ACCOUNT, familyOf("account.device_unfrozen"))
+    }
+
+    @Test
+    fun `年检紧急那条（CHG-0115）也归车辆族，竖条色与另外两条同一个`() {
+        // CHG-0115 把年检拆成三档（提前 90 天 / 提前 30 天 / 已过期）⇒ 类型名多了一个，
+        // 但它**不是新的一族**：竖条色仍是车辆族那一格 #00AAAE，红不红由 severity 决定。
+        assertEquals(MessageFamily.VEHICLE, familyOf("vehicle.inspection_urgent"))
+        assertEquals(0xFF00AAAEL, familyOf("vehicle.inspection_urgent").color)
+        assertEquals("车辆提醒", familyOf("vehicle.inspection_urgent").label)
+        assertNull(noticeRoute(Role.DISPATCHER.key, "vehicle.inspection_urgent", null))
+        assertNull(noticeActionLabel("vehicle.inspection_urgent"))
     }
 
     @Test

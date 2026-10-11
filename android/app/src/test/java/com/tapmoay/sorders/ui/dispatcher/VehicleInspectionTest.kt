@@ -19,6 +19,10 @@ import org.junit.Test
  * 用户 2026-10-11 的口径：「到我给那个车子建档案的时候会填一下就是这车子的上牌日期，
  * 或者说是上一个年检日期啊方便我们去做一个提醒」。
  *
+ * CHG-0115（同一天）把提前量从"只剩 30 天才说"改成**提前 3 个月开口、提前 1 个月转红**：
+ * 「这个车辆年检是**不能逾期**的……**一旦过了的话那车子是不能上路的**。……大概在**一个月，
+ * 还是三个月前**就会有提醒的」。所以分档用例有**两条**线（90 / 30），不是一条。
+ *
  * ⛔ 这一份测的是**客户端那一份兜底实现**（`VehicleInspection.kt`）。契约上"下次年检只有一处算"
  * 指的是**后端**：后端出参带了 `next_inspection_date` 时客户端必须直接用后端的
  * （见 `后端给了下次年检日期就用后端的，不许自己再算一遍` 这条用例）。
@@ -69,16 +73,36 @@ class VehicleInspectionTest {
         assertEquals(LocalDate.of(2025, 2, 28), nextInspectionDue(null, "2024-02-29"))
     }
 
-    // ---- 剩余天数分三档：>30 常规 / ≤30 警告 / 已过期 危险 ----
+    // ---- 剩余天数分四档（CHG-0115）：>90 常规 / 31~90 橙 / 0~30 红 / 已过期 红 ----
 
     @Test
-    fun `剩余天数分档：三十天那条线两边各一档`() {
-        assertEquals(MessageRisk.INFO, inspectionRisk(31))
-        assertEquals(MessageRisk.WARN, inspectionRisk(30))
-        assertEquals(MessageRisk.WARN, inspectionRisk(1))
-        assertEquals(MessageRisk.WARN, inspectionRisk(0))
-        assertEquals(MessageRisk.DANGER, inspectionRisk(-1))
+    fun `剩余天数分档：九十天与三十天那两条线各自两边一档`() {
+        assertEquals(MessageRisk.INFO, inspectionRisk(91))       // 还有三个月零一天：不打扰
+        assertEquals(MessageRisk.WARN, inspectionRisk(90))       // 正好三个月：开口
+        assertEquals(MessageRisk.WARN, inspectionRisk(31))       // 还有一个月零一天：还是橙
+        assertEquals(MessageRisk.DANGER, inspectionRisk(30))     // 正好一个月：转红（必须去了）
+        assertEquals(MessageRisk.DANGER, inspectionRisk(1))
+        assertEquals(MessageRisk.DANGER, inspectionRisk(0))      // 到期日当天：红 +「今天到期」
+        assertEquals(MessageRisk.DANGER, inspectionRisk(-1))     // 过期：红 +「已过期 N 天」
         assertEquals(MessageRisk.DANGER, inspectionRisk(-400))
+    }
+
+    @Test
+    fun `两条提前量与后端那两个常量同值（90 天开口、30 天转红）`() {
+        // 后端 inspection_due.INSPECTION_DUE_SOON_DAYS / INSPECTION_URGENT_DAYS 是权威；
+        // 客户端这份兜底实现必须同值，否则界面上说的日子与收到的提醒不是同一档。
+        assertEquals(90L, INSPECTION_DUE_SOON_DAYS)
+        assertEquals(30L, INSPECTION_URGENT_DAYS)
+    }
+
+    @Test
+    fun `三十天以内与已过期是同一个红，靠文案分开`() {
+        // 用户口径是「不能逾期」⇒ 这两档都该是红的；区别只在 [inspectionText] 那句话。
+        assertEquals(emphasisColor(inspectionRisk(30)), emphasisColor(inspectionRisk(-1)))
+        assertEquals(MSG_TEXT_DANGER, emphasisColor(inspectionRisk(30)))
+        assertEquals("还有 30 天", inspectionText(30))
+        assertEquals("今天到期", inspectionText(0))
+        assertEquals("已过期 1 天", inspectionText(-1))
     }
 
     @Test
@@ -123,9 +147,11 @@ class VehicleInspectionTest {
     @Test
     fun `颜色跟着档走，且用的是消息中心那张风险色表`() {
         assertEquals(MSG_TEXT_DANGER, emphasisColor(inspectionRisk(-1)))
-        assertEquals(MSG_TEXT_WARN, emphasisColor(inspectionRisk(0)))
-        assertEquals(MSG_TEXT_WARN, emphasisColor(inspectionRisk(30)))
-        assertNull(emphasisColor(inspectionRisk(31)))
+        assertEquals(MSG_TEXT_DANGER, emphasisColor(inspectionRisk(0)))
+        assertEquals(MSG_TEXT_DANGER, emphasisColor(inspectionRisk(30)))
+        assertEquals(MSG_TEXT_WARN, emphasisColor(inspectionRisk(31)))
+        assertEquals(MSG_TEXT_WARN, emphasisColor(inspectionRisk(90)))
+        assertNull(emphasisColor(inspectionRisk(91)))
     }
 
     // ---- 日期选择器 ↔ ISO 串 ----
