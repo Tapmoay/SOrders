@@ -160,6 +160,18 @@ EXCLUDED: dict[str, str] = {
     #    改价前先看见现价（"他给张三定的是 8 元"→ 用户接着说"改成 9 元"），
     #    这正是本文件开头 ① 那条口径要的东西。两条都只有**批发商货主**能读（见生成脚本的
     #    `MEMBER_ONLY_READS`：普通货主手机上「我的 → 下游定价」整页都不存在）。
+    # ---- 模块自有分类名册（FEAT-0026，2026-10-12）：批发商 / 货主 / 司机管理各一份 ----
+    # ⛔ 这条不是"模型看不见"，而是**已经看得见、走的是账号册那条读动作**：
+    #    `user_categories.list_categories`（账号分类名册）返回的正是「库里的六类一级 +
+    #    从各模块名册**拉取**来的二级」，拉取行带 `module` / `pulled` / `user_count`
+    #    —— 与这条端点返回的是同一批**活行**（只差归属：账号册那边已经挂在对应一级下面）。
+    #    所以读侧不需要第二条动作；模块名册自己的**写**动作是排期
+    #    （理由见 `_write_coverage.EXCLUDED` 里 FEAT-0026 那一段）。
+    "module_categories.list_categories": (
+        "已经有读动作：账号分类名册（`user_categories.list_categories`）返回的拉取行就是模块名册的"
+        "活行（带 `module` / `pulled` / `user_count`），同一批数据、还多了归属 ⇒ 模型看得见；"
+        "模块名册自己的写动作是排期（见 `_write_coverage.EXCLUDED` 的 FEAT-0026 段）。"
+    ),
 }
 
 MIN_ENDPOINTS = 100
