@@ -13,6 +13,7 @@ from app.models.driver_billing_rule import (
 from app.models.driver_settlement import DriverSettlement
 from app.models.expense import Expense
 from app.models.expense_category import ExpenseCategory
+from app.models.module_category import ModuleCategory
 from app.models.shipper_receipt import ShipperReceipt
 from app.models.vehicle import Vehicle
 from app.models.vehicle_category import VehicleCategory
@@ -100,6 +101,7 @@ __all__ = [
     "InvoiceStatus",
     "LedgerExportJob",
     "LedgerSource",
+    "ModuleCategory",
     "Notification",
     "OperationAction",
     "OperationLog",

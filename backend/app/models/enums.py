@@ -258,6 +258,16 @@ class OperationAction(str, enum.Enum):
     VEHICLE_CATEGORY_UPSERT = "VEHICLE_CATEGORY_UPSERT"
     VEHICLE_CATEGORY_DELETE = "VEHICLE_CATEGORY_DELETE"
     VEHICLE_CATEGORY_REORDER = "VEHICLE_CATEGORY_REORDER"
+    # 模块自有分类名册（FEAT-0026，2026-10-12，用户「我批发商管理他那个分类啊，他那个分类是跟
+    # 账号管理不一样的，他现在串在一起了……他们是有自己的分类的，他们的分类基本上就是 1 级」）：
+    # 批发商管理 / 司机管理 / 货主管理**各自一份**、只有一级的分类名册（归属那一格仍然是
+    # `users.category` 里的字符串）。单独一套动作码而不是复用 USER_CATEGORY_*：审计页上
+    # 「改了账号分类名册」和「改了批发商管理自己的分类」是两件事 —— 后者只影响那一页，
+    # 以及账号册**拉取**出来的二级。
+    MODULE_CATEGORY_UPSERT = "MODULE_CATEGORY_UPSERT"
+    MODULE_CATEGORY_DELETE = "MODULE_CATEGORY_DELETE"
+    MODULE_CATEGORY_REORDER = "MODULE_CATEGORY_REORDER"
+    MODULE_CATEGORY_RESTORE = "MODULE_CATEGORY_RESTORE"
     # 开销分类名册（2026-09-20，用户「开销分类……也有个分类管理」）：与商品/地点分类同一类东西
     # （主数据、管顺序），但它还决定**卡片上突出哪一项关联**（vehicle/driver/order/none）——
     # 改它会改所有人看开销的方式，必须留痕。

@@ -35,6 +35,7 @@ from app.api.v1 import (
     orders_delivery,
     orders_discount,
     orders_lifecycle,
+    module_categories,
     orders_media,
     orders_payment,
     orders_query,
@@ -129,10 +130,15 @@ api_router.include_router(place_categories.router)
 # 线路分类名册（2026-10-04）：三档页签都要有分类显示，线路这一档原本没有名册，见
 # `api/v1/route_categories.py` 开头（与联系人/地点分类同一套规矩，第三份名册）。
 api_router.include_router(route_categories.router)
-# 账号分类 / 车辆分类名册（2026-10-05）：账户 / 司机 / 货主 / 批发商四个名册页共用一份账号名册，
-# 车辆管理页一份。与商品分类同一套规矩（全局主数据、改名级联、占用中拒删），
+# 账号分类 / 车辆分类名册（2026-10-05）：账户页那一份是**账号分类名册**（一级固定六类、
+# 二级从各模块的名册**拉取** —— 2026-10-12 拆分，见 FEAT-0026），车辆管理页一份。
+# 与商品分类同一套规矩（全局主数据、改名级联、占用中拒删），
 # 见 `api/v1/user_categories.py` 与 `api/v1/vehicle_categories.py` 开头。
 api_router.include_router(user_categories.router)
+# 模块自有分类名册（FEAT-0026，2026-10-12，用户「他们是有自己的分类的，他们的分类基本上就是
+# 1 级、不会有 2 级的」）：批发商管理 / 司机管理 / 货主管理**各自一份**、只有一级，
+# ⛔ 与账号名册不是同一张表（账号册那边是**拉取**），见 `api/v1/module_categories.py` 开头。
+api_router.include_router(module_categories.router)
 api_router.include_router(vehicle_categories.router)
 api_router.include_router(order_products.router)
 api_router.include_router(products.router)

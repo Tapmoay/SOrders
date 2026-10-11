@@ -15,10 +15,16 @@
    （2026-10-10 清零生产时正是这样把 `user_categories` 清掉了，界面上只表现为「左栏只剩全部」）；
 4. **只在名册整个为空时播种**：用户删掉**一个**分类，重启不许把它变回来
    （`order_template_categories` 那一段注释里记过的坑）。
+5. **FEAT-0026（2026-10-12）之后**：账号册的一级**固定六类、不能新建**；「批发商 / 货主 /
+   小车司机 / 大车司机 / 挂车司机」这五个一级下面的子分类改由各自**模块自有名册**拉取
+   （`backend/tests/test_module_categories_split.py` 判它），账号册这边**只读**。
+   只有「派单员」没有对应的模块名册页 ⇒ 它下面照 CHG-0112 的老规矩**仍然可写**。
+   所以本文件里凡是要"造一个大类"的地方，一律改成挂在既有的「派单员」下面。
 """
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -28,7 +34,7 @@ from app.core.schema_bootstrap import (
     bootstrap_schema,
     seed_default_user_categories,
 )
-from app.models import User
+from app.models import User, UserCategory
 from tests.conftest import auth_headers
 
 
@@ -65,11 +71,60 @@ def _mk_user(client, headers, *, phone: str, name: str, category: str = "", role
     )
 
 
+def _top(client, headers, name: str) -> dict:
+    """名册里的**一级**行（`parent_id is None`）—— 账号册的一级是固定的六类。"""
+    row = next(
+        (c for c in _roster(client, headers) if c["name"] == name and c["parent_id"] is None),
+        None,
+    )
+    assert row is not None, f"账号册里没有一级分类「{name}」"
+    return row
+
+
+def _cat_of(db, user_id: int) -> str:
+    db.expire_all()
+    return db.query(User).filter_by(id=user_id).one().category
+
+
+def _set_cat(db, user_id: int, name: str) -> None:
+    """把账号那一格**直接**写成某个分类名 —— 这是**存量数据**的样子。
+
+    ⚠️ CHG-0121 之后 `users.category` 一律按身份自动推导（建号 / 改号都忽略传进来的分类名，
+    见 `api/v1/users.py` 那句"分类是身份的投影"）⇒ 界面上再也造不出"账号挂在某个叶子分类下"
+    这种状态，而它**真实存在于老库**；"账号挂着不许删 / 改名级联 / 在用条数"判的就是这批
+    老数据，所以这里照老库那个形状直接写这一格。
+    """
+    db.expire_all()
+    u = db.query(User).filter_by(id=user_id).one()
+    u.category = name
+    db.commit()
+
+
+@pytest.fixture(autouse=True)
+def _six_level_ones(db_session):
+    """账号册的一级**固定六类**（`USER_CATEGORY_DEFAULTS`）：测试库里先把缺的补齐。
+
+    ⚠️ 测试库是**共用**的（`tests/conftest.py` 直接 ORM 建账号、从不调
+    `seed_default_user_categories`）⇒ 不补的话 `_top(client, h, "派单员")` 找不到行。
+    只补**缺的**，不删不动已有的行与顺序（幂等）。
+    """
+    have = {r.name for r in db_session.query(UserCategory).all()}
+    for offset, name in enumerate(n for n in USER_CATEGORY_DEFAULTS if n not in have):
+        db_session.add(UserCategory(name=name, sort_order=100 + offset))
+    db_session.commit()
+    yield
+
+
 # ----------------------------------------------------------------- 两级：写入路径
 def test_建子分类时出参带上层编号(client, token_dispatcher):
-    """子类是一行、大类也是一行，区别只在 `parent_id`（界面靠它画缩进）。"""
+    """子类是一行、大类也是一行，区别只在 `parent_id`（界面靠它画缩进）。
+
+    ⚠️ FEAT-0026 之后一级固定六类、不能新建 ⇒ 这里挂在既有的「派单员」下面；它**没有**对应的
+    模块名册页，所以这条路仍然可写（批发商 / 货主 / 三种司机的一级下面改由各自模块的名册拉取，
+    在账号册这边建会被 400 指回那一页 —— 见 `test_module_categories_split.py`）。
+    """
     h = auth_headers(token_dispatcher)
-    p = _mk(client, h, "探针-两级大类")
+    p = _top(client, h, "派单员")
     assert p["parent_id"] is None, "大类没有上层"
     c = _mk(client, h, "探针-两级子类", p["id"])
     assert c["parent_id"] == p["id"]
@@ -88,7 +143,7 @@ def test_上层分类不存在时被拒(client, token_dispatcher):
 def test_子类的子类被拒(client, token_dispatcher):
     """**只两级**：第三层界面画不出来 ⇒ 建的时候就拒（不然它是个看不见的孤儿）。"""
     h = auth_headers(token_dispatcher)
-    a = _mk(client, h, "探针-三级甲")
+    a = _top(client, h, "派单员")
     b = _mk(client, h, "探针-三级乙", a["id"])
     r = client.post(
         "/api/v1/user-categories", headers=h, json={"name": "探针-三级丙", "parent_id": b["id"]}
@@ -99,55 +154,71 @@ def test_子类的子类被拒(client, token_dispatcher):
 
 
 def test_大类下面还有子类时不许删(client, token_dispatcher):
-    """删掉大类会让子类变成没有父的孤儿 —— 先拒，且说清有几个、叫什么。"""
+    """删掉大类会让子类变成没有父的孤儿 —— 先拒，且说清有几个、叫什么。
+
+    ⚠️ FEAT-0026：一级固定六类 ⇒ 这里的"大类"只能是既有的「派单员」（它下面仍然可写）。
+    """
     h = auth_headers(token_dispatcher)
-    p = _mk(client, h, "探针-有子类的大类")
+    p = _top(client, h, "派单员")
     c = _mk(client, h, "探针-有子类的大类-甲", p["id"])
     r = client.delete(f"/api/v1/user-categories/{p['id']}", headers=h)
     assert r.status_code == 400, r.text
     assert "子分类" in r.json()["detail"] and "探针-有子类的大类-甲" in r.json()["detail"], r.json()["detail"]
-    assert _find(client, h, "探针-有子类的大类") is not None, "拒绝之后大类必须原样还在"
+    assert _find(client, h, "派单员") is not None, "拒绝之后大类必须原样还在"
     assert client.delete(f"/api/v1/user-categories/{c['id']}", headers=h).status_code == 204
-    assert client.delete(f"/api/v1/user-categories/{p['id']}", headers=h).status_code == 204
+    assert _find(client, h, "派单员") is not None, "一级分类删不掉"
+    # 一级是固定的六类：删不掉。挑一个**没有子类**的一级（「货主」）来判这句，
+    # 免得撞上"下面还有 N 个子分类"那句 —— 共用库里本文件会往「派单员」下面攒探针子类。
+    hz = _top(client, h, "货主")
+    refused = client.delete(f"/api/v1/user-categories/{hz['id']}", headers=h)
+    assert refused.status_code == 400 and "固定的六类" in refused.json()["detail"], refused.text
 
 
 # ----------------------------------------------------------------- 回归：账号那一格没变
-def test_账号那一格仍然是叶子名_改名级联照旧(client, token_dispatcher):
+def test_账号那一格仍然是叶子名_改名级联照旧(client, token_dispatcher, db_session):
     """两级**没有**把账号的分类变成「大类 / 子类」：它还是一个字符串，两条老规矩都不动。"""
     h = auth_headers(token_dispatcher)
-    p = _mk(client, h, "探针-叶子大类")
-    _mk(client, h, "探针-叶子子类", p["id"])
-    made = _mk_user(client, h, phone="13700009301", name="叶子甲", category="探针-叶子子类")
+    p = _top(client, h, "派单员")
+    kid = _mk(client, h, "探针-叶子子类", p["id"])
+    top_before = p["user_count"]
+    made = _mk_user(client, h, phone="13700009301", name="叶子甲")
     assert made.status_code in (200, 201), made.text
-    assert made.json()["category"] == "探针-叶子子类", "账号那一格必须还是叶子名"
+    # CHG-0121 之后建号那一格按身份自动推导 ⇒ 存量数据那种"挂在叶子分类下"直接写库
+    _set_cat(db_session, made.json()["id"], "探针-叶子子类")
+    assert _cat_of(db_session, made.json()["id"]) == "探针-叶子子类", "账号那一格必须还是叶子名"
 
     assert _find(client, h, "探针-叶子子类")["user_count"] == 1
-    assert _find(client, h, "探针-叶子大类")["user_count"] == 0, "大类的条数只数直接挂在它上面的"
+    assert _find(client, h, "派单员")["user_count"] == top_before, "大类的条数只数直接挂在它上面的"
 
     # 改名级联照旧（改完账号跟着走 —— 条数还在这一格上就证明它跟过去了）
-    kid = _find(client, h, "探针-叶子子类")
     renamed = client.patch(
         f"/api/v1/user-categories/{kid['id']}", headers=h, json={"name": "探针-叶子子类改"}
     )
     assert renamed.status_code == 200, renamed.text
     assert _find(client, h, "探针-叶子子类改")["user_count"] == 1, "改名没级联到账号"
+    assert _cat_of(db_session, made.json()["id"]) == "探针-叶子子类改", "账号那一格没跟着改名"
 
     # 还有账号挂着不许删（照旧），挪走之后能删
     assert client.delete(f"/api/v1/user-categories/{kid['id']}", headers=h).status_code == 400
-    assert client.patch(
-        f"/api/v1/users/{made.json()['id']}", headers=h, json={"category": ""}
-    ).status_code == 200
+    _set_cat(db_session, made.json()["id"], "货主")
     assert client.delete(f"/api/v1/user-categories/{kid['id']}", headers=h).status_code == 204
 
 
 def test_名册出参仍是一列平铺且带归属(client, token_dispatcher):
-    """四个名册页共用这一份：形状没变成树（仍是 sort_order, id 平铺），只是多了一格归属。"""
+    """四个名册页共用这一份：形状没变成树（仍是平铺一列），只是多了一格归属。
+
+    ⚠️ FEAT-0026：出参 = 「库里那些行（按 sort_order, id）」**后面追加**「从模块名册拉取来的
+    行」（编号为负、一定带 parent_id）⇒ 「全局有序」只对库里那些行成立；客户端按 parent_id
+    分组、组内再按 (sort_order, id) 排（拉取行不会跑到别的一级下面去）。
+    """
     h = auth_headers(token_dispatcher)
     rows = _roster(client, h)
     assert rows, rows
     assert all("parent_id" in r for r in rows)
-    keys = [(r["sort_order"], r["id"]) for r in rows]
-    assert keys == sorted(keys), keys
+    stored = [(r["sort_order"], r["id"]) for r in rows if r["id"] > 0]
+    assert stored == sorted(stored), stored
+    pulled = [r for r in rows if r["id"] < 0]
+    assert all(r["pulled"] is True and r["parent_id"] is not None for r in pulled), pulled
 
 
 # ----------------------------------------------------------------- 默认六类：播种

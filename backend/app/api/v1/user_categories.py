@@ -35,6 +35,23 @@
 
 ⚠️ 名册里没有的分类名**不是错误**（老数据、别的路径写进去的）。名册页会把它
 排在名册后面 —— 不许因为它不在名册里就把账号藏起来。
+
+## 拆分（FEAT-0026，2026-10-12）：这是**账号名册**，各模块有它们自己的名册
+
+用户 2026-10-12：「我批发商管理他那个分类啊，他那个分类是**跟账号管理不一样**的，他现在
+**串在一起**了……也就如**司机管理**，还有其他的**批发商管理**，他们是有自己的分类的，
+他们的分类基本上就是 **1 级**、不会有 2 级的。然后我们的**账号管理**，他的那个分类他是
+**有 2 级的**，他是**主动拉取**的，而且我们分类**已经固定好了**的。」
+
+⇒ 从这一轮起：
+- **一级 = 固定的六类**（`services/user_category.py::AUTO_CATEGORIES`）：⛔ 这一页不能新建一级，
+  一级也不能改名 / 删 / 排序 —— 账号的分类名是按身份自动推导的（CHG-0121），改了名它们就掉队；
+- **二级 = 从模块名册拉取**（`services/module_category.py::pull_module_categories`）：
+  批发商管理 / 司机管理 / 货主管理各自有一份**只有一级**的分类名册（`module_categories` 表），
+  `GET` 把它们投影成二级行（编号是**负数**、`pulled=True`）。⛔ 拉取是**读**，不写库；
+- **写路径**：模块名册的增 / 删 / 改 / 排序在 `/module-categories`（见
+  `api/v1/module_categories.py` 开头）；这一份名册里只剩 `派单员` 下面那几格
+  **历史遗留**的二级行（派单员没有模块名册），它们沿用 CHG-0112 的老行为。
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -44,7 +61,7 @@ from sqlalchemy.orm import Session
 from app.core.rbac import Permission
 from app.database import get_db
 from app.deps import CurrentUser, require_permission
-from app.models import User, UserCategory
+from app.models import ModuleCategory, User, UserCategory
 from app.models.enums import OperationAction
 from app.schemas.user_category import (
     UserCategoryCreate,
@@ -53,6 +70,13 @@ from app.schemas.user_category import (
     UserCategoryUpdate,
 )
 from app.services.category_order import ordered_ids
+from app.services.module_category import (
+    PulledCategory,
+    is_pulled_id,
+    module_of_level_one,
+    module_title,
+    pull_module_categories,
+)
 from app.services.operation_log_service import write_log
 from app.services.soft_delete import has_del_suffix
 
@@ -86,6 +110,27 @@ def _out(row: UserCategory, counts: dict[str, int]) -> UserCategoryOut:
     return o
 
 
+def _parent_name_of(db: Session, row: UserCategory) -> str:
+    """这一格挂在哪一类下面（一级自己 ⇒ 空串；父已经不在了 ⇒ 空串）。"""
+    if row.parent_id is None:
+        return ""
+    parent = db.get(UserCategory, row.parent_id)
+    return parent.name if parent is not None else ""
+
+
+def _out_pulled(p: PulledCategory) -> UserCategoryOut:
+    """拉取来的一行 → 出参（编号是**负数**、`pulled=True`；见 `services/module_category.py`）。"""
+    return UserCategoryOut(
+        id=p.id,
+        name=p.name,
+        sort_order=p.sort_order,
+        parent_id=p.parent_id,
+        user_count=p.user_count,
+        pulled=True,
+        module=p.module,
+    )
+
+
 def _next_sort(db: Session) -> int:
     top = db.scalar(select(func.max(UserCategory.sort_order)))
     return (top or 0) + 1
@@ -114,6 +159,20 @@ def _parent_or_400(db: Session, parent_id: int | None) -> UserCategory | None:
     return parent
 
 
+def _in_module_roster(db: Session, name: str) -> bool:
+    """这个名字是不是某个**模块自有名册**里的分类（批发商 / 司机 / 货主管理，FEAT-0026）。
+
+    软删掉的那些**算数**：它们还被账号挂着、还能被撤销（这一格迟早会回来），
+    此刻往账号册补一行一级，等于给同一格分类留了两条命。
+    """
+    return (
+        db.scalars(
+            select(ModuleCategory).where(ModuleCategory.name == name)
+        ).first()
+        is not None
+    )
+
+
 def ensure_user_category(db: Session, name: str) -> UserCategory | None:
     """确保这个分类名在名册里（不在就补到最后）。给账号的新建/修改复用。
 
@@ -125,6 +184,13 @@ def ensure_user_category(db: Session, name: str) -> UserCategory | None:
     exists = db.scalars(select(UserCategory).where(UserCategory.name == clean)).first()
     if exists is not None:
         return None
+    # ── FEAT-0026：模块自有名册里的名字**不往账号册补行** ─────────────────────────
+    # 账号那一格是**叶子名**（CHG-0112），而模块名册里的分类已经会以**拉取**的方式
+    # 出现在账号册里（挂在对应的一级下面 = 二级）。这里再补一行，同一个名字就多出一个
+    # 「一级」的身份（parent_id is None）—— 界面上它既在「批发商」下面、又自己独占一格，
+    # 那正是用户说的"又串在一起了"。
+    if _in_module_roster(db, clean):
+        return None
     row = UserCategory(name=clean, sort_order=_next_sort(db))
     db.add(row)
     db.flush()
@@ -133,10 +199,21 @@ def ensure_user_category(db: Session, name: str) -> UserCategory | None:
 
 @router.get("", response_model=list[UserCategoryOut])
 def list_categories(current: CurrentUser, db: Session = Depends(get_db)) -> list[UserCategoryOut]:
-    """分类名册（按显示顺序）。四个名册页共用这一份 —— 账号是全局主数据，不按人分区。"""
+    """分类名册（按显示顺序）：**固定的六类一级 + 从各模块名册拉取来的二级**。
+
+    一级是全局主数据（六类固定），二级由 `services/module_category.py::pull_module_categories`
+    从各模块自己的名册**拉取**而来（读时投影，⛔ 一个字节都不写 `user_categories`）。
+    """
     rows = db.scalars(select(UserCategory).order_by(UserCategory.sort_order, UserCategory.id)).all()
     counts = _counts(db)
-    return [_out(r, counts) for r in rows]
+    out = [_out(r, counts) for r in rows]
+    for row in out:
+        # 一级 = 固定的六类（见模块 docstring）；拉取来的行下面单独追加。
+        row.fixed = row.parent_id is None
+    # 「账号管理主动拉取」：把各模块名册（FEAT-0026）投影成本册的**二级**。
+    # ⛔ 拉取行永远带 parent_id（parent_id 为空就是"拉成一级"，那正是用户说的"又串在一起"）。
+    out.extend(_out_pulled(p) for p in pull_module_categories(db))
+    return out
 
 
 @router.post("", response_model=UserCategoryOut, status_code=status.HTTP_201_CREATED)
@@ -152,6 +229,24 @@ def create_category(
     if total >= MAX_CATEGORIES:
         raise HTTPException(status_code=400, detail=f"分类最多 {MAX_CATEGORIES} 个，请先清理一些")
     parent = _parent_or_400(db, body.parent_id)
+    # ── FEAT-0026：这一页是**账号名册**，只读 ────────────────────────────────────────
+    # 一级不许新建：账号挂的分类名是按身份自动推导的（CHG-0121），凭空多一个一级没人会被挂上去。
+    if parent is None:
+        raise HTTPException(
+            status_code=400,
+            detail="账号分类的一级是固定的六类（派单员 / 货主 / 批发商 / 小车司机 / 大车司机 / "
+                   "挂车司机），不能新建。批发商 / 司机 / 货主各自的分类请到对应模块的"
+                   "「管理分类」里建 —— 建好之后这里会自动拉取成二级。",
+        )
+    # 二级挂在模块的一级下面 ⇒ 那是模块名册的地盘（拉取是**读**，写要去那一页）。
+    # 只有「派单员」下面的历史遗留子分类还落在这张表上（派单员没有模块名册）。
+    owner = module_of_level_one(parent.name)
+    if owner is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"「{parent.name}」下面的子分类跟着「{module_title(owner)}」自己的名册走，"
+                   "请到那一页的「管理分类」里新建（这里只读、自动拉取）。",
+        )
     row = UserCategory(
         name=body.name,
         sort_order=body.sort_order if body.sort_order is not None else _next_sort(db),
@@ -186,9 +281,29 @@ def update_category(
     db: Session = Depends(get_db),
 ) -> UserCategoryOut:
     """改名 / 改顺序。**改名会级联改掉挂在这一类下的账号**（同一事务，见模块注释）。"""
+    if is_pulled_id(category_id):
+        raise HTTPException(
+            status_code=400,
+            detail="这是从模块名册拉取来的二级分类，改不在这里 —— 请到对应模块的「管理分类」里改。",
+        )
     row = db.get(UserCategory, category_id)
     if row is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
+    parent_name = _parent_name_of(db, row)
+    # 一级固定六类：改名会让按身份自动推导出来的那些账号掉队（CHG-0121）。
+    if row.parent_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="账号分类的一级是固定的六类，改不了：账号挂的分类名是按身份自动推导的"
+                   "（CHG-0121），改了名它们就掉队。",
+        )
+    owner = module_of_level_one(parent_name)
+    if owner is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"「{parent_name}」下面的子分类跟着「{module_title(owner)}」自己的名册走，"
+                   "请到那一页的「管理分类」里改（这里只读、自动拉取）。",
+        )
     changes: list[dict] = []
     if body.name is not None and body.name != row.name:
         clash = db.scalars(
@@ -228,7 +343,21 @@ def reorder_categories(
 ) -> list[UserCategoryOut]:
     """整份顺序一次提交：`ids[0]` 排最前（必须覆盖全部现存分类，理由见 `services/category_order`）。"""
     rows = db.scalars(select(UserCategory)).all()
-    by_id = {r.id: r for r in rows}
+    # FEAT-0026：账号册里**能排序的只剩"没有模块归属"的那几格**（「派单员」下面的历史遗留
+    # 子分类）—— 一级是固定的六类、二级跟随各模块名册自己的顺序，提交它们只会换来一句
+    # "顺序里有不存在的分类编号"，所以先在这里说清楚（比让 ordered_ids 报编号更可读）。
+    free = {
+        r.id: r
+        for r in rows
+        if r.parent_id is not None and module_of_level_one(_parent_name_of(db, r)) is None
+    }
+    if any(i not in free for i in body.ids):
+        raise HTTPException(
+            status_code=400,
+            detail="账号分类的一级是固定的六类、二级跟着各模块自己的名册，账号册里能排序的只有"
+                   "「派单员」下面的历史子分类；其余请到批发商 / 司机 / 货主管理的「管理分类」里排。",
+        )
+    by_id = free
     ids = ordered_ids(by_id, body.ids)
     for idx, cid in enumerate(ids):
         by_id[cid].sort_order = idx
@@ -255,11 +384,18 @@ def delete_category(
     为什么不"顺手把那些账号改成未分类"：那是**悄悄改数据** —— 用户点的是"删掉这个分类"，
     不是"把 37 个账号的分类清掉"，而且清完在界面上看不出来（它们只是散进「未分类」）。
     """
+    if is_pulled_id(category_id):
+        raise HTTPException(
+            status_code=400,
+            detail="这是从模块名册拉取来的二级分类，删不在这里 —— 请到对应模块的「管理分类」里删"
+                   "（那边是软删，删错了能撤销）。",
+        )
     row = db.get(UserCategory, category_id)
     if row is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
-    # ⛔ 还有子类时先拒（顺序在「还有账号挂着」之前）：子类会变成没有父的孤儿 ——
+    # ⛔ 还有子类时先拒（顺序在最前）：子类会变成没有父的孤儿 ——
     #    它仍然是一行、仍然能被点，但界面上再也说不清它属于哪一类。
+    #    「派单员」这种既挂着子类、自己又是固定一级的行，先说子类那句更可操作。
     #    与「还有账号挂着不许删」同一条纪律：不顺手把子类挪到别处（那是悄悄改数据）。
     kids = db.scalars(
         select(UserCategory)
@@ -273,6 +409,21 @@ def delete_category(
             status_code=400,
             detail=f"「{row.name}」下面还有 {len(kids)} 个子分类（{shown}{more}），"
                    "先把它们删掉或改到别的大类下面再删",
+        )
+    parent_name = _parent_name_of(db, row)
+    # 一级固定六类：删掉之后按身份自动推导的那些账号会变成「名册里没有的分类」。
+    if row.parent_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="账号分类的一级是固定的六类，删不了：删掉之后按身份自动推导的那些账号会变成"
+                   "「名册里没有的分类」。",
+        )
+    owner = module_of_level_one(parent_name)
+    if owner is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"「{parent_name}」下面的子分类跟着「{module_title(owner)}」自己的名册走，"
+                   "请到那一页的「管理分类」里删（那边是软删，删错了能撤销）。",
         )
     used = _counts(db).get(row.name, 0)
     if used:

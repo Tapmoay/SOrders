@@ -70,3 +70,12 @@ class UserCategoryOut(BaseModel):
     #: 这个分类下**在用**的账号数（删之前要让用户看见「有多少账号挂在这一类」）
     #: ⚠️ 只数**直接挂在这一格上**的账号，**不含子类**（两级各算各的，界面才说得清）。
     user_count: int = 0
+    #: FEAT-0026：这一格是**固定**的一级分类（六类之一）—— 账号册里不许新建一级，
+    #: 也不许给一级改名 / 删 / 排序（`users.category` 是按身份自动推导的，改了名那些账号就掉队）。
+    fixed: bool = False
+    #: FEAT-0026：这一格是从模块名册**拉取**来的二级（编号是**负数**、只读 ——
+    #: 要改请去对应模块的「管理分类」页）。App 的 `submittableIds` 只提交 `id > 0`，
+    #: 所以拉取行天然进不了任何排序 / 改名请求。
+    pulled: bool = False
+    #: FEAT-0026：拉取行的来源模块（`members` / `shippers` / `drivers`）；真实行是 None。
+    module: str | None = None
