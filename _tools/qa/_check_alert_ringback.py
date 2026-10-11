@@ -228,14 +228,30 @@ def main() -> int:
     #    （`EXTRA_ORDER_ID` / `EXTRA_NOTIFY_TOKEN`），拿整个文件去正则会数出 7 个。
     chan = between(notify, "object NotifyChannels {", "const val SERVICE_NOTIFICATION_ID")
     c.ok("渠道常量名与值都不带数字（红线判据按正则数它们）",
-         len(re.findall(r"const val ([A-Z_]+) = " + DQ + "([a-z_]+)" + DQ, chan)) == 5,
+         len(re.findall(r"const val ([A-Z_]+) = " + DQ + "([a-z_]+)" + DQ, chan)) >= 5,
          "n=" + str(len(re.findall(r"const val ([A-Z_]+) = " + DQ + "([a-z_]+)" + DQ, chan))))
     c.ok("派单通知发到新渠道", "NotificationCompat.Builder(context, NotifyChannels.ORDERS_ALERT)" in notify)
-    c.ok("消息通知发到新渠道", "NotificationCompat.Builder(context, NotifyChannels.MESSAGES_ALERT)" in notify)
+    # ⚠️ 2026-10-11 FEAT-0027：消息按 severity 分成 danger / warn / info 三档，
+    #    渠道的选取搬进了唯一映射处 MessageNotify.channelOf（写死一条就分不了档）。
+    #    本判据的原意不变：消息通知必须发到「消息」那一族的新渠道，不是旧的静默渠道。
+    c.ok(
+        "消息通知按 severity 选渠道（唯一映射处 MessageNotify.channelOf）",
+        "NotificationCompat.Builder(context, MessageNotify.channelOf(" in notify,
+        "消息渠道又被写死/退回旧渠道 → 分档与提示音一起失效",
+    )
     c.absent("不再往旧派单渠道发", notify, "NotificationCompat.Builder(context, NotifyChannels.ORDERS)")
     c.absent("不再往旧消息渠道发", notify, "NotificationCompat.Builder(context, NotifyChannels.MESSAGES)")
-    c.ok("五条渠道都还在建（旧的那两条只留定义、改名带（旧））",
-         notify.count("NotificationChannel(") == 5, "n=" + str(notify.count("NotificationChannel(")))
+    # ⚠️ 2026-10-11 FEAT-0027：新增 MESSAGES_WARN / MESSAGES_INFO 两条渠道
+    #    （安卓渠道是**一次性**的：改 importance 对老机器无效 ⇒ 想让消息按 severity 分档，
+    #     只能各自一条新 id）。这里从"恰好五条"改成"**老五条一条不少** ＋ 每个渠道常量都真的
+    #     建了渠道"—— 判据的原意（旧渠道不删、常量与创建成对）一条没少，
+    #     而"新增一条忘了建渠道"这种坏法依旧会被抓住。
+    n_chan = len(re.findall(r"const val ([A-Z_]+) = " + DQ + "([a-z_]+)" + DQ, chan))
+    c.ok(
+        "五条旧渠道一条都没少 ＋ 每个渠道常量都真的建了渠道",
+        n_chan >= 5 and notify.count("NotificationChannel(") == n_chan,
+        "常量 " + str(n_chan) + " 条 / 创建 " + str(notify.count("NotificationChannel(")) + " 处",
+    )
     c.ok("旧派单渠道名字里带（旧）", DQ + "派单与新单（旧）" + DQ in notify)
     c.ok("旧消息渠道名字里带（旧）", DQ + "消息（旧）" + DQ in notify)
     ord_block = between(notify, "NotifyChannels.ORDERS_ALERT,", "NotifyChannels.MESSAGES,")
