@@ -423,7 +423,7 @@ private fun PersonPriceRow(
             }
             when {
                 own == null -> if (row.effectiveUnitPrice != null) {
-                    MoneyText(row.effectiveUnitPrice, style = MaterialTheme.typography.bodySmall, prefix = "按默认价 ¥")
+                    Text("按默认价 ¥" + formatMoney(row.effectiveUnitPrice), style = MaterialTheme.typography.bodySmall)
                 } else {
                     Text("未设", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
                 }

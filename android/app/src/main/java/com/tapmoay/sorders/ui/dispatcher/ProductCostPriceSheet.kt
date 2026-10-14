@@ -37,7 +37,6 @@ import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ProductCostPriceDto
 import com.tapmoay.sorders.ui.common.DangerConfirmDialog
 import com.tapmoay.sorders.ui.common.FormErrorLine
-import com.tapmoay.sorders.ui.common.Hint
 import com.tapmoay.sorders.ui.common.SheetCloseButton
 import com.tapmoay.sorders.ui.common.SoTextField
 import com.tapmoay.sorders.ui.theme.QuickPriceGreen
