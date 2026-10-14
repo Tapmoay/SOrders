@@ -36,6 +36,7 @@ import com.tapmoay.sorders.ui.dispatcher.OrderTemplatesScreen
 // 供应商 / 厂商档案 + 一个供应商的账（2026-09-22）
 import com.tapmoay.sorders.ui.dispatcher.SupplierDetailScreen
 import com.tapmoay.sorders.ui.dispatcher.SuppliersScreen
+import com.tapmoay.sorders.ui.dispatcher.DriverSalaryScreen
 import com.tapmoay.sorders.ui.dispatcher.FreightSettlementScreen
 import com.tapmoay.sorders.ui.dispatcher.FreightCategoriesScreen
 import com.tapmoay.sorders.ui.dispatcher.UnpricedOrdersScreen
@@ -496,6 +497,15 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
         }
         composable(Routes.DISPATCH_RECEIPTS) { ReceiptsScreen(container = container, onBack = { navController.popBackStack() }) }
         composable(Routes.DISPATCH_SETTLEMENTS) { SettlementsScreen(container = container, onBack = { navController.popBackStack() }) }
+        // 「司机工资（按月）」（2026-10-15 CHG-0127）：固定工资司机的工资单 + 派单员一键核销。
+        // 主入口在「司机账 · 运费结算」那一页的出口行上（这里注册是为了深链/返回栈完整）。
+        composable(Routes.DISPATCH_DRIVER_SALARIES) {
+            DriverSalaryScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpenSettlements = { navController.navigate(Routes.DISPATCH_SETTLEMENTS) },
+            )
+        }
         // 「收支」（2026-09-22）：账本管理入口页那一格 —— 收入按来源、支出按去路各一路一行。
         // 「开销管理」从这一页的支出卡底部进（它不再与这一页并列占一格）。
         composable(Routes.DISPATCH_CASH) {
@@ -610,6 +620,9 @@ fun AppRoot(container: AppContainer, initialSession: Session?) {
                 // 「司机结算（按月）」那一页的出口（2026-10-07 CHG-0075 救活）：合并之前它挂在
                 // 账本页的司机档里，现在挂到这一页上 —— 结完账去那儿按月份打结算单。
                 onOpenSettlements = { navController.navigate(Routes.DISPATCH_SETTLEMENTS) },
+                // 「司机工资（按月）」（2026-10-15 CHG-0127）：固定工资司机的那本工资账。
+                // 用户（m43131）要派单员「在司机账本这里对他的工资进行核销」，入口就挂在这一页。
+                onOpenSalaries = { navController.navigate(Routes.DISPATCH_DRIVER_SALARIES) },
             )
         }
         composable(Routes.DRIVER_FREIGHT) {

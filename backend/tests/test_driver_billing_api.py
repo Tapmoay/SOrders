@@ -693,10 +693,16 @@ def test_改成固定工资之后_账上的按单钱仍然要能对账(
 def test_一直拿固定工资没按单跑过的司机_没有我的账单入口(
     client: TestClient, token_dispatcher: str
 ) -> None:
-    """用户 2026-09-20 定的规则不能被上面那条推翻。
+    """用户 2026-09-20 定的规则不能被上面那条推翻 —— **但 2026-10-15 用户自己又改了它**。
 
-    原话：「拿固定工资的司机不需要「我的账本」，所以他是没有的」——
-    判据是**他有没有按单的钱要对**：一直拿固定工资、从来没按单跑过 → 两个字段都是 false。
+    2026-09-20 原话：「拿固定工资的司机不需要「我的账本」，所以他是没有的」—— 判据是
+    **他有没有按单的钱要对**：一直拿固定工资、从来没按单跑过 → 那两个字段都是 false。
+    （函数名保持不动：判据 `_tools/qa/_check_driver_money.py` 逐字钉着它，改名＝判据红。）
+
+    2026-10-15 用户（m43131）：「我们的大车司机也就是固定工资的司机不是没有我的账本吗，
+    我们加一个我的账本啊，这个我的账本就是**统计他的工资**的」⇒ 那一格不再是"有没有"的问题，
+    而是**进去算什么**：`has_salary = true` ⇒ 有工资账可看（进的是工资那半页，不是运费那半页）。
+    所以这里把第三个判据也钉上：这样一位司机，`has_salary` 必须是 true。
     """
     driver_id, token_driver = _mk_driver(client, token_dispatcher, vehicle="trailer")
     rule = _mk_rule(client, token_dispatcher, salary="8000", piece_amount="0")
@@ -705,3 +711,116 @@ def test_一直拿固定工资没按单跑过的司机_没有我的账单入口(
     me = client.get("/api/v1/users/me", headers=auth_headers(token_driver)).json()
     assert me["pays_per_order"] is False, me
     assert me["has_per_order_earnings"] is False, me
+    # 按单那两个都是 false，但**月薪这个是真的**：他有一本工资账要看（CHG-0127）。
+    # 判据只有一处：`driver_pay.monthly_salary_of`（挂了规则按规则的 salary；没挂规则才回退老口径）。
+    # ⛔ 不许客户端拿 `salary` 这个字段猜 —— 它对非派单员被后端抹成 None（`api/v1/users.py`）。
+    assert me["has_salary"] is True, me
+
+
+@pytest.mark.dispatcher
+@pytest.mark.driver
+@pytest.mark.integration
+def test_固定工资改过_未核销的月薪单跟着重算_已核销的一分不动(
+    client: TestClient, token_dispatcher: str, db_session
+) -> None:
+    """用户（m43131）：「如果在任职期间他的固定工资发生了改变，我们也同样也是有记录的……
+
+    已经核销了……表示已核销，就是**重新计算那个没有核销的工资**」。
+
+    两件事一起钉：
+    ① **未核销的**要跟着新工资重算 —— 否则派单员把 6500 改成 7000 之后，那个月还没结账的工资单
+       还印着旧数，核销时照旧数结账（钱少付了，而且没有任何地方报错）；
+    ② **已核销的**一分不动 —— 它是已经对过账的凭证（`status = settled`，或被某张结算单锁住
+       `settled_doc_id`）。⚠️ 第二种形态（**被草稿单锁住、状态还是 open**）最要紧：只看状态就会
+       把它当成未核销去重算，而那张草稿单的金额是按旧数定死的 —— 结出来的账两边都对不上。
+    """
+    # ⚠️ 月份必须是过去的（R13-D3 之后"未来的月份"被拒）：挑不可能有历史数据的远古月份，
+    #    免得和别的用例互相污染。
+    month1, month2 = "2002-03", "2002-04"
+    driver_id, _ = _mk_driver(client, token_dispatcher, vehicle="large")
+    rule_a = _mk_rule(client, token_dispatcher, salary="8000", piece_amount="0")
+    assert _attach(client, token_dispatcher, driver_id, rule_a["id"]).status_code == 200
+
+    def gen(month: str, refresh: bool = False):
+        return client.post(
+            "/api/v1/driver-bills/generate",
+            headers=auth_headers(token_dispatcher),
+            json={"driver_id": driver_id, "month": month, "bill_type": "salary",
+                  "refresh_unsettled": refresh},
+        )
+
+    def bill_of(month: str) -> dict:
+        bills = client.get(
+            f"/api/v1/driver-bills?driver_id={driver_id}", headers=auth_headers(token_dispatcher)
+        ).json()
+        return next(b for b in bills if b["month"] == month and b["bill_type"] == "salary")
+
+    # ① 8000 的月份各生成一张
+    assert len(gen(month1).json()) == 1
+    assert len(gen(month2).json()) == 1
+    assert Decimal(bill_of(month1)["amount"]) == Decimal("8000.00")
+    assert rule_a["name"] in bill_of(month1)["note"]
+
+    # ② 涨到 9000（改规则**不改历史账单**：快照在生成那一刻就定死了）
+    rule_b = _mk_rule(client, token_dispatcher, salary="9000", piece_amount="0")
+    assert _attach(client, token_dispatcher, driver_id, rule_b["id"]).status_code == 200
+
+    # 老行为：不带 refresh_unsettled ⇒ 幂等，一张都不动（缺省一个字不变）
+    assert gen(month1).json() == []
+    assert Decimal(bill_of(month1)["amount"]) == Decimal("8000.00")
+
+    # ③ 未核销的那张跟着重算，并把**动过的那张**回给调用方（界面据此才敢说"重算了"）
+    refreshed = gen(month1, refresh=True).json()
+    assert [b["id"] for b in refreshed] == [bill_of(month1)["id"]], refreshed
+    assert Decimal(bill_of(month1)["amount"]) == Decimal("9000.00")
+    assert rule_b["name"] in bill_of(month1)["note"]
+
+    # ③′ month2 也刷新一次（**此刻它还没被任何结算单锁住**）。
+    #    这一步是给 ⑤ 铺路：锁住的那一刻它得是 9000，后面涨到 10000 时"不许动"才**判断得出来** ——
+    #    不先刷一次的话它一直是 8000，涨没涨都看不出来（那这条判据就成了空转）。
+    assert len(gen(month2, refresh=True).json()) == 1
+    assert Decimal(bill_of(month2)["amount"]) == Decimal("9000.00")
+
+    # ④ 给 month2 建一张**草稿**结算单：那张工资单当场被锁住（此时 status 还是 open！）
+    created = client.post(
+        "/api/v1/driver-settlements",
+        headers=auth_headers(token_dispatcher),
+        json={"driver_id": driver_id, "month": month2, "settle_type": "salary"},
+    )
+    assert created.status_code == 200, created.text
+    sid = created.json()["id"]
+    assert bill_of(month2)["status"] == "open" and bill_of(month2)["settled_doc_id"] == sid
+
+    # ⑤ 再涨到 10000：被草稿单锁住的那张**不许动**（只看状态会在这里翻车），未核销的继续跟着走
+    rule_c = _mk_rule(client, token_dispatcher, salary="10000", piece_amount="0")
+    assert _attach(client, token_dispatcher, driver_id, rule_c["id"]).status_code == 200
+    assert gen(month2, refresh=True).json() == [], "被结算单锁住的单不许被刷新"
+    assert Decimal(bill_of(month2)["amount"]) == Decimal("9000.00")
+    assert len(gen(month1, refresh=True).json()) == 1
+    assert Decimal(bill_of(month1)["amount"]) == Decimal("10000.00")
+
+    # ⑥ 确认那张结算单（钱真的对过账了）→ 再涨工资也不动它
+    assert client.patch(
+        f"/api/v1/driver-settlements/{sid}",
+        headers=auth_headers(token_dispatcher), json={"action": "confirm"},
+    ).status_code == 200
+    assert bill_of(month2)["status"] == "settled"
+    rule_d = _mk_rule(client, token_dispatcher, salary="11000", piece_amount="0")
+    assert _attach(client, token_dispatcher, driver_id, rule_d["id"]).status_code == 200
+    assert gen(month2, refresh=True).json() == [], "已核销的是凭证，一分不许动"
+    assert Decimal(bill_of(month2)["amount"]) == Decimal("9000.00")
+
+    # ⑦ 刷新留了痕：这是这一组动作里**唯一会动已经存在的钱**的一步（生成只是补单），
+    #    只在界面上说一句"已重算"是不够的 —— 巡检要能从审计里看出"这次刷了几张"。
+    from app.models import OperationAction, OperationLog
+
+    last = (
+        db_session.query(OperationLog)
+        .filter(OperationLog.action == OperationAction.DRIVER_BILL_GENERATE)
+        .order_by(OperationLog.id.desc())
+        .first()
+    )
+    assert last is not None and last.change_content, "刷新工资单没有留痕"
+    assert "refreshed_count" in last.change_content, last.change_content
+    assert "refresh_unsettled" in last.change_content, last.change_content
+    assert "10000" in last.change_content, last.change_content

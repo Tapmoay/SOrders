@@ -173,8 +173,22 @@ fun ProfileScreen(
                     //    两个字段都来自后端（判据在 `services/driver_pay`，与账单同源），
                     //    界面不许自己按规则/车型猜；派单员一改规则，这里跟着变。
                     //    老后端没有第三个字段时退回 ①② 的旧判据（`null` 不当成 true）。
+                    //    ④ ⚠️ 2026-10-15（m43131，CHG-0127）：**用户把 ① 那条推翻了** ——
+                    //      「拿固定工资的司机……我们加一个我的账本啊，这个我的账本就是统计他的
+                    //      工资的」⇒ 一直拿固定工资、从来没按单跑过的司机**也要有这一格**
+                    //      （`has_salary`，即月薪 > 0；判据同样是 `driver_pay.monthly_salary_of`）。
+                    //      进去之后是**两半页**：有运费的看运费，有工资的看工资 —— 运费那半页
+                    //      按月份档位算（`freight-settlement`），工资那半页按月列工资单
+                    //      （`driver-bills` 的 salary 单）。⛔ 两个判据都留着：改成固定工资之后
+                    //      账上还躺着的按单钱（③）也还得能看见。
+                    //    ⛔ 这一行整段被 `_tools/qa/_check_driver_money.py` 逐字钉着：
+                    //      只能**在后面追加** `|| vm.user?.hasSalary == true`，
+                    //      不许把这几个字段抽成一个"这个司机有没有账本"式的辅助函数
+                    //      （判据按字面找这段子串，抽走了＝判据红，而这正是"入口判据只有一处"
+                    //      那件事要防的：散出去之后总有一处忘了加）。
                     if (vm.user?.role == "driver" &&
-                        (vm.user?.paysPerOrder == true || vm.user?.hasPerOrderEarnings == true)
+                        (vm.user?.paysPerOrder == true || vm.user?.hasPerOrderEarnings == true ||
+                            vm.user?.hasSalary == true)
                     ) {
                         RowMotion(0, jelly) {
                             ProfileRow(
@@ -182,8 +196,18 @@ fun ProfileScreen(
                                 tint = Color(MoneyOrange),
                                 title = "我的账本",
                                 trailing = {
+                                    // 尾注照着**他进去能看到什么**念（2026-10-15 CHG-0127）：
+                                    // 只有运费的照旧"按单计费明细"；只有工资的说"工资明细"
+                                    // （固定工资司机进去就是工资单，写"按单"是句假话）；
+                                    // 两样都有的两半页都画，所以写"运费 / 工资明细"。
                                     Text(
-                                        "按单计费明细",
+                                        when {
+                                            vm.user?.hasSalary == true &&
+                                                (vm.user?.paysPerOrder == true ||
+                                                    vm.user?.hasPerOrderEarnings == true) -> "运费 / 工资明细"
+                                            vm.user?.hasSalary == true -> "工资明细"
+                                            else -> "按单计费明细"
+                                        },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )

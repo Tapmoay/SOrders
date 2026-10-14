@@ -68,9 +68,14 @@ def read_me(current: CurrentUser, db: Session = Depends(get_db)) -> UserOut:
     # ⚠️ 只有在**自己的** /me 上算 —— 列表页不需要它，而它要查一次 driver_bills。
     #    判据本身在 `driver_pay`（钱的唯一口径处），这里只负责把它填进出参。
     if user_role_key(current) == UserRole.DRIVER.value:
-        from app.services.driver_pay import has_per_order_earnings
+        from app.services.driver_pay import has_per_order_earnings, monthly_salary_of
 
         out.has_per_order_earnings = has_per_order_earnings(db, current)
+        # 「他有没有月薪要算」（2026-10-15 CHG-0127）：固定工资司机也要有「我的账本」，
+        # 里面统计的是**他的工资**（月度工资单 + 已核销/未核销）。
+        # ⚠️ 与上面那个一样只在**自己的** /me 上算；判据用 `monthly_salary_of`（工资的唯一口径处）
+        #    —— 界面原来的判据只看按单的钱，于是纯月薪司机一个入口都没有。
+        out.has_salary = monthly_salary_of(current) > 0
     return out
 
 

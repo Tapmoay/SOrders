@@ -171,6 +171,14 @@ object Routes {
     // 账本 V2：收款/结算/开销/车辆
     const val DISPATCH_RECEIPTS = "dispatcher/receipts"
     const val DISPATCH_SETTLEMENTS = "dispatcher/settlements"
+    /**
+     * 「司机工资（按月）」（2026-10-15 CHG-0127）：派单员给**固定工资司机**核销工资的落点。
+     *
+     * 从「司机账 · 运费结算」（[FREIGHT_SETTLEMENT]）那一页的出口行进：那一页算的是**运费**
+     * （`freight-settlement`，跟时间档位走），工资是**另一条账**（`driver-bills` 的 salary 单，
+     * 按 `month`）—— 两种钱分屏算，才不会出现"明细加起来不等于上面那个数"。
+     */
+    const val DISPATCH_DRIVER_SALARIES = "dispatcher/driver-salaries"
     const val DISPATCH_EXPENSES = "dispatcher/expenses"
     /**
      * 「收支」（2026-09-22 用户要求）：账本管理入口页那一格 —— 收入按**来源**、支出按**去路**，

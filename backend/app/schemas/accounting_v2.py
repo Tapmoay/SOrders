@@ -134,6 +134,15 @@ class DriverBillGenerateBody(BaseModel):
     # 长度 7 与列宽 String(7) 一致；格式另有一份中文判据（validate_month）
     month: str = Field(..., max_length=7, description="YYYY-MM")
     bill_type: DriverBillType = DriverBillType.SALARY
+    # 「未核销的工资重新计算」（2026-10-15 CHG-0127）：月薪单本来是**一次生成、永不改动**的
+    # （`generate_bills` 里遇到已存在就 `continue`）—— 于是派单员改了某人的固定工资之后，
+    # 那个月**还没核销**的工资单还印着旧数，等他核销时按旧数结账（少付/多付都已经发生过）。
+    #
+    # 置 True 时才重算，且**只动「未核销」的月薪单**：`status == OPEN` 且
+    # `settled_doc_id is None`（没被任何结算单锁住）。已核销（SETTLED）与已被草稿结算单
+    # 锁住的一律不碰 —— 那是已经对过的账，改它就是改历史。
+    # ⛔ 缺省 False：现有调用方（AI 的 `settlements.generate_bills`、司机结算页）语义一字不变。
+    refresh_unsettled: bool = False
 
     @field_validator("month", mode="before")
     @classmethod

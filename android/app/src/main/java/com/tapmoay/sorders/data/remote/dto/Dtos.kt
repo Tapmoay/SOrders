@@ -133,6 +133,13 @@ data class UserDto(
     //    订单卡片已经不画任何金额了，这一格是他唯一能对账的地方。
     // null = 老后端还没这个字段 → 退回旧判据（只看 `paysPerOrder`）。
     @SerialName("has_per_order_earnings") val hasPerOrderEarnings: Boolean? = null,
+    // 「他有没有**月薪**（固定工资）要算」——2026-10-15 加（CHG-0127）：固定工资司机也要有
+    // 「我的账本」这一格（用户口述：「我们的大车司机也就是固定工资的司机不是没有我的账本吗，
+    // 我们加一个我的账本啊」）。⛔ 不许拿上面那个 `salary` 判：那个字段在司机端被后端抹成 null
+    // （`api/v1/users.py` 注释「工资仅派单员可见」）——拿它判的话这一格永远不会出现。
+    // 判据在后端 `services/driver_pay.monthly_salary_of`（与工资单同源），界面不许自己按规则/车型猜。
+    // null = 老后端还没这个字段 → 退回旧判据（前两个字段）。
+    @SerialName("has_salary") val hasSalary: Boolean? = null,
     @SerialName("created_at") val createdAt: String = "",
 )
 
@@ -2273,6 +2280,12 @@ data class DriverBillDto(
     @SerialName("settled_doc_id") val settledDocId: Long? = null,
     @SerialName("driver_name") val driverName: String? = null,
     @SerialName("order_no") val orderNo: String? = null,
+    // 这一笔是谁算的（规则名）＋ 后端在单子上写的那句话（月薪单里是「固定工资 X 元/月」）。
+    // 2026-10-15 补（CHG-0127）：后端 `DriverBillOut` 一直在返回这两个字
+    // （`backend/app/schemas/accounting_v2.py` 的 `rule_name` / `note`），只是客户端没接 ——
+    // 「这条工资单是哪份规则算的」在界面上就无从显示。纯增量，缺省空串。
+    @SerialName("rule_name") val ruleName: String = "",
+    val note: String = "",
 )
 
 @Serializable
@@ -2280,6 +2293,11 @@ data class DriverBillGenerateRequest(
     @SerialName("driver_id") val driverId: Long? = null,
     val month: String,
     @SerialName("bill_type") val billType: String = "salary",
+    // 「顺便把**未核销**的月薪单按现在的工资重算」（2026-10-15 加，CHG-0127）：固定工资在任职
+    // 期间改过之后，之前已经生成、但还没被结算单锁住的那几张月薪单要跟着变；已核销的
+    // （`status = settled` 或已被某张结算单点名 `settled_doc_id`）**一分不动**（那是凭证）。
+    // 缺省 false = 老行为一字不变（幂等，只补不覆盖）。
+    @SerialName("refresh_unsettled") val refreshUnsettled: Boolean = false,
 )
 
 @Serializable

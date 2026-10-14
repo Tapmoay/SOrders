@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.data.remote.dto.DriverBillDto
 import com.tapmoay.sorders.data.repo.toApiException
 import com.tapmoay.sorders.ui.common.DatePresets
 import com.tapmoay.sorders.util.formatDateTime
@@ -51,6 +52,41 @@ class DriverFreightViewModel(private val container: AppContainer) : ViewModel() 
 
     /** 趋势图类型：line / bar */
     var chartType by mutableStateOf("line")
+
+    /**
+     * **工资单**（`bill_type = salary`）—— 固定工资司机也要有账看（2026-10-15，CHG-0127）。
+     *
+     * ⛔ 取数口径与上面那半页**不是一回事**：运费走 `freightSettlementRange`（按时间档位），
+     *    工资走 `driverBills`（**按月**，不受右上角药丸影响）—— 工资表本来就是月度的。
+     *    司机自读这条接口时，后端强制成"只有他自己的账单"（`api/v1/driver_bills.py`）。
+     */
+    var salaryRows by mutableStateOf<List<DriverBillDto>>(emptyList())
+        private set
+
+    /** 工资那半页自己取数失败时的提示（**不影响运费那半页**：一边挂了不把整页按成错误页）。 */
+    var salaryError by mutableStateOf<String?>(null)
+        private set
+
+    /**
+     * 「他**有没有工资账**」——`/me` 的第三个字段（后端 `services/driver_pay.monthly_salary_of` 算的）。
+     *
+     * 为什么要它、而不是"看有没有工资单"：工资单是派单员按月生成的，**这个月的还没生成时**
+     * 账本上就一个字都没有 —— 而他人是固定工资司机（`ProfileScreen` 那一格就是按这个字段出现的）。
+     * 所以这一位管"要不要画工资那一段"，`salaryRows` 管"里面有没有单"。
+     * `/me` 拉不动时保持 false：宁可退回旧样子（只画运费），也不能凭空造一段出来。
+     */
+    var hasSalary by mutableStateOf(false)
+        private set
+
+    /** 「他有没有**按单**的钱」——`/me` 的前两个字段（与「我的账本」入口同一套判据）。 */
+    var hasPiece by mutableStateOf(false)
+        private set
+
+    /** 工资统计（已核销 / 未核销两本小账）。 */
+    val salaryTotals: SalaryTotals get() = salaryTotalsOf(salaryRows)
+
+    /** 任职期间的工资变更（相邻两张工资单不一样就是一次）。新的在前。 */
+    val salaryChanges: List<SalaryChange> get() = salaryChangesOf(salaryRows)
 
     // ⚠️ 下面这几个**必须声明在 `init` 之前**：Kotlin 的属性初始化与 init 块按**书写顺序**执行，
     //    写在 init 之后的话，init 里那句赋值会抛
@@ -240,6 +276,23 @@ class DriverFreightViewModel(private val container: AppContainer) : ViewModel() 
                 error = toApiException(e).message
             } finally {
                 loading = false
+            }
+        }
+        // 工资那一半（2026-10-15，CHG-0127）：**单独取数、单独报错**。
+        // ⚠️ 不能并进上面那个 try：工资单拉不动（老后端没有这条 / 网络抖）时，运费那半页照样要能看。
+        viewModelScope.launch {
+            try {
+                val me = container.repo.me()
+                hasSalary = me.hasSalary == true
+                hasPiece = me.paysPerOrder == true || me.hasPerOrderEarnings == true
+            } catch (_: Exception) {
+                // /me 不通：保守退回旧样子（不画工资那一段），不把猜测当事实
+            }
+            try {
+                salaryRows = salaryBillsOf(container.repo.driverBills())
+                salaryError = null
+            } catch (e: Exception) {
+                salaryError = toApiException(e).message
             }
         }
     }

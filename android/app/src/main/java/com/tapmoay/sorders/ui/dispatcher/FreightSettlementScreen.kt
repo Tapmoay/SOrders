@@ -79,6 +79,13 @@ fun FreightSettlementScreen(
     onOpenUnpriced: () -> Unit = {},
     /** 「司机结算（按月）」那一页的出口（CHG-0075 ⑤：把那个没人进得去的孤儿页挂上来）。 */
     onOpenSettlements: () -> Unit = {},
+    /**
+     * 「司机工资（按月）」的出口（2026-10-15 CHG-0127）：固定工资司机的那本工资账 + 派单员核销。
+     *
+     * 工资**不在这一页算**（这一页是运费，跟时间档位走；工资是 `driver-bills` 的 salary 单、
+     * 按月）—— 挂一行出口，而不是把两种钱塞进同一张统计卡。
+     */
+    onOpenSalaries: () -> Unit = {},
 ) {
     val vm: FreightSettlementViewModel = appViewModel { FreightSettlementViewModel(container) }
     // 档位清单（点药丸）——弹层画在 Scaffold 外面，所以开关声明在**函数体这一层**
@@ -165,6 +172,9 @@ fun FreightSettlementScreen(
                 // 「司机结算（按月）」是这一页给的出口（CHG-0075 ⑤）：那个页面今天只在 NavGraph 里
                 // 注册着、全仓没有一个入口 —— 用户点不到它，等于没有。
                 SettlementSheetsRow(onOpenSettlements)
+                // 「司机工资」（2026-10-15 CHG-0127）：固定工资司机的那本账 —— 用户（m43131）
+                // 「派单员可以在司机账本这里对他的工资进行核销」，所以出口就挂在这一页上。
+                SalarySheetsRow(onOpenSalaries)
                 when {
                     vm.loading && groups.isEmpty() -> LoadingBox()
                     vm.error != null -> ErrorView(vm.error.orEmpty(), onRetry = { vm.load() })
@@ -609,6 +619,53 @@ private fun SettlementSheetsRow(onOpen: () -> Unit) {
                 Text("司机结算（按月）", style = MaterialTheme.typography.bodyMedium)
                 Text(
                     "按月份出的结算单，结完账去那儿打单",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Text("打开", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+/**
+ * 「司机工资（按月）」那一行的出口（2026-10-15 CHG-0127）。
+ *
+ * 用户（m43131）：「我们那个派单员可以在司机账本这里啊，对他的工资进行核销」—— 固定工资司机
+ * 没有按单运费，他的账就是**工资**（`driver-bills` 的 salary 单，按月）。这一页算的是运费，
+ * 两种钱不混（理由见 `DriverSalaryScreen` 的 KDoc），所以这里只挂一行出口。
+ *
+ * ⛔ 与上面那一行同理：**不写金额** —— 它是另一本账的指路牌，不是这一页那些数的另一个口径。
+ */
+@Composable
+private fun SalarySheetsRow(onOpen: () -> Unit) {
+    Surface(
+        onClick = onOpen,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TintedIcon(
+                Icons.Default.AccountBalanceWallet,
+                MaterialTheme.colorScheme.onSurfaceVariant,
+                size = 16.dp,
+                container = 32.dp,
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("司机工资（按月）", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "固定工资司机的工资单：生成、重算未核销、核销",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

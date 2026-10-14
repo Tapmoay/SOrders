@@ -26,6 +26,22 @@ def _bill_month(dt) -> str:
     return business_local(dt).strftime("%Y-%m")
 
 
+def _is_open_unlocked(bill: DriverBill) -> bool:
+    """这张单**还没核销**吗（2026-10-15 CHG-0127 的刷新判据）。
+
+    「未核销」= 两个条件同时成立：
+    - `status == open` —— 结算单确认（`confirm`）之后会翻成 `settled`；
+    - `settled_doc_id is None` —— 建结算单当刻就会写上它（`accounting_service`），
+      状态此时**还是 open**：所以只判状态会把「已被一张草稿结算单点名」的单当成未核销，
+      重算它就等于把那张草稿单的金额与明细改成不一致（confirm 的校验会当场拒），
+      或者更糟：草稿单作废时把这张单放回去，两边数字对不上。
+    """
+    status = getattr(bill, "status", None)
+    if str(getattr(status, "value", status) or "") != DriverBillStatus.OPEN.value:
+        return False
+    return getattr(bill, "settled_doc_id", None) is None
+
+
 def _can_view_or_raise(current: User, db: Session, driver_id: int) -> None:
     role = user_role_key(current)
     if role == UserRole.DISPATCHER.value:
@@ -132,7 +148,14 @@ def generate_bills(
     current: CurrentUser,
     db: Session = Depends(get_db),
 ) -> list[DriverBillOut]:
-    """SALARY：对指定司机（或全部薪资司机，含已停用）生成当月月薪单（幂等）；PIECE：该月已送达未生成的补单（幂等）。"""
+    """SALARY：对指定司机（或全部薪资司机，含已停用）生成当月月薪单（幂等）；PIECE：该月已送达未生成的补单（幂等）。
+
+    2026-10-15 CHG-0127：`refresh_unsettled=True` 时**顺带重算未核销的月薪单** ——
+    派单员改了某人的固定工资之后，那个月还没核销的工资单要按现在的规则重算
+    （用户原话：「已经核销了……表示已核销啊，就是重新计算，那个**没有核销的**工资」）。
+    已核销（SETTLED）与已被草稿结算单锁住（`settled_doc_id` 非空）的单**一个字段都不碰**；
+    缺省 False＝老行为一字不变（幂等＝跳过）。
+    """
     if user_role_key(current) != UserRole.DISPATCHER.value:
         raise HTTPException(status_code=403, detail="仅派单员可操作")
     from decimal import Decimal
@@ -147,6 +170,8 @@ def generate_bills(
         if body.driver_id is not None:
             drivers = [d for d in drivers if d.id == body.driver_id]
         created = []
+        # [(单, 改之前的金额)] —— 刷新过的单（`refresh_unsettled=True` 时才可能有）
+        refreshed = []
         for d in drivers:
             # ⛔ 并发保护（2026-09-19 审计第十七轮，台账 M6 一直没修）：
             #    月薪单的"先查再插"没有任何兜底 —— 唯一的唯一索引是
@@ -172,19 +197,36 @@ def generate_bills(
                 )
                 .with_for_update()
             ).first()
-            if exists is not None:
-                continue
             sal = monthly_salary_of(d)
             if sal <= 0:
                 continue
             dr = getattr(d, "driver_rule", None)
+            note = (
+                "月度工资单（规则：" + (dr.name or "") + "）"
+                if dr is not None
+                else "月度工资单（自动生成）"
+            )
+            if exists is not None:
+                # ---- 未核销的重新计算（2026-10-15 CHG-0127）----
+                # 用户原话：「如果……已经核销了……表示已核销啊，就是重新计算，那个**没有核销的**工资」。
+                # 旧行为是一律 `continue`：派单员把某人的固定工资从 6500 改成 7000 之后，
+                # 那个月还没核销的工资单**还印着旧数**，核销时照旧数结账（钱少付了，而且没人报错）。
+                # ⛔ 只动 `_is_open_unlocked` 为真的单：已核销 / 已被草稿结算单锁住的是**已经对过的账**，
+                #    刷新它就是改历史。⛔ 金额没变就一个字都不写（不留空转日志）。
+                if body.refresh_unsettled and _is_open_unlocked(exists) and exists.amount != sal:
+                    refreshed.append((exists, exists.amount))
+                    exists.amount = sal
+                    exists.note = note
+                    exists.rule_id = dr.id if dr is not None else None
+                    exists.rule_name = (dr.name or "") if dr is not None else ""
+                continue
             b = DriverBill(
                 driver_id=d.id,
                 bill_type=DriverBillType.SALARY,
                 month=body.month,
                 amount=sal,
                 status=DriverBillStatus.OPEN,
-                note=("月度工资单（规则：" + (dr.name or "") + "）" if dr is not None else "月度工资单（自动生成）"),
+                note=note,
                 rule_id=dr.id if dr is not None else None,
                 rule_name=(dr.name or "") if dr is not None else "",
             )
@@ -192,7 +234,9 @@ def generate_bills(
             created.append(b)
         # 月薪单＝**造出可支付的应付**（月结时会被结算单收走），必须留痕（2026-09-19 审计）。
         # 一条汇总日志：写明这次生成了多少张、合计多少钱、哪个月。
-        if created:
+        # 2026-10-15 CHG-0127：刷新（重算未核销的）也要留痕 —— 它改的是**金额**，
+        # 是这一组动作里唯一会动已存在的钱的一步，不能只在界面上说一句。
+        if created or refreshed:
             write_log(
                 db,
                 operator_id=current.id,
@@ -204,10 +248,18 @@ def generate_bills(
                     "driver_id": body.driver_id,
                     "created_count": len(created),
                     "created_total": str(sum((x.amount for x in created), Decimal("0"))),
+                    "refreshed_count": len(refreshed),
+                    "refreshed_total": str(sum((b.amount for b, _ in refreshed), Decimal("0"))),
+                    # 只开一个口子：开关只在上面那道门里读（`_check_driver_salary_ledger` 钉着
+                    # 这个字面量全文只能出现一次）—— 这里记的是"这次**真的**刷了几笔"。
+                    "refresh_unsettled": bool(refreshed),
                 },
             )
         db.commit()
-        return created
+        # 2026-10-15 CHG-0127：把**重算过的**也回给调用方 —— 只说"生成了几张"的话，
+        # 界面没法区分"本来就有一张、这次按新工资改了数"和"什么都没发生"（空转报"已重算"）。
+        # 顺序：新建的先、刷新的后（刷新的单一定已存在，id 更小，按 id 分不出这两类）。
+        return created + [b for b, _ in refreshed]
     else:
         # PIECE 补单：该月送达、有"按单应付"、运费非空的订单
         from app.models.enums import OrderStatus
