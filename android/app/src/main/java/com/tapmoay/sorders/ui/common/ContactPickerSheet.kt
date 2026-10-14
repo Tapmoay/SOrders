@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -18,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.core.UserSearch
 import com.tapmoay.sorders.data.remote.dto.ContactDto
+import com.tapmoay.sorders.ui.theme.ShipperTeal
 
 /**
  * 「选择联系人」—— 全 App **唯一一份**挑联系人的弹层。
@@ -48,6 +50,20 @@ import com.tapmoay.sorders.data.remote.dto.ContactDto
  * ⛔ 它只是一条**内存里的**行（`SelfContact.SELF_ID` 负哨兵）：不新建联系人、不写任何后端数据。
  * ⚠️ 它也走下面那一份 [UserSearch] 过滤（按自己的姓名 / 号码参与匹配）：⛔ 不给它开后门、
  * 也不让它常驻 —— 搜索的意义就是"把不相关的行筛掉"。
+ *
+ * ## 左分类 + 右列表 + 可搜（CHG-0128，用户 2026-10-15 逐字）
+ * > 「像**选地点库那样**（左分类、右对应项）」
+ * > 「联系人**一多起来**…找起来**非常麻烦**」
+ *
+ * 版式照本页**同一页**的「选择收货地址」那一份（`OrderCreateScreen.kt::AddressPickerSheet`，
+ * 用户点名的就是它）：搜索框横跨整页在左栏**上面**、下面 [MasterRail] 左栏 + 右列表。
+ * ⚠️ 左栏这一列**一格都不带「N 条」**（用户 2026-09-19：「那个分组下面不要显示有多少条啊，
+ * 这是多余信息」）；分类名从 [ContactDto.category] 来（后端 `shipper_contacts.category`，
+ * 自由文本，名册在「地址与联系人 → 管理分类」）。
+ *
+ * ⛔ 分组与「未分类」兜底**只有一份实现**：`ui/common/PersonGroups.kt` 转发到
+ * `ProductPicker.kt::categoryTabsOf`。别在这里写第二遍 ——
+ * 「未分类的人不见了」是那种**不报错**的坏法（用户只会以为"这个人没存上"）。
  *
  * @param contacts 当前登录人的联系人名册（按登录人隔离；调用方负责取数）
  * @param selfContact 「我自己」那一行（`ui/common/SelfContact.kt` 是全 App 唯一的构造与取数处）；
@@ -81,6 +97,17 @@ fun ContactPickerSheet(
     val shown = remember(rows, kw) {
         if (kw.isBlank()) rows else rows.filter { UserSearch.matches(kw, it.displayName, it.phone) }
     }
+    // 左栏那一列（CHG-0128）：算法只有一份 —— PersonGroups.kt 转发 categoryTabsOf。
+    // ⛔ 不在这里自己分组：「未分类」排最后、名册外的老分类照样出一格，都在那一份里。
+    val groups = remember(rows) { groupTabsOf(rows) { it.category } }
+    var group by remember { mutableStateOf(ALL_CATEGORY) }
+    // ⚠️ 选中的那一类被**改名/删掉**之后（名册一变），右栏按老名字一条都筛不到 ——
+    //    屏幕上看起来像"这一类是空的"，而人一条没少。名册一变就核对一次选中项
+    //    （与「选地点库」那份 AddressPickerSheet 的自愈是同一件事）。
+    LaunchedEffect(groups) { if (group !in groups) group = ALL_CATEGORY }
+    // 分类与搜索是**两个维度**，交叉筛：所以切分类**不清空**搜索词
+    // （"张"在「全部」里搜到的人，切到「食堂」还想接着看）。
+    val visible = remember(shown, group) { inGroup(shown, group) { it.category } }
 
     if (showCreate && onCreate != null) {
         CreateContactDialog(
@@ -97,45 +124,79 @@ fun ContactPickerSheet(
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp),
+                .fillMaxHeight(0.92f)
+                .padding(bottom = 12.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.padding(horizontal = 20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 SheetCloseButton(onClick = onDismiss)
             }
             Spacer(Modifier.height(8.dp))
 
-            SoTextField(
-                value = keyword,
-                onValueChange = { keyword = it },
-                placeholder = "搜索姓名或手机号",
-            )
-            Spacer(Modifier.height(12.dp))
-
-            when {
-                loading -> LoadingBox(Modifier.fillMaxWidth().height(140.dp))
-                error != null -> ErrorView(error, onRetry = onRetry, Modifier.fillMaxWidth().height(140.dp))
-                contacts.isEmpty() && shown.isEmpty() -> {
-                    // ⚠️ 这一支是"名册本来就是空的"（**不是**搜索没命中）：有「我自己」时
-                    //    shown 里有那一行，走的是下面列表那一支 —— 否则用户会看到"还没有联系人"
-                    //    却搜得到自己。
-                    // ⚠️ 空态文案**常显**（不走 `Hint`）：这一屏只剩它，
-                    //    藏了之后用户看到的是**一片空白**，"还没建过联系人"与"加载失败"就分不出来了。
-                    Text("还没有联系人", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "在「地址与联系人 → 联系人」里加过人之后，这里就能直接挑。" +
-                            if (onCreate != null) "也可以点下面的「新建联系人」。"
-                            else "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            // 搜索框横跨整页（在左栏**上面**）：左栏是"分在哪一类"、搜索是"那个人在哪"，
+            // 两个维度；放进左栏会被压成半宽，而且左栏为空时它跟着消失。
+            // ⛔ 提示语一字未改（`_check_input_rules.py` 按这一句认这个框）：这个框要同时搜
+            //    中文姓名与号码，所以它**不是**电话键盘；号码由下面的「新建联系人」收。
+            Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                SoTextField(
+                    value = keyword,
+                    onValueChange = { keyword = it },
+                    placeholder = "搜索姓名或手机号",
+                )
+                if (keyword.isNotBlank()) {
+                    TextButton(
+                        onClick = { keyword = "" },
+                        modifier = Modifier.align(Alignment.CenterEnd),
+                    ) { Text("清除") }
                 }
-                shown.isEmpty() -> Text("没有匹配「$kw」的联系人", style = MaterialTheme.typography.bodyMedium)
-                else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
-                    items(shown, key = { it.id }) { c ->
-                        ContactRow(c) { onPick(c) }
+            }
+            Spacer(Modifier.height(10.dp))
+
+            Row(Modifier.fillMaxWidth().weight(1f)) {
+                MasterRail(
+                    items = groups.map { RailItem(key = it, label = it) },
+                    selectedKey = group,
+                    // 强调色 = **地址湖蓝**（规范 §2 一色一功能「地址与联系人」那一格），
+                    // 与「选择收货地址」那一份弹层的左栏同色 —— 同一个模块同一个色。
+                    accent = Color(ShipperTeal),
+                    onSelect = { group = it },
+                    modifier = Modifier.width(112.dp).fillMaxHeight(),
+                )
+                Column(Modifier.weight(1f).fillMaxHeight().padding(horizontal = 12.dp)) {
+                    when {
+                        loading -> LoadingBox(Modifier.fillMaxWidth().height(140.dp))
+                        error != null -> ErrorView(error, onRetry = onRetry, Modifier.fillMaxWidth().height(140.dp))
+                        contacts.isEmpty() && shown.isEmpty() -> {
+                            // ⚠️ 这一支是"名册本来就是空的"（**不是**搜索没命中）：有「我自己」时
+                            //    shown 里有那一行，走的是下面列表那一支 —— 否则用户会看到"还没有联系人"
+                            //    却搜得到自己。
+                            // ⚠️ 空态文案**常显**（不走 `Hint`）：这一屏只剩它，
+                            //    藏了之后用户看到的是**一片空白**，"还没建过联系人"与"加载失败"就分不出来了。
+                            Text("还没有联系人", style = MaterialTheme.typography.bodyMedium)
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "在「地址与联系人 → 联系人」里加过人之后，这里就能直接挑。" +
+                                    if (onCreate != null) "也可以点下面的「新建联系人」。"
+                                    else "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        shown.isEmpty() -> Text("没有匹配「$kw」的联系人", style = MaterialTheme.typography.bodyMedium)
+                        // 搜索命中了、只是**不在这一类里**：说清是"这一类里没有"，
+                        // 否则用户会以为整个名册都没有这个人，转头去新建一个（同一个人两条记录）。
+                        visible.isEmpty() -> Text(
+                            if (kw.isBlank()) "「$group」里还没有人" else "「$group」里没有匹配「$kw」的联系人",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        else -> LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
+                            items(visible, key = { it.id }) { c ->
+                                ContactRow(c) { onPick(c) }
+                            }
+                        }
                     }
                 }
             }
@@ -145,7 +206,7 @@ fun ContactPickerSheet(
                 OutlinedButton(
                     onClick = { showCreate = true },
                     enabled = !creating,
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(48.dp),
                 ) {
                     Icon(Icons.Default.PersonAddAlt, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
