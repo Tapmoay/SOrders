@@ -1459,12 +1459,21 @@ interface FreightTemplateApi {
         @Body body: FreightCategoryReorderRequest,
     ): List<FreightCategoryDto>
 
-    /** 这一单 + 这个司机 → 运价结论（匹配/没匹配到/多条候选都由后端算）。 */
+    /**
+     * 这一单 + 这个司机 → 运价结论（匹配/没匹配到/多条候选都由后端算）。
+     *
+     * `closest=true` 是**另一套语义**（CHG-0129 派单自动带价）：不看司机，直接回答
+     * 「这一单的地点路线最贴近哪一条价目、凭什么」（回 `matched` 与 `why`）。
+     * 默认 null/false ⇒ 老调用（结算页那两处）的语义一个字都不变。
+     */
     @GET("freight-templates/quote")
     suspend fun quoteFreight(
         @Query("order_id") orderId: Long,
         @Query("driver_id") driverId: Long? = null,
         @Query("category_id") categoryId: Long? = null,
+        @Query("closest") closest: Boolean? = null,
+        /** 只参与「最贴近」的排序；后端只认 small/large/trailer，别的值会 400。 */
+        @Query("vehicle_type") vehicleType: String? = null,
     ): FreightQuoteDto
 
     @DELETE("freight-templates/{templateId}")

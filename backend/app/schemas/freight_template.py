@@ -87,3 +87,7 @@ class FreightQuoteOut(BaseModel):
     reason: str = ""
     #: 同样优先级的候选多于一条（**不猜**，让派单员挑）
     ambiguous: list[FreightQuoteCandidate] = []
+    #: 只有 `closest=true` 那条路会填：**为什么带出的是这一条**（「选了谁、凭什么」）。
+    #: ⚠️ 界面**原样显示**这句话 —— 用户 2026-10-15 的口径是"多条命中要取最贴近的，
+    #: 还要看得见选了谁"，所以这句话不许由界面自己编。
+    why: str = ""

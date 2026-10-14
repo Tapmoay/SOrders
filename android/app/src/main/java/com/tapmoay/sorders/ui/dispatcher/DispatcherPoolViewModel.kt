@@ -49,6 +49,20 @@ class DispatcherPoolViewModel(
     var selectedDriverId by mutableStateOf<Long?>(null)
     var assignNote by mutableStateOf("")
     var assignFreight by mutableStateOf("")
+    /**
+     * 运费这一格是不是**派单员自己动过**（自动带价的「手改优先」全靠它，CHG-0129）。
+     *
+     * 用户 2026-10-15：「运费模板已经绑定了路线，派单时路线匹配就直接带出钱。」
+     * 自动带出来的只是**默认值**：他一改就以他改的为准 —— ⛔ 谁也不许在他改完之后
+     * 再把它覆盖回去（在途请求晚回来、换司机、再点一次，都不许）。
+     */
+    var freightTouchedByHand by mutableStateOf(false)
+        private set
+    /** 自动带价现在停在哪一步（界面拿它显示「选了哪一条、凭什么」）。 */
+    var autoFreightHint by mutableStateOf("")
+        private set
+    /** 在途自动带价请求的序号：手一动就 ++ ⇒ 回来的旧响应自己作废（见 autoFreightFor）。 */
+    private var autoFreightSeq = 0
     var assignCollectCash by mutableStateOf(false)  // 派单勾选：司机送达时收取现金（否则自动挂账）
     /**
      * 派单员对**这一单**单独定的计费参数（v3.37）。空 = 走司机挂着的规则。
@@ -290,6 +304,11 @@ class DispatcherPoolViewModel(
         selectedDriverId = null
         assignNote = ""
         assignFreight = ""
+        // 开一次框就是一次新的自动带价：把上一单的「手改过」与提示清掉 ——
+        // 不清的话，上一单被手改过会让**这一单一次都不带价**，而且是静默的。
+        freightTouchedByHand = false
+        autoFreightHint = ""
+        autoFreightSeq++  // 上一单在途的自动带价不许再写进这一单的框里
         assignCollectCash = false
         assignPieceAmount = ""
         assignCommissionRate = ""
@@ -312,8 +331,79 @@ class DispatcherPoolViewModel(
         }
     }
 
+    /**
+     * 亲手套用一条模板 —— 这与「自己敲进去」**同等地位**：套完就不许自动带价再改它。
+     *
+     * 用户 2026-09-19「同一个路线，我们可以配置多个价格，比如价格一价格二价格三」：
+     * 多条价目并存时，手选那一下就是最后拍板（自动带价只是个默认值，不许抢回去）。
+     */
     fun applyTemplate(t: FreightTemplateDto) {
-        assignFreight = t.fee
+        onFreightEdited(t.fee)
+    }
+
+    /** 派单员在运费格子里敲了一下（含清空）：从这一刻起自动带价再也不许动它。 */
+    fun onFreightEdited(value: String) {
+        assignFreight = value
+        freightTouchedByHand = true
+        autoFreightHint = manualHint()
+        autoFreightSeq++  // 作废在途的自动带价：它回来时带的已经是「过去」的数了
+    }
+
+    /**
+     * 按这一单的路线，把运费的**默认值**带进框里（CHG-0129）。
+     *
+     * 用户 2026-10-15：「运费模板已经绑定了路线，派单时路线匹配就直接带出钱。」
+     * 挑哪一条、那条多少钱，**唯一实现在后端**（`GET /freight-templates/quote?closest=true`
+     * → `backend/app/services/freight_route_autofill.py`）：这里只负责把它搬进输入框，
+     * 并守住三条口径（判定全在 `FreightAutofill.kt`，有单测）——
+     * 带出来的是默认值、匹配不上什么也不填、带了哪一条要说出来。
+     *
+     * ⛔ 只写 `assignFreight` 这一个字段，绝不碰下面 `confirmAssign` 里那一行：
+     *    那是 2026-09-19 报告 P0-3 定的「派单员填了什么就发什么」，
+     *    在这里加任何「判成工资制就不发」的条件都等于把那一条改回去。
+     */
+    fun autoFreightFor(orderId: Long?, driver: UserDto?) {
+        autoFreightHint = ""
+        if (orderId == null || orderId == 0L) return
+        if (!isPieceDriver(driver)) {
+            // 不是按单拿钱的司机：运费框根本不显示，带出来的钱只会变成看不见的脏数据。
+            // ⚠️ 只在**没被手改过**时清 —— 清的是「我自己刚带进去的那个值」，
+            //    用户自己填的一个字都不许动（同上 P0-3）。
+            if (shouldOverwriteFreight(freightTouchedByHand)) assignFreight = ""
+            return
+        }
+        if (!shouldOverwriteFreight(freightTouchedByHand)) {
+            // 已经手改过：连问都不问（问了也不能用），只如实说清自动带价不会再动它
+            autoFreightHint = manualHint()
+            return
+        }
+        val seq = ++autoFreightSeq
+        viewModelScope.launch {
+            try {
+                val q = container.repo.quoteFreight(
+                    orderId = orderId,
+                    closest = true,
+                    vehicleType = vehicleForAutofill(driver?.vehicleType),
+                )
+                // 这中间用户动过手（或又换了一次司机）⇒ 我这条响应已经过期，一个字都不许写
+                if (seq != autoFreightSeq) return@launch
+                if (!shouldOverwriteFreight(freightTouchedByHand)) return@launch
+                val a = autoFreightOf(q)
+                if (a == null) {
+                    // 匹配不上就**什么也不填**（不许猜一个价填进去），但要说清为什么
+                    autoFreightHint = noMatchHint(q.reason)
+                } else {
+                    assignFreight = a.fee
+                    autoFreightHint = autoHint(a)
+                }
+            } catch (e: Exception) {
+                if (seq != autoFreightSeq) return@launch
+                // 问不出来就说问不出来 —— ⛔ 不许说成「这条路线没有价目」（那是在替后端编结论）
+                if (shouldOverwriteFreight(freightTouchedByHand)) {
+                    autoFreightHint = failedHint(toApiException(e).message)
+                }
+            }
+        }
     }
 
     val selectedDriver: UserDto?

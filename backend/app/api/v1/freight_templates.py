@@ -14,6 +14,7 @@
 """
 
 from datetime import datetime
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -42,6 +43,7 @@ from app.schemas.freight_template import (
     FreightTemplateUpdate,
 )
 from app.services.freight_pricing import Quote, quote_for
+from app.services.freight_route_autofill import autofill_for, why_text
 from app.services.operation_log_service import write_log
 from app.services.soft_delete import ensure_alive
 from app.services import usage_service
@@ -449,7 +451,20 @@ def restore_template(
     return t
 
 
-def _quote_out(q: Quote) -> FreightQuoteOut:
+def _closest_out(f: "TplFact") -> FreightQuoteCandidate:
+    """`closest` 那条路挑中的价目 → 与老路**同一个出参形状**（界面两条路共用一套显示）。"""
+    return FreightQuoteCandidate(
+        template_id=f.template_id,
+        name=f.name,
+        fee=Decimal(f.fee),
+        price_name=f.price_name,
+        route=f.route,
+        category_names=list(f.category_names),
+        driver_names=[],
+    )
+
+
+def _quote_out(q: Quote, *, why: str = "") -> FreightQuoteOut:
     def cand(c) -> FreightQuoteCandidate:
         return FreightQuoteCandidate(
             template_id=c.template_id,
@@ -467,6 +482,8 @@ def _quote_out(q: Quote) -> FreightQuoteOut:
         category_name=q.category_name,
         reason=q.reason,
         ambiguous=[cand(c) for c in q.ambiguous],
+        # 只有 closest=true 那条路会填（「为什么带出的是这一条」，见 freight_route_autofill）
+        why=why,
     )
 
 
@@ -475,6 +492,14 @@ def quote_freight(
     order_id: int = Query(..., description="这一单"),
     driver_id: int | None = Query(None, description="按这个司机找价目（不传 = 只看分类/路线）"),
     category_id: int | None = Query(None, description="不传 = 用订单上已有的分类"),
+    closest: bool = Query(
+        False,
+        description="派单抽屉用：**按这一单的路线**挑一条最贴近的价目（不分票、不回歧义），"
+        "并把「选了谁、凭什么」写进 why；不传 = 老路（按司机的规则，同档多条仍然不猜）",
+    ),
+    vehicle_type: str | None = Query(
+        None, description="这趟是什么车（small/large/trailer）—— 只参与 closest 的排序，不筛"
+    ),
     db: Session = Depends(get_db),
     _: User = Depends(require_permission(Permission.ORDER_DISPATCH)),
 ) -> FreightQuoteOut:
@@ -482,10 +507,33 @@ def quote_freight(
 
     没匹配到不是错误：它会带着"为什么没匹配到"回去，界面显示成「运费待定价」，
     由派单员手动定价（`POST /orders/{id}/price-freight`）。
+
+    `closest=true` 问的是**另一个问题**（CHG-0129，用户 2026-10-15："运费模板已经绑定了路线，
+    派单时路线匹配就直接带出钱"）：不看司机的规则勾了哪几条，只问"**这一单的路线**上哪一条
+    价目最贴近"（`services/freight_route_autofill.py`）。同一条路线上本来就允许多条价目
+    （"价格一价格二价格三"），所以这条路上**歧义是常态**：按 分类 → 车型 → 最近改过 挑一条，
+    并把「选了谁、凭什么」写进 `why` 让界面显示出来。
+    ⛔ 不传 `closest` 时行为与从前**一字不变**（同档多条仍然回 `ambiguous`，不猜）。
     """
     from app.models import Order
 
     order = db.get(Order, order_id)
     if order is None:
         raise HTTPException(status_code=404, detail="未找到对应记录")
-    return _quote_out(quote_for(db, order, driver_id=driver_id, category_id=category_id))
+    if not closest:
+        return _quote_out(quote_for(db, order, driver_id=driver_id, category_id=category_id))
+
+    best = autofill_for(
+        db,
+        order,
+        category_id=category_id,
+        vehicle_type=_validate_vehicle(vehicle_type) or "",
+    )
+    pick = best.pick
+    return FreightQuoteOut(
+        matched=(None if pick is None else _closest_out(pick.fact)),
+        category_id=best.category_id,
+        category_name=best.category_name,
+        reason=best.reason,
+        why=why_text(best),
+    )

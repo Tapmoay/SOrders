@@ -175,6 +175,14 @@ fun AssignDriverDialog(
                                 onOpen = { scope.launch { driverDrawer.open() } },
                             )
                         }
+                        // ⚠️ 这一段必须在 `if (运费组显示) {` 的**外面**：换成「不按单拿钱」的司机时
+                        //    运费组整个消失，写在里面的 LaunchedEffect 会随组合一起被丢掉 ——
+                        //    于是「换司机 ⇒ 清掉自动带进去的那个数」这一步**永远不执行**，
+                        //    用户以为没带价，那个数却还躺在 assignFreight 里等着被发出去。
+                        // 键 = 这一单 + 选中的司机：两者任一变了才重问一次（CHG-0129）。
+                        LaunchedEffect(vm.assignOrderId, vm.selectedDriverId) {
+                            vm.autoFreightFor(vm.assignOrderId, vm.selectedDriver)
+                        }
                         if (!vm.selectionMode && vm.isPieceDriver(vm.selectedDriver)) {
                             // 白卡分组 + 共用行（规范 §5.0：分组一律白卡，卡里每一行自己再是一张
                             // 浅色内嵌卡）。⛔ 卡里不许出现描边输入框。
@@ -182,12 +190,25 @@ fun AssignDriverDialog(
                                 FormInputRow(
                                     "一车运费 ¥（可后补）",
                                     vm.assignFreight,
-                                    // 金额规则唯一实现在 core/InputRules.kt
-                                    { vm.assignFreight = InputRules.moneyInput(it) },
+                                    // 金额规则唯一实现在 core/InputRules.kt；
+                                    // 走 onFreightEdited 而不是直接赋值 —— 手一落笔就作废自动带价
+                                    // （用户口径「自动带的是默认值，改过以改过的为准」，CHG-0129）
+                                    { vm.onFreightEdited(InputRules.moneyInput(it)) },
                                     keyboardType = KeyboardType.Decimal,
                                     icon = Icons.Default.Payments,
                                     iconTint = MaterialTheme.colorScheme.primary,
                                 )
+                                // 自动带价的来路（选了哪一条价目、凭什么）—— 用户要看得见他为什么
+                                // 看到这个价。⛔ 这一行**不写金额**：金额只在上面那个可编辑的框里出现
+                                // 一处，两个地方各显各的，迟早会对不上（而且这行是字、不是值）。
+                                if (vm.autoFreightHint.isNotBlank()) {
+                                    Text(
+                                        vm.autoFreightHint,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = 6.dp, top = 4.dp),
+                                    )
+                                }
                                 // 模板入口原来挂在输入框右边（框边一颗小字按钮）—— 卡片式布局里
                                 // 放不下「框边挂按钮」，改成组里一行可点的选择行。
                                 FormRow(
