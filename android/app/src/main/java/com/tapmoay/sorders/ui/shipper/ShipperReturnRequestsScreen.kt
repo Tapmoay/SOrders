@@ -9,12 +9,17 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.ReturnRequestDto
 import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.theme.Success
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import com.tapmoay.sorders.util.formatDateTime
 
 /**
@@ -165,7 +170,13 @@ fun ShipperReturnRequestsScreen(
  */
 private val RETURN_TAB_COLORS = listOf(ORDER_TAB_COLORS[1], ORDER_TAB_COLORS[0])
 
-/** 一行申请：订单号 + 要退的商品×件数 + 状态 + 申请时间（＋驳回原因 / 办理人 / 改明细 / 撤回）。 */
+/**
+ * 一行申请：订单号 ＋ 申请时间 ＋ 要退的商品×件数 ＋ 备注（＋驳回原因 / 办理人 / 改明细 / 撤回）。
+ *
+ * 2026-10-15 外观轮（用户：「卡片没有按设计要求…没有详细信息和重点」）：与派单端**同一套**四段 ——
+ * 模块图标 ＋ 订单号（主标题）＋ 状态胶囊（行首）→ 一行「圆底图标 ＋ 灰标签 ＋ 值」→
+ * 商品胶囊（甲案，与订单卡同一套）→ 备注走弱化容器 → 驳回原因走红底红字 / 办理人走成功色。
+ */
 @Composable
 private fun ReturnRequestRow(
     req: ReturnRequestDto,
@@ -178,61 +189,78 @@ private fun ReturnRequestRow(
     focused: Boolean = false,
 ) {
     SectionCard(modifier = Modifier.clickable(onClick = onClick)) {
-        // 行首（定位徽章 + 订单号 + 状态徽章）与派单端**同一处实现**：
+        // 行首（定位徽章 + 模块图标 + 订单号 + 状态徽章）与派单端**同一处实现**：
         // 那个徽章是用户"点通知进来后确认就是这一条"的唯一依据，两端必须同形。
         ReturnRequestsHeading(req = req, focused = focused)
-        Spacer(Modifier.height(6.dp))
-        Text(req.linesSummary, style = MaterialTheme.typography.bodyMedium)
-        if (req.note.isNotBlank()) {
-            Spacer(Modifier.height(2.dp))
-            Text(
-                "备注：" + req.note,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "申请时间 " + formatDateTime(req.createdAt),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Spacer(Modifier.height(8.dp))
+        // 什么时候提的：与派单端同一套「圆底图标 ＋ 灰标签 ＋ 值」（时间走信息色）。
+        ReturnRequestMetaRow(
+            icon = Icons.Default.Schedule,
+            label = "申请时间",
+            value = formatDateTime(req.createdAt),
+            tint = Color(ThemeGreen),
         )
+        Spacer(Modifier.height(8.dp))
+        // 要退的东西单独成块（一行一个商品、右侧是件数）：货主最想知道的就是"我申请退的是哪几样"。
+        ReturnRequestLinesBlock(lines = req.lines, summary = req.linesSummary)
+        if (req.note.isNotBlank()) {
+            Spacer(Modifier.height(6.dp))
+            ReturnRequestNoteBlock(text = req.note, label = "备注")
+        }
         // 被驳回：原因必须显示 —— 这是货主唯一能拿到的答复
         if (req.status == "rejected") {
             Spacer(Modifier.height(6.dp))
-            Text(
-                "驳回原因：" + req.rejectReason.ifBlank { "（派单员没有填原因）" },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
+            ReturnRequestReasonBlock(
+                text = req.rejectReason.ifBlank { "（派单员没有填原因）" },
+                label = "驳回原因",
             )
         }
-        // 已办理：谁办的、什么时候（钱和货是那一刻变的）
+        // 已办理：谁办的、什么时候（钱和货是那一刻变的）—— 成功语义，走成功色
         if (req.status == "done") {
             Spacer(Modifier.height(6.dp))
-            Text(
-                buildString {
+            ReturnRequestMetaRow(
+                icon = Icons.Default.Done,
+                label = "办理",
+                value = buildString {
                     append("已由 ")
                     append(req.handledByName.ifBlank { "派单员" })
                     append(" 办理")
                     val at = formatDateTime(req.handledAt)
                     if (at.isNotBlank()) append(" · ").append(at)
                 },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = Success,
             )
         }
         // 两个按钮**只在待处理行**出现（判据 [canAmendReturnRequest]，与派单端同一句）：
         // 派单员一旦确认，这张单就到终点了 —— 那时改不了、也撤不回。
         // ⚠️ 批发商走的是同一个页面、同一份判据：只要派单员还没确认，他也能改。
+        // 位置同房子规矩：**左＝反向**（撤回申请，红字），**右＝编辑**（我们的惯用手是右手）。
         if (canAmendReturnRequest(req)) {
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End,
             ) {
-                TextButton(onClick = onAmend, enabled = !acting) { Text("改明细") }
-                Spacer(Modifier.width(4.dp))
-                TextButton(onClick = onWithdraw, enabled = !acting) { Text("撤回申请") }
+                TextButton(
+                    onClick = onWithdraw,
+                    enabled = !acting,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) {
+                    Icon(Icons.Default.Undo, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("撤回申请")
+                }
+                Spacer(Modifier.width(6.dp))
+                TextButton(
+                    onClick = onAmend,
+                    enabled = !acting,
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color(ThemeGreen)),
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("改明细")
+                }
             }
         }
     }

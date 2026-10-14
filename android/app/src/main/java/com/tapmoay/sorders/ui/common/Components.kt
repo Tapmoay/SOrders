@@ -55,8 +55,12 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
+import com.tapmoay.sorders.ui.theme.DangerRed
+import com.tapmoay.sorders.ui.theme.OnProductRowTint
+import com.tapmoay.sorders.ui.theme.ProductRowTint
 import com.tapmoay.sorders.ui.theme.Success
 import com.tapmoay.sorders.ui.theme.SuccessDark
+import com.tapmoay.sorders.ui.theme.ThemeGreenDeep
 import com.tapmoay.sorders.ui.theme.ThemeMode
 import com.tapmoay.sorders.ui.theme.WarningAmber
 import com.tapmoay.sorders.util.formatMoney
@@ -1437,6 +1441,11 @@ fun SearchField(
  * ⚠️ 刻意**不**抽走的：引导语、两个按钮的措辞、以及下面的汇总行 ——
  *   货主那边是「申请」（提交后库存账本都不变），派单员那边是「执行」，说明与措辞本来就该不同。
  *   共用的是**逐行编辑器本身**（同一个操作、同一套上限），不是整张弹层。
+ *
+ * 外观（2026-10-15 CHG-0132）：形状仍是**甲案商品胶囊**（浅底 ＋ 圆底图标 ＋ 品名 ＋ 数量块），
+ * 但配色走**退货语义色**（errorContainer 浅红底 ＋ [DangerRed] 的图标/加减/数量），与订单卡那套
+ * 「下单绿」**刻意分开** —— 用户 2026-10-15 的口径：退货不是下单，两边撞成同一个绿就分不清
+ * 这一行到底是"买的"还是"要退的"。⛔ 签名、上限口径、「0 ≤ 数量 ≤ 可退」这三件事一个字都没动。
  */
 @Composable
 fun OrderReturnLines(
@@ -1446,35 +1455,70 @@ fun OrderReturnLines(
     maxReturnable: (OrderProductDto) -> Int,
     onSetQty: (lineId: Long, qty: Int) -> Unit,
 ) {
-    lines.forEach { line ->
-        val max = maxReturnable(line)
-        val qty = returnQty[line.id] ?: 0
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(line.productNameSnapshot, style = MaterialTheme.typography.bodyMedium)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        lines.forEach { line ->
+            val max = maxReturnable(line)
+            val qty = returnQty[line.id] ?: 0
+            // 一行一个商品的**甲案胶囊**（与订单卡同一套形状）：浅底用来"框住这一样商品"，
+            // 品名是这一行的主语，右侧数量块（深色底白字）是这一行的结论。
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+            ) {
+                TintedIcon(Icons.Default.Inventory2, Color(DangerRed), size = 13.dp, container = 22.dp)
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        line.productNameSnapshot,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        buildString {
+                            append("下单 ").append(line.quantity)
+                            if (line.damageQuantity > 0) append(" · 货损 ").append(line.damageQuantity)
+                            if (line.returnedQuantity > 0) append(" · 已退 ").append(line.returnedQuantity)
+                            append(" · 可退 ").append(max)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                // 加减走圆底语义色动作（`CardActionIcon`）：不可点时**圆底与图标一起**压淡。
+                CardActionIcon(
+                    icon = Icons.Default.Remove,
+                    contentDescription = "减",
+                    tint = Color(DangerRed),
+                    onClick = { onSetQty(line.id, qty - 1) },
+                    enabled = qty > 0,
+                    size = 16.dp,
+                    container = 30.dp,
+                )
                 Text(
-                    buildString {
-                        append("下单 ").append(line.quantity)
-                        if (line.damageQuantity > 0) append(" · 货损 ").append(line.damageQuantity)
-                        if (line.returnedQuantity > 0) append(" · 已退 ").append(line.returnedQuantity)
-                        append(" · 可退 ").append(max)
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    qty.toString(),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(DangerRed),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.width(34.dp),
+                )
+                CardActionIcon(
+                    icon = Icons.Default.Add,
+                    contentDescription = "加",
+                    tint = Color(DangerRed),
+                    onClick = { onSetQty(line.id, qty + 1) },
+                    enabled = qty < max,
+                    size = 16.dp,
+                    container = 30.dp,
                 )
             }
-            IconButton(
-                onClick = { onSetQty(line.id, qty - 1) },
-                enabled = qty > 0,
-            ) { Icon(Icons.Default.Remove, contentDescription = "减") }
-            Text(qty.toString(), style = MaterialTheme.typography.titleMedium)
-            IconButton(
-                onClick = { onSetQty(line.id, qty + 1) },
-                enabled = qty < max,
-            ) { Icon(Icons.Default.Add, contentDescription = "加") }
         }
     }
 }

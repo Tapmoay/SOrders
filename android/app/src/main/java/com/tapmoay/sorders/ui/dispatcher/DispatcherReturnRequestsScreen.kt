@@ -9,13 +9,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.ReturnRequestDto
 import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.theme.ShipperTeal
+import com.tapmoay.sorders.ui.theme.ThemeGreen
 import com.tapmoay.sorders.util.formatDateTime
 
 /**
@@ -234,7 +239,13 @@ fun DispatcherReturnRequestsScreen(
  */
 private val RETURN_TODO_TAB_COLORS = listOf(ORDER_TAB_COLORS[0], ORDER_TAB_COLORS[1])
 
-/** 一行待办：订单号 + 申请人 + 要退的商品×件数 + 申请备注 + 申请时间（待处理行带两个按钮）。 */
+/**
+ * 一行待办：订单号 ＋ 申请人 ＋ 申请时间 ＋ 要退的商品×件数 ＋ 申请备注（待处理行带三个动作）。
+ *
+ * 2026-10-15 外观轮（用户：「卡片没有按设计要求…没有详细信息和重点」）：四段各归其位 ——
+ * 模块图标 ＋ 订单号（主标题）＋ 状态胶囊（行首）→ 两行「圆底图标 ＋ 灰标签 ＋ 值」→
+ * 商品胶囊（甲案，与订单卡同一套）→ 备注走弱化容器 → 驳回理由走红底红字。
+ */
 @Composable
 private fun ReturnTodoRow(
     req: ReturnRequestDto,
@@ -248,56 +259,77 @@ private fun ReturnTodoRow(
     focused: Boolean = false,
 ) {
     SectionCard(modifier = Modifier.clickable(onClick = onClick)) {
-        // 行首（定位徽章 + 订单号 + 状态徽章）与货主端**同一处实现**：
+        // 行首（定位徽章 + 模块图标 + 订单号 + 状态徽章）与货主端**同一处实现**：
         // 那个徽章是用户"点通知进来后确认就是这一条"的唯一依据，两端必须同形。
         ReturnRequestsHeading(req = req, focused = focused)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "申请人：" + req.shipperName.ifBlank { "—" },
-            style = MaterialTheme.typography.bodyMedium,
+        Spacer(Modifier.height(8.dp))
+        // 谁申请的、什么时候提的：两行同一套「圆底图标 ＋ 灰标签 ＋ 值」。
+        // 人员走人员色（ShipperTeal）、时间走信息色（一色一功能、跨端同色）。
+        ReturnRequestMetaRow(
+            icon = Icons.Default.Person,
+            label = "申请人",
+            value = req.shipperName.ifBlank { "—" },
+            tint = Color(ShipperTeal),
         )
-        Spacer(Modifier.height(2.dp))
-        Text(req.linesSummary, style = MaterialTheme.typography.bodyMedium)
+        ReturnRequestMetaRow(
+            icon = Icons.Default.Schedule,
+            label = "申请时间",
+            value = formatDateTime(req.createdAt),
+            tint = Color(ThemeGreen),
+        )
+        Spacer(Modifier.height(8.dp))
+        // 要退的东西单独成块（一行一个商品、右侧是件数）：这是派单员真正要核对的内容。
+        ReturnRequestLinesBlock(lines = req.lines, summary = req.linesSummary)
         if (req.note.isNotBlank()) {
-            Spacer(Modifier.height(2.dp))
-            Text(
-                "申请备注：" + req.note,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Spacer(Modifier.height(6.dp))
+            ReturnRequestNoteBlock(text = req.note)
         }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "申请时间 " + formatDateTime(req.createdAt),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         // 已驳回的也把理由显示出来：货主来问"为什么驳"时，派单员在同一屏就能看到答案
         if (req.status == "rejected" && req.rejectReason.isNotBlank()) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "驳回理由：" + req.rejectReason,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
+            Spacer(Modifier.height(6.dp))
+            ReturnRequestReasonBlock(text = req.rejectReason)
         }
         // 三个按钮**只在待处理行**出现：已办理/已驳回/已撤回/已自动关闭的申请再点必然被后端拒
         // （能不能改的判据就是 [canAmendReturnRequest]，与货主端**同一句**）。
-        // 「改明细」排在最前：它最轻（不改状态、不动钱、不动货）；「驳回」在中间（红字：那是否决）；
-        // 「办理退货」在最后（按下去钱和货就动了）。
+        // 位置的房子规矩：**左＝反向/警示**（驳回，红字），**右＝编辑与主行动**（用户原话
+        // 「我们的惯用手是右手」）—— 改明细最轻，排在主行动「办理退货」前面；
+        // 「办理退货」是这一行唯一的主行动（按下去钱和货就动了），所以给它实心按钮。
         if (canAmendReturnRequest(req)) {
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End,
             ) {
-                TextButton(onClick = onAmend, enabled = !acting) { Text("改明细") }
-                Spacer(Modifier.width(4.dp))
-                TextButton(onClick = onReject, enabled = !acting) {
-                    Text("驳回", color = MaterialTheme.colorScheme.error)
+                TextButton(
+                    onClick = onReject,
+                    enabled = !acting,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("驳回")
                 }
-                Spacer(Modifier.width(4.dp))
-                TextButton(onClick = onFulfill, enabled = !acting) { Text("办理退货") }
+                Spacer(Modifier.width(6.dp))
+                TextButton(
+                    onClick = onAmend,
+                    enabled = !acting,
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color(ThemeGreen)),
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("改明细")
+                }
+                Spacer(Modifier.width(6.dp))
+                Button(
+                    onClick = onFulfill,
+                    enabled = !acting,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(ThemeGreen)),
+                ) {
+                    Icon(Icons.Default.Done, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("办理退货")
+                }
             }
         }
     }
