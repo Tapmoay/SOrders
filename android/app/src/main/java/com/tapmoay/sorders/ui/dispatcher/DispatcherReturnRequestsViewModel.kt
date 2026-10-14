@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.ReturnRequestDto
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.ui.common.AMEND_ACTOR_DISPATCHER
 import com.tapmoay.sorders.ui.common.ReturnRequestsPage
 import com.tapmoay.sorders.ui.common.ReturnRequestsViewModel
 import com.tapmoay.sorders.ui.common.ReturnTab
@@ -31,12 +32,17 @@ private const val TAB_ALL = 0
  * ## 这一页是**唯一**会真的退货的地方
  * 用户口径：「批发商只是一个申请，**派单员才是实际性的操作**。派单员进行完了之后，
  * 整个才进行库存才会发生一个改变和变动」。
- * 所以这里两个按钮的分量完全不同：
+ * 所以这里三个按钮的分量完全不同：
  *  · **办理退货** → 调 `fulfillReturnRequest`，后端在那一刻才动库存、账本、退款、订单状态；
+ *  · **改明细**（2026-10-15 CHG-0130）→ 调 `amendReturnRequest`：**只改申请单上的商品明细**
+ *    （哪几样、各几件），不动库存、不动账本、不影响退款；改完只发一条通知给货主和批发商。
+ *    三方都能改（货主/批发商在自己那一页也能改），前提都是**这张还待处理**；
  *  · **驳回** → 只改申请单的状态（理由**必填**，那是货主唯一能拿到的答复）。
  *
- * ⛔ **数量锁死**：这一页从界面上就没有改数量的地方 —— 办理取的是申请单上那几行
- *    （后端也是从申请单里取，不是从请求体里取）。要改数量只能驳回、让货主重提。
+ * ⚠️ 数量**不是锁死的**。这一页原来写着"数量锁死，要改只能驳回让货主重提"，那是 CHG-0130
+ *    之前的实现；用户后来补了口径：「退货是可以改的…不需要重新让货主撤销然后再重新申请一下」。
+ *    办理取的是**改完之后**申请单上那几行（后端从申请单里取，不是从请求体里取）——
+ *    所以"改"与"办"之间永远一致，不存在界面上写的和实际退的不一样。
  * ⛔ 中文状态名一律用后端的 `statusLabel`。
  *
  * ## 从消息中心**直达某一条**（2026-09-21 用户要求：「其实本来就要做到直达的」）
@@ -77,6 +83,12 @@ class DispatcherReturnRequestsViewModel(
     /** 驳回：目标 + 理由（必填） */
     var rejectTarget by mutableStateOf<ReturnRequestDto?>(null)
     var rejectReason by mutableStateOf("")
+
+    /**
+     * 派单员改明细：通知发给**货主和批发商**（他自己不用收）。
+     * 能不能改的判据与另外两方完全一样，见 [canAmendReturnRequest]。
+     */
+    override val amendActorRole: String = AMEND_ACTOR_DISPATCHER
 
     /** 派单员看待办（`status=` 就是当前档位的 key）。 */
     override suspend fun fetchPage(statusKey: String): ReturnRequestsPage {

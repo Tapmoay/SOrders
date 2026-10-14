@@ -268,3 +268,34 @@ async def push_return_request_closed(request_id: int, *, returned_amount: str, n
         )
     finally:
         db.close()
+
+
+async def push_return_request_amended(
+    request_id: int,
+    *,
+    actor_role: str,
+    before: str,
+    after: str,
+    event_id: int,
+) -> None:
+    """有人改了这张退货申请的商品明细 → **只发一条**通知（2026-10-15 CHG-0130）。
+
+    收件人是"另外两方"：派单员改的 → 告诉货主/批发商；货主或批发商改的 → 告诉全体派单员。
+    `before` / `after` 是服务层在改的那一刻算好的摘要（⛔ 不在这里回查明细：
+    这封消息是**异步**发的，等它跑起来时明细已经是"改之后"的样子了，"改之前"查不回来）。
+
+    ⚠️ `event_id` 是发件箱那一行的编号：同一张申请可以被改很多次，
+    只用 request_id 当幂等键的话第二次以后的消息会被 `create_message` 当成重复吞掉。
+    """
+    db = SessionLocal()
+    try:
+        await message_center.publish_return_request_amended(
+            db,
+            request_id,
+            actor_role=actor_role,
+            before=before,
+            after=after,
+            event_id=event_id,
+        )
+    finally:
+        db.close()

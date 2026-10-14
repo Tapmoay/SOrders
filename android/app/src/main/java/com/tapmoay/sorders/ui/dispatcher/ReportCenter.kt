@@ -1096,6 +1096,10 @@ private fun actionLabel(action: String): String = when (action) {
     "ORDER_RETURN_REQUEST" -> "申请退货"
     "ORDER_RETURN_REQUEST_REJECT" -> "驳回退货申请"
     "ORDER_RETURN_REQUEST_WITHDRAW" -> "撤回退货申请"
+    // 改明细（CHG-0130，2026-10-15 用户口径 m43140）：**三方都能改、改完只发一条通知**，
+    // 但审计页上要答得出"这张申请被谁从什么改成了什么"——payload 里记了 改动前 / 改动后 / 改动人，
+    // 所以这里必须给它一个中文名（⛔ 审计卡片上不许出现原始码）。
+    "ORDER_RETURN_REQUEST_AMEND" -> "改退货申请明细"
     // 派单员直接退了货 → 那张申请被自动关闭（2026-09-21 用户拍板的那条规则）。
     // 与「订单退货」分开：审计页上要能回答"这张申请为什么没被办理就结束了"。
     "ORDER_RETURN_REQUEST_CLOSE" -> "退货申请自动关闭"

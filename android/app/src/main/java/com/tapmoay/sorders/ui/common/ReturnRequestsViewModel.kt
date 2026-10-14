@@ -6,6 +6,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.data.remote.dto.OrderProductDto
+import com.tapmoay.sorders.data.remote.dto.OrderReturnItem
 import com.tapmoay.sorders.data.remote.dto.ReturnRequestDto
 import com.tapmoay.sorders.data.repo.toApiException
 import kotlinx.coroutines.Job
@@ -137,4 +139,139 @@ abstract class ReturnRequestsViewModel(
 
     /** 拉一页：两端接口不同（派单员看**待办**、货主看**自己的**）。[statusKey] 就是当前档位的 key。 */
     protected abstract suspend fun fetchPage(statusKey: String): ReturnRequestsPage
+
+    // ---- 改明细（2026-10-15 CHG-0130：三方可改，改动只发一条通知）------------------------------
+
+    /**
+     * 本角色改明细时算"谁"（[AMEND_ACTOR_DISPATCHER] / [AMEND_ACTOR_SHIPPER]）。
+     *
+     * ⚠️ 它**只**用来决定"改完通知发给谁"，不影响能不能改 —— 能改的判据三方完全一样
+     *    （见 [canAmendReturnRequest]），所以这里没有第二个"能不能"的分支。
+     */
+    abstract val amendActorRole: String
+
+    /** 正在改的那一张（null = 弹层关着）。 */
+    var amendTarget by mutableStateOf<ReturnRequestDto?>(null)
+        private set
+
+    /** 这一单**现在能退**的商品行（拉回来之后把"可退 = 0"的行去掉：那些行后端也不收）。 */
+    var amendLines by mutableStateOf<List<OrderProductDto>>(emptyList())
+        private set
+
+    /** 逐行填的数量（订单行 id → 件数；0 = 这一行不要了）。 */
+    var amendQty by mutableStateOf<Map<Long, Int>>(emptyMap())
+        private set
+
+    /** 正在读这一单的商品行（弹层里据此显示"正在读…"）。 */
+    var amendLoading by mutableStateOf(false)
+        private set
+
+    /** 弹层底部的报错：本地先拦下的（空明细、超行数）+ 后端返回的中文，都写这里。 */
+    var amendFormError by mutableStateOf<String?>(null)
+
+    /** 改之前长什么样（就是申请单上的明细摘要）—— 弹层里与"改后"同屏对照。 */
+    var amendBeforeSummary by mutableStateOf("")
+        private set
+
+    private var amendJob: Job? = null
+
+    /**
+     * 打开"改这张申请"：把**这一单的商品行**拉回来，并按申请单现在填的数量预填。
+     *
+     * 为什么预填而不是留空：用户是来**改**的（多半只动其中一两行的数量），
+     * 留空会逼他把自己刚才填过的东西再填一遍，还容易漏掉一行 —— 漏掉等于把那行删了。
+     */
+    fun askAmend(req: ReturnRequestDto) {
+        // 列表可能是旧的（别人刚确认过这张）：不给开弹层，直接说清为什么，别让用户白填一遍。
+        if (!canAmendReturnRequest(req)) {
+            actionResult = "这一张已经确认过了，改不了。"
+            return
+        }
+        amendJob?.cancel()
+        amendTarget = req
+        amendBeforeSummary = req.lines.joinToString("、") { "${it.productName}×${it.quantity}" }
+        amendFormError = null
+        amendLoading = true
+        amendLines = emptyList()
+        amendQty = emptyMap()
+        amendJob = viewModelScope.launch {
+            try {
+                // ⚠️ 用 repo.order(...)（回 OrderDto）而不是 orderProductLines(...)：只有前者的
+                //    orderProducts 带 damageQuantity / returnedQuantity，才喂得进共用的填数量块。
+                val order = container.repo.order(req.orderId)
+                val lines = order.orderProducts.filter { amendMaxReturnable(it) > 0 }
+                val picked = req.lines.associate { it.orderProductId to it.quantity }
+                amendLines = lines
+                amendQty = lines.associate { ln ->
+                    ln.id to (picked[ln.id] ?: 0).coerceIn(0, amendMaxReturnable(ln))
+                }
+                if (lines.isEmpty()) {
+                    amendFormError = "这一单没有还能退的商品了（都已经退完或记成了货损），改不了明细。"
+                }
+            } catch (e: Exception) {
+                amendFormError = toApiException(e).message
+            } finally {
+                amendLoading = false
+            }
+        }
+    }
+
+    /** 逐行填数量：本地就按**与后端同一条**上限夹住（[amendMaxReturnable]），不给 + 到越界。 */
+    fun setAmendQty(lineId: Long, qty: Int) {
+        val line = amendLines.firstOrNull { it.id == lineId } ?: return
+        amendQty = amendQty + (lineId to qty.coerceIn(0, amendMaxReturnable(line)))
+    }
+
+    /** 每行都填满（可退几件就填几件）。 */
+    fun amendFillAll() {
+        amendQty = amendLines.associate { it.id to amendMaxReturnable(it) }
+    }
+
+    /** 全部清零（重新挑）。 */
+    fun amendClearAll() {
+        amendQty = amendLines.associate { it.id to 0 }
+    }
+
+    fun cancelAmend() {
+        amendJob?.cancel()
+        amendTarget = null
+        amendLines = emptyList()
+        amendQty = emptyMap()
+        amendFormError = null
+    }
+
+    /**
+     * 提交改动：只动这张申请单的商品明细，**一分钱一件货都不动**
+     * （库存/账本/退款仍然只在派单员"办理退货"那一刻变）。
+     */
+    fun confirmAmend() {
+        val req = amendTarget ?: return
+        val localError = amendSubmitError(amendLines, amendQty)
+        if (localError != null) {
+            amendFormError = localError
+            return
+        }
+        val items = amendPickedIds(amendLines, amendQty).map { id ->
+            OrderReturnItem(orderProductId = id, quantity = amendQty.getValue(id))
+        }
+        val after = amendPickedSummary(amendLines, amendQty)
+        acting = true
+        amendFormError = null
+        viewModelScope.launch {
+            try {
+                container.repo.amendReturnRequest(req.id, items)
+                amendTarget = null
+                amendLines = emptyList()
+                amendQty = emptyMap()
+                actionResult = amendDoneMessage(amendActorRole, after)
+                // 明细改了，列表里那一行的摘要要跟着变（不然用户会以为没改成）。
+                load()
+            } catch (e: Exception) {
+                // 后端是权威：终态拒绝 / 越界 / "这一单里没有这行商品"都由它给中文，原样显示。
+                amendFormError = toApiException(e).message
+            } finally {
+                acting = false
+            }
+        }
+    }
 }

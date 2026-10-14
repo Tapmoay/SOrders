@@ -64,7 +64,11 @@ AUDIT_COVERAGE: dict[str, tuple[str, ...]] = {
     'order:cancel_shipper': ('ORDER_CANCEL',),
     'order:delete_cancelled': ('ORDER_DELETE', 'ORDER_RESTORE'),
     'order:return': ('ORDER_RETURN', 'ORDER_RETURN_REQUEST_REJECT', 'ORDER_RETURN_REQUEST_CLOSE'),
-    'order:return_request': ('ORDER_RETURN_REQUEST', 'ORDER_RETURN_REQUEST_WITHDRAW'),
+    # 改明细（CHG-0130）挂在**申请**这个能力下：门与提交申请同一批人（货主 / 批发商自己那一半
+    # 由 api 层的 ShipperOnly 兜底，派单员那一半走 Permission.ORDER_RETURN 的另一次调用），
+    # 而它动的也只有申请单本身（库存/账本一分钱不动）——所以它和 ORDER_RETURN_REQUEST 同档。
+    'order:return_request': ('ORDER_RETURN_REQUEST', 'ORDER_RETURN_REQUEST_WITHDRAW',
+                             'ORDER_RETURN_REQUEST_AMEND'),
     'order_product:edit': ('ORDER_LINE_ADD', 'ORDER_LINE_UPDATE', 'ORDER_LINE_DELETE'),
     'order:complete_driver': ('ORDER_COMPLETE',),
     # ---- 钱 ----

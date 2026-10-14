@@ -293,9 +293,9 @@ name: return
 中文名: 退货域
 为什么是它自己的域: 退货申请与退货执行是两条不同的链路（货主只能申请、派单员才能执行），它们有自己的状态，是这个系统里唯一双向的业务。
 owns: order_return_requests, order_return_request_lines
-commands: services.order_return:return_order, services.order_return_request:submit, services.order_return_request:withdraw, services.order_return_request:reject, services.order_return_request:fulfill, services.order_return_request:close_by_direct_return
+commands: services.order_return:return_order, services.order_return_request:submit, services.order_return_request:withdraw, services.order_return_request:reject, services.order_return_request:fulfill, services.order_return_request:close_by_direct_return, services.order_return_request:amend
 reads: orders@order, users@identity, products@catalogue
-events: returns.requested, returns.rejected, returns.request_closed, returns.done, returns.order_returned
+events: returns.requested, returns.rejected, returns.request_closed, returns.done, returns.amended, returns.order_returned
 pure_consumer: no
 ```
 

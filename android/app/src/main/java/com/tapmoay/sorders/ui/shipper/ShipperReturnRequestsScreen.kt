@@ -22,7 +22,15 @@ import com.tapmoay.sorders.util.formatDateTime
  *
  * ## 一段话看懂这一页
  * 货主在「我的订单」里对一张**已送达**的单点了「申请退货」，之后的事情在这里看：
- * 待派单员处理（还能撤回）/ 已办理（那一刻库存和账本才变）/ 已驳回（有原因）。
+ * 待派单员处理（还能**改明细**、还能撤回）/ 已办理（那一刻库存和账本才变）/ 已驳回（有原因）。
+ *
+ * ```
+ * 改明细（2026-10-15 CHG-0130）
+ * ```
+ * 只要派单员**还没确认**，这一页的那张单上就有「改明细」：改的是要退的**商品和数量**，
+ * 改完**只发一条通知给派单员**，一分钱一件货都不动（钱和货仍然在派单员"办理退货"那一刻才变）。
+ * 用户口径：「货主也是可以更改的，就是只要派单员还没有确认，他也是可以更改，改完之后只会
+ * 重新发个信息给派单员说此退货订单发生了改动」。批发商与货主同属这一侧，看到的是同一句。
  *
  * ⛔ **状态中文名一律来自后端的 `statusLabel`**（见 [ReturnRequestStatusChip] 的注释：
  *    前端自己写一套映射，后端加一档就会在原样显示 `withdrawn` 这种机器码）。
@@ -104,6 +112,7 @@ fun ShipperReturnRequestsScreen(
                                 req = req,
                                 onClick = { onOpenOrder(req.orderId) },
                                 onWithdraw = { vm.askWithdraw(req) },
+                                onAmend = { vm.askAmend(req) },
                                 acting = vm.acting,
                                 focused = req.id == vm.focusRequestId,
                             )
@@ -127,9 +136,11 @@ fun ShipperReturnRequestsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Spacer(Modifier.height(8.dp))
-                    Hint(
+                    // 撤回之后**记录还在不在**属于「数据去哪了」⇒ 永远看得见，
+                    // ⛔ 不许挂到提示总开关上（_check_hints.py 第 2 组：判成数据/状态却走 Hint 会红）。
+                    Text(
                         "撤回不是删除：申请记录留着，派单员看得到你提过又撤了。" +
-                            "撤回后可以重新申请（想改数量只能这么改）。",
+                            "只是想改商品或数量的话不用撤回 —— 直接点「改明细」，改完只发一条通知给派单员。",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     FormErrorLine(vm.withdrawFormError)
@@ -141,6 +152,10 @@ fun ShipperReturnRequestsScreen(
             dismissButton = { TextButton(onClick = { vm.cancelWithdraw() }) { Text("取消") } },
         )
     }
+
+    // ---- 改明细：只改要退的商品×件数（只发一条通知给派单员，钱和货都不动）----
+    // 弹层与派单端**同一个实现**（common/ReturnRequestsUi.kt::ReturnRequestAmendDialog）。
+    ReturnRequestAmendDialog(vm)
 }
 
 /**
@@ -150,12 +165,14 @@ fun ShipperReturnRequestsScreen(
  */
 private val RETURN_TAB_COLORS = listOf(ORDER_TAB_COLORS[1], ORDER_TAB_COLORS[0])
 
-/** 一行申请：订单号 + 要退的商品×件数 + 状态 + 申请时间（＋驳回原因 / 办理人 / 撤回）。 */
+/** 一行申请：订单号 + 要退的商品×件数 + 状态 + 申请时间（＋驳回原因 / 办理人 / 改明细 / 撤回）。 */
 @Composable
 private fun ReturnRequestRow(
     req: ReturnRequestDto,
     onClick: () -> Unit,
     onWithdraw: () -> Unit,
+    /** 「改明细」：只改这张申请要退的商品×件数，只发一条通知给派单员（2026-10-15 CHG-0130）。 */
+    onAmend: () -> Unit,
     acting: Boolean,
     /** true = 这一行就是"从消息中心点进来的那一条"（排在最前 + 打标记）。 */
     focused: Boolean = false,
@@ -204,12 +221,17 @@ private fun ReturnRequestRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (req.isPending) {
+        // 两个按钮**只在待处理行**出现（判据 [canAmendReturnRequest]，与派单端同一句）：
+        // 派单员一旦确认，这张单就到终点了 —— 那时改不了、也撤不回。
+        // ⚠️ 批发商走的是同一个页面、同一份判据：只要派单员还没确认，他也能改。
+        if (canAmendReturnRequest(req)) {
             Spacer(Modifier.height(2.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
             ) {
+                TextButton(onClick = onAmend, enabled = !acting) { Text("改明细") }
+                Spacer(Modifier.width(4.dp))
                 TextButton(onClick = onWithdraw, enabled = !acting) { Text("撤回申请") }
             }
         }

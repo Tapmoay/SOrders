@@ -38,6 +38,22 @@ class ReturnRequestRejectBody(BaseModel):
     reason: str = Field(..., min_length=1, max_length=MAX_NOTE)
 
 
+class ReturnRequestAmendBody(BaseModel):
+    """改这张退货申请的商品明细（三方都能改，2026-10-15 CHG-0130 用户口径）。
+
+    ⛔ 只有商品明细：**没有状态、没有备注、没有理由** —— 用户口径是"主要改的是退货的商品……
+       商品种类、商品数量"，其余字段这一轮一个都不开放（改状态是驳回/撤回/办理那三个动作的事）。
+
+    ⛔ 与 [ReturnRequestCreateBody] 一样**只挡 0/负数**（`OrderReturnItem.quantity` 的 `ge=1`）：
+       业务上限唯一来源是 `order_return.max_returnable`，越界要回一句中文
+       "「苹果」最多只能退 2 件"，而不是 422 + 英文结构体。
+    ⚠️ 空明细（一条都不勾）由服务层回 400「请至少勾选一个要退的商品」——
+       改成一个空申请等于把这张申请作废，那该走撤回，不能靠"改成空的"滑过去。
+    """
+
+    items: list[OrderReturnItem] = Field(..., min_length=1, max_length=20)
+
+
 class ReturnRequestLineOut(BaseModel):
     order_product_id: int
     product_name: str

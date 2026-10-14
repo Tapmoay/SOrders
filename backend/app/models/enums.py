@@ -141,6 +141,14 @@ class OperationAction(str, enum.Enum):
     #: 单独一个码：审计页上要能回答"这张申请为什么没被办理就消失了"——
     #: 它既不是货主撤回的，也不是派单员驳回的，而是**另一条路把这件事做完了**。
     ORDER_RETURN_REQUEST_CLOSE = "ORDER_RETURN_REQUEST_CLOSE"
+    #: 三方都能**直接改**这张申请的商品明细（2026-10-15 CHG-0130 用户口径）。
+    #:
+    #: ⛔ 为什么不复用 ORDER_RETURN_REQUEST：那两个问题不一样 ——
+    #:   「谁在什么时候提过这张申请」与「这张申请上的货后来被谁改成了什么」。
+    #:   用户的原话就是这两件事分开说：「退货是可以改的……不需要重新让货主撤销然后再重新申请一下，
+    #:   只不过我们会发个通知」。合成一个码的后果：派单员拿着货主最初申请的数量去退，
+    #:   而申请单上已经不是那个数量了 —— 出了对账问题**没有任何一层能回答数量是什么时候被谁改的**。
+    ORDER_RETURN_REQUEST_AMEND = "ORDER_RETURN_REQUEST_AMEND"
     ORDER_LINE_ADD = "ORDER_LINE_ADD"
     ORDER_LINE_UPDATE = "ORDER_LINE_UPDATE"
     ORDER_LINE_DELETE = "ORDER_LINE_DELETE"

@@ -98,7 +98,7 @@ TITLES: list[tuple[Path, str, str]] = [
 ]
 
 IMPORT = "import com.tapmoay.sorders.util.noBreak"
-#: 这九个弹层标题现在都调这一个 composable（单号那一行只在这里钉）
+#: 这十个弹层标题现在都调这一个 composable（单号那一行只在这里钉）
 DT_CALL = "DialogTitle("
 DT_SIG = "fun DialogTitle(action: String, orderNo: String)"
 #: 界面文件数的下限：目录被搬走时判据必须**报红**，而不是空转变绿
@@ -218,7 +218,7 @@ def main() -> int:
             if ".noBreak()" in line:
                 uses.append((name, line.strip()))
     c.ok(
-        "noBreak() 全库只剩 1 处使用（九处标题都改调 DialogTitle，换行点只在这里钉）",
+        "noBreak() 全库只剩 1 处使用（十处标题都改调 DialogTitle，换行点只在这里钉）",
         len(uses) == 1,
         f"实际 {len(uses)} 处：" + "、".join(n for n, _l in uses[:3]),
     )
@@ -260,9 +260,11 @@ def main() -> int:
         for line in src.splitlines():
             if DT_CALL in line:
                 calls.append((name, line.strip()))
+    # 2026-10-15 CHG-0130：改退货明细弹层（货主 / 批发商 / 派单员三方共用同一个）成为第 10 处。
+    # 这是**按名入册**、不是放宽 —— 仍然要求每一处都长在 title = { … } 里、不跟着回传 / 入库。
     c.ok(
-        "DialogTitle 的调用点恰好 9 处（P4 那八个 ＋ CHG-0069 的核销确认弹层）",
-        len(calls) == 9,
+        "DialogTitle 的调用点恰好 10 处（P4 那八个 ＋ CHG-0069 的核销确认弹层 ＋ CHG-0130 的改明细弹层）",
+        len(calls) == 10,
         f"实际 {len(calls)} 处",
     )
     not_title = [l for _n, l in calls if not l.startswith("title = {")]
@@ -417,7 +419,7 @@ def main() -> int:
         print("     · P18 运费模板：三处小字两行 + Ellipsis；卡片本体可点；没加第三颗按钮");
         print("     · P28 后端：那句以「月薪未设置」开头，旧语序全库 0 处，一句话只有一处拼");
         print("     · P28 客户端：司机「我的」那行两行 + Ellipsis，取值仍来自 pay_summary");
-        print("     · P4：账号密码两行、全角并列清零；九个弹层标题都调 DialogTitle")
+        print("     · P4：账号密码两行、全角并列清零；十个弹层标题都调 DialogTitle")
         print("       （单号另起一行 + bodyMedium + 封一行带省略号 + noBreak）");
         print("     · 登记簿与配套反向验证脚本在 + 本文自己的边界理由在");
 

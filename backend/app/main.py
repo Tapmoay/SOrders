@@ -135,6 +135,10 @@ async def _outbox_deliver(event) -> None:
     `last_error`（`/metrics` 的 `sorders_outbox_failed` 看得见），也不许"没人处理就当成功"。
     ⚠️ 处理器在**应用自己的事件循环**里被 await（由 `core/outbox.run_forever` 保证）—— socketio 的 emit
     要在这个进程的循环里跑，丢到别的线程/循环是"看起来能跑、偶发丢事件"的路。
+    ⚠️ 加分支时**别在分支里写长注释**：`_tools/qa/_check_return_request.py` §5 的"第 1 跳"按
+    「从这个 `if` 行到下一个 `if event.event_type` 行不超过 500 字符」去解析分支体，注释一长就会
+    被误判成"这个事件没登记处理器"（2026-10-15 实测：`returns.amended` 分支 533 字符 → 判据红）。
+    收件人怎么算这类说明写进 `push_events` / 处理函数自己的 docstring 里。
     """
     from app.services import push_events
 
@@ -206,6 +210,15 @@ async def _outbox_deliver(event) -> None:
             int(event.payload.get("request_id") or 0),
             returned_amount=str(event.payload.get("returned_amount") or "0"),
             note=str(event.payload.get("note") or ""),
+        )
+        return
+    if event.event_type == "returns.amended":
+        await push_events.push_return_request_amended(
+            int(event.payload.get("request_id") or 0),
+            actor_role=str(event.payload.get("actor_role") or ""),
+            before=str(event.payload.get("before") or ""),
+            after=str(event.payload.get("after") or ""),
+            event_id=int(event.id or 0),
         )
         return
     if event.event_type == "returns.order_returned":

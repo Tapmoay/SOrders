@@ -373,6 +373,22 @@ data class ReturnRequestCreateBody(
     val note: String = "",
 )
 
+/**
+ * **改这张退货申请的商品明细**（`POST /return-requests/{id}/amend`，2026-10-15 CHG-0130）。
+ *
+ * 用户口径：「退货是可以改的…主要改的是退货的商品…商品种类、商品数量，派单员可以更改，
+ * 货主和批发商他们也是可以进行更改的」。
+ *
+ * ⛔ 只带 `items` 一个字段是对的 —— 改的就**只有商品明细**（哪几行、各几件）：
+ *    订单号 / 申请人 / 备注 / 状态都不是这张请求体的字段，改了后端也不认。
+ * ⛔ `orderId` 也刻意不带：申请单自己知道它是哪张单（后端按申请单上的 `order_id` 校验行归属），
+ *    多一个入口参数就多一条"把 A 单的行改到 B 单的申请上"的路。
+ */
+@Serializable
+data class ReturnRequestAmendBody(
+    val items: List<OrderReturnItem>,
+)
+
 /** 派单员驳回（理由必填：那是货主唯一能拿到的答复）。 */
 @Serializable
 data class ReturnRequestRejectBody(val reason: String)

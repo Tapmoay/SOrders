@@ -28,7 +28,10 @@ import com.tapmoay.sorders.util.formatDateTime
  * 所以：
  *  · **办理退货** = 照这张申请**实际退货**，库存和账本**在这一刻才变**
  *    （退回来的货补回库存、账本按这几行红冲、这单收过钱会自动退款）；
- *  · 数量**锁死** —— 这一页没有改数量的地方，只能按申请单上的数量退；要改先驳回让货主重提；
+ *  · **改明细**（2026-10-15 CHG-0130）= **只改申请单上的商品×件数**，不动库存、不动账本、
+ *    不影响退款；改完只发一条通知给货主和批发商。三方都能改（货主/批发商在自己那一页改），
+ *    前提都是这张还待处理。数量**不再是锁死的** —— 用户后来改了口径：
+ *    「退货是可以改的…不需要重新让货主撤销然后再重新申请一下」；
  *  · **驳回**必须写理由（那是货主唯一能拿到的答复）。
  *
  * ⛔ 状态中文名一律用后端的 `statusLabel`（见 [ReturnRequestStatusChip]）。
@@ -108,6 +111,7 @@ fun DispatcherReturnRequestsScreen(
                                 onClick = { onOpenOrder(req.orderId) },
                                 onFulfill = { vm.askFulfill(req) },
                                 onReject = { vm.askReject(req) },
+                                onAmend = { vm.askAmend(req) },
                                 focused = req.id == vm.focusRequestId,
                             )
                         }
@@ -146,8 +150,15 @@ fun DispatcherReturnRequestsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Spacer(Modifier.height(8.dp))
-                    Text(
-                        "数量锁死：只能按申请单上的数量退，不能改；要改请先驳回让货主重新申请。",
+                    // ⚠️ 这句在 2026-10-15 CHG-0130 之前是"数量锁死：只能按申请单上的数量退，
+                    //    不能改；要改请先驳回让货主重新申请"——用户后来改了口径（"退货是可以改的"）。
+                    //    现在数量能在办理之前随时改，所以这里只剩一件要紧事：
+                    //    **按下确认，钱和货就动了**（明细以申请单上最新的那一份为准）。
+                    // 这一句是**教法**（怎么改、谁来改），不是数据/状态 ⇒ 挂总开关：
+                    // 关掉提示的人不需要这段说明；真的按下去会发生什么由上一段 Text 兜着。
+                    Hint(
+                        "按申请单上最新的明细退（要改数量先点「改明细」，三方都能改）。" +
+                            "按下去库存、账本、退款就一起动了，撤不回来。",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold,
                     )
@@ -211,6 +222,10 @@ fun DispatcherReturnRequestsScreen(
             },
         )
     }
+
+    // ---- 改明细：只改申请单上的商品×件数（钱和货都不动）----
+    // 弹层与货主端**同一个实现**（common/ReturnRequestsUi.kt::ReturnRequestAmendDialog）。
+    ReturnRequestAmendDialog(vm)
 }
 
 /**
@@ -227,6 +242,8 @@ private fun ReturnTodoRow(
     onClick: () -> Unit,
     onFulfill: () -> Unit,
     onReject: () -> Unit,
+    /** 「改明细」：只改这张申请要退的商品×件数，钱和货都不动（2026-10-15 CHG-0130）。 */
+    onAmend: () -> Unit,
     /** true = 这一行就是"从消息中心点进来的那一条"（排在最前 + 打标记）。 */
     focused: Boolean = false,
 ) {
@@ -264,13 +281,18 @@ private fun ReturnTodoRow(
                 color = MaterialTheme.colorScheme.error,
             )
         }
-        // 两个按钮**只在待处理行**出现：已办理/已驳回/已撤回的申请再点必然被后端拒
-        if (req.isPending) {
+        // 三个按钮**只在待处理行**出现：已办理/已驳回/已撤回/已自动关闭的申请再点必然被后端拒
+        // （能不能改的判据就是 [canAmendReturnRequest]，与货主端**同一句**）。
+        // 「改明细」排在最前：它最轻（不改状态、不动钱、不动货）；「驳回」在中间（红字：那是否决）；
+        // 「办理退货」在最后（按下去钱和货就动了）。
+        if (canAmendReturnRequest(req)) {
             Spacer(Modifier.height(2.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
             ) {
+                TextButton(onClick = onAmend, enabled = !acting) { Text("改明细") }
+                Spacer(Modifier.width(4.dp))
                 TextButton(onClick = onReject, enabled = !acting) {
                     Text("驳回", color = MaterialTheme.colorScheme.error)
                 }

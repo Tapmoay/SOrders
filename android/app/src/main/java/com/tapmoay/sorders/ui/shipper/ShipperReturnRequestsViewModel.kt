@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.data.remote.dto.ReturnRequestDto
 import com.tapmoay.sorders.data.repo.toApiException
+import com.tapmoay.sorders.ui.common.AMEND_ACTOR_SHIPPER
 import com.tapmoay.sorders.ui.common.ReturnRequestsPage
 import com.tapmoay.sorders.ui.common.ReturnRequestsViewModel
 import com.tapmoay.sorders.ui.common.ReturnTab
@@ -30,7 +31,8 @@ private const val TAB_ALL = 1
  * ## 这一页回答的是"我提的申请怎么样了"
  * 货主**只能申请**：这一页上没有一个字是"账已经变了"。
  * 三种结果各自要看得见（用户口径："货主提了就等着"）：
- *  · 待派单员处理 → 还能撤回；
+ *  · 待派单员处理 → 还能**改明细**（2026-10-15 CHG-0130：改的是要退的商品×件数，
+ *    只发一条通知给派单员，不动钱不动货）**和**撤回；
  *  · 已驳回 → **必须显示驳回原因**（那是货主唯一能拿到的答复，后端也是必填的）；
  *  · 已办理 → 显示办理人和时间（钱和货是那一刻变的）。
  *
@@ -68,6 +70,13 @@ class ShipperReturnRequestsViewModel(
      * 否则"点了没反应"（错误被弹窗遮罩盖住）、关掉弹层又整页被 `ErrorView` 顶掉。
      */
     var withdrawFormError by mutableStateOf<String?>(null)
+
+    /**
+     * 货主 / 批发商改明细：通知发给**派单员**（用户口径：「改完之后只会重新发个信息给派单员
+     * 说此退货订单发生了改动」）。批发商与货主在这一页是同一侧、同一句文案。
+     * 能不能改的判据与派单员完全一样，见 [canAmendReturnRequest]。
+     */
+    override val amendActorRole: String = AMEND_ACTOR_SHIPPER
 
     /** 货主看自己的申请（`status=` 就是当前档位的 key）。 */
     override suspend fun fetchPage(statusKey: String): ReturnRequestsPage {

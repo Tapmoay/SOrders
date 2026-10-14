@@ -20,6 +20,8 @@ import kotlinx.serialization.json.JsonElement
  *  · `order.return_request.rejected` → 只发给**那一个货主**（派单员驳回）
  *  · `order.return_request.closed`   → 只发给**那一个货主**（派单员在订单管理里直接退了货，
  *    那张申请被自动关闭；2026-09-21 新加的那一条规则）
+ *  · `order.return_request.amended`  → **谁改就发给另外两方**（派单员改 → 那一个货主；
+ *    货主或批发商改 → 全体派单员）—— 2026-10-15 CHG-0130 新加的那一条
  *
  * ⚠️ **为什么必须再按角色判一次**，而不是"看 type 就跳"：
  *   派单员的消息列表是**全局视图**（后端对派单员不带 `recipient_id` 查询时不加收件人过滤，
@@ -60,6 +62,15 @@ fun noticeReturnRoute(
         roleKey == Role.SHIPPER.key && type in TYPES_TO_SHIPPER ->
             Routes.shipperReturnRequests(requestId)
 
+        // 有人改了那张申请上的商品 / 数量（2026-10-15 CHG-0130）：
+        // 这条 type **两个方向都会出现**，所以按角色各去自己那一页 —— 派单员改的货主收到，
+        // 货主 / 批发商改的派单员收到；两页都能用 `?focus=<申请单号>` 定位到那一张。
+        roleKey == Role.DISPATCHER.key && type == TYPE_AMENDED ->
+            Routes.dispatcherReturnRequests(requestId)
+
+        roleKey == Role.SHIPPER.key && type == TYPE_AMENDED ->
+            Routes.shipperReturnRequests(requestId)
+
         else -> null
     }
 }
@@ -78,6 +89,9 @@ const val TYPE_REJECTED = "order.return_request.rejected"
 
 /** 派单员在订单管理里直接退了货 → 申请被自动关闭（2026-09-21 用户拍板那条规则）。 */
 const val TYPE_CLOSED = "order.return_request.closed"
+
+/** 有人改了那张申请的商品明细（2026-10-15 CHG-0130）—— 收件人按「谁改的」定，见上面 `when`。 */
+const val TYPE_AMENDED = "order.return_request.amended"
 
 /** 三种"回到申请人手里"的结果 —— **`CLOSED` 必须在里面**（它是这次新加的，漏了就只能停在消息详情）。 */
 val TYPES_TO_SHIPPER = setOf(TYPE_DONE, TYPE_REJECTED, TYPE_CLOSED)

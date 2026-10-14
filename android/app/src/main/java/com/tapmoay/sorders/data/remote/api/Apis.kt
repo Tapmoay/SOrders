@@ -387,6 +387,22 @@ interface OrderApi {
     @POST("return-requests/{requestId}/fulfill")
     suspend fun fulfillReturnRequest(@Path("requestId") requestId: Long): ReturnRequestFulfillDto
 
+    /**
+     * **改这张申请的商品明细**（2026-10-15 CHG-0130）。
+     *
+     * 派单员 / 货主 / 批发商**三方都能改**，但改的全过程**一分钱、一件货都不动**：
+     * 库存、账本、退款、订单状态仍然只在 [fulfillReturnRequest] 那一刻变。
+     * 改动会给另外两方发一条通知（谁改的就通知别人），不是每改一个字段发一条。
+     *
+     * ⚠️ 能改的前提是**派单员还没确认**（申请还是待处理）：已办理 / 已驳回 / 已自动关闭 / 已撤回
+     *    的申请改不了 —— 那句中文由后端给（"这张退货申请已经办完了，不能改"），客户端不重写判据。
+     */
+    @POST("return-requests/{requestId}/amend")
+    suspend fun amendReturnRequest(
+        @Path("requestId") requestId: Long,
+        @Body body: ReturnRequestAmendBody,
+    ): ReturnRequestDto
+
     @POST("orders/{orderId}/pay")
     suspend fun payOrder(@Path("orderId") orderId: Long): OrderDto
 

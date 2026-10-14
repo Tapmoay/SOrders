@@ -7,6 +7,7 @@
 | `POST /return-requests` | 货主 | `ORDER_RETURN_REQUEST` | **只写申请单** |
 | `GET /return-requests/mine` | 货主 | `ORDER_RETURN_REQUEST` | 读 |
 | `POST /return-requests/{id}/withdraw` | 货主 | `ORDER_RETURN_REQUEST` | 状态改「已撤回」 |
+| `POST /return-requests/{id}/amend` | 货主/批发商 + 派单员 | `ORDER_RETURN_REQUEST` | **只改申请单的商品明细**（不动状态/钱/库存） |
 | `GET /return-requests` | 派单员 | `ORDER_RETURN` | 读（待办列表） |
 | `POST /return-requests/{id}/reject` | 派单员 | `ORDER_RETURN` | 状态改「已驳回」 |
 | `POST /return-requests/{id}/fulfill` | 派单员 | `ORDER_RETURN` | ★ **真的退货**（账本/库存/退现/订单状态） |
@@ -20,6 +21,20 @@
 `_tools/ai/_gen_ai_read_catalog.py` 是从**权限点**反推"谁能读这张表"的；
 一个端点同时伺候两个角色，反推出来的角色集合就会多一个（AI 侧跟着获得越权读取能力）。
 拆开之后每个端点的角色集合都是确定的，AI 读能力清单自动就是对的。
+
+## 唯一的例外：改明细（2026-10-15 CHG-0130）
+
+`POST /return-requests/{id}/amend` 是**一个端点同时服务两个角色**（货主/批发商 + 派单员）。
+这是有意的，与上面那条并不冲突：
+
+· 上面那条针对的是**读**端点 —— 一个读端点混着两个角色，`_gen_ai_read_catalog.py` 从权限点
+  反推出来的角色集合会多一个（AI 侧跟着获得越权读取能力）。这个端点是**写**端点，不进读目录。
+· 用户口径是「派单员可以改、货主和批发商也可以改」，改的是**同一件事**（这张申请要退什么），
+  拆成两条路径只会让`谁能改`的规则出现两份 —— 两份就会有一天只剩一份是对的。
+· 「谁是这张申请的主」是**行级规则**（看这张申请归谁），由服务层判（`_check_operator_is_owner`）；
+  端点这里的角色判断只挡第三种人（司机等）：他们本来就没有这个权限点，
+  所以**不需要**再挂 `ShipperOnly` —— 挂上反而会把派单员挡在外面。
+
 
 ## ⚠️ 光有权限点**挡不住派单员**（2026-09-22 补）
 
@@ -53,13 +68,14 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.pagination import finish_page
-from app.core.rbac import Permission
+from app.core.rbac import Permission, user_role_key
 from app.database import get_db
 from app.deps import CurrentUser, require_permission, require_roles
 from app.models import Order, OrderReturnRequest, ReturnRequestStatus, User
 from app.models.enums import UserRole
 from app.schemas.order import OrderReturnOut
 from app.schemas.return_request import (
+    ReturnRequestAmendBody,
     ReturnRequestCreateBody,
     ReturnRequestFulfillOut,
     ReturnRequestLineOut,
@@ -303,6 +319,88 @@ def withdraw_return_request(
     except svc.ReturnRequestError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e)) from e
+    db.commit()
+    return _build_out(db, [_load_request(db, request_id)])[0]
+
+
+# ---------------------------------------------------------------- 三方改明细（CHG-0130）
+
+
+def _amend_actor_role(user: User) -> str:
+    """把「谁改的」缩成两个取值：派单员 / 货主（批发商在库里就是货主，没有第三个值）。
+
+    ⛔ 判角色**只有这一处**：通知发给谁（`message_center`）、审计怎么写（服务层），
+       都读这一个结果 —— 三处各判一遍就是"同一件事三套口径"的开头。
+    """
+    if user_role_key(user) == UserRole.DISPATCHER.value:
+        return svc.ACTOR_DISPATCHER
+    return svc.ACTOR_SHIPPER
+
+
+@router.post("/{request_id}/amend", response_model=ReturnRequestOut)
+def amend_return_request(
+    request_id: int,
+    body: ReturnRequestAmendBody,
+    db: Session = Depends(get_db),
+    current: User = Depends(require_permission(Permission.ORDER_RETURN_REQUEST)),
+) -> ReturnRequestOut:
+    """**改这张申请要退的商品明细**（三方都能改，2026-10-15 CHG-0130 用户口径）。
+
+    用户原话：「退货是可以改的……派单员是可以更改的，**不需要重新**……让货主撤销然后再重新
+    申请一下，只不过我们会发个通知」「货主也是可以更改的，就是只要派单员还没有确认……
+    主要改的是退货的商品……商品种类、商品数量」。
+
+    ## 谁能调
+    · 货主 / 批发商：改**自己**那张（申请单上的 shipper_id 就是他本人；批发商在库里也是货主）；
+    · 派单员：改**任何**一张（这件事本来就是他办的）；
+    · 司机等其余角色：403 —— 他们连 ORDER_RETURN_REQUEST 这个权限点都没有。
+
+    ⛔ **不挂 ShipperOnly**：这个端点同时服务派单员，挂上它派单员就进不来了。
+       「谁是这张申请的主」是**行级规则**（看这张申请归谁），由服务层判
+       （`svc.amend` 里的 `_check_operator_is_owner`）；这里的角色判断只管`有没有资格改`。
+
+    ## 改什么、不改什么
+    · 请求体**只有商品明细**（哪一行商品 + 退多少件）；
+    · ⛔ 状态 / 备注 / 驳回理由 / 办理人一个都不动，钱、库存、订单状态也都不动 ——
+      那仍然是办理（`fulfill`）那一刻的事（红线 `_tools/qa/_check_return_request.py` 盯着这一条）；
+    · 已办理 / 已驳回 / 已撤回 / 已自动关闭的申请一律 400（终态就是终态）；
+    · 一条都不勾（`items: []`）或某一行填 0 → **422 + 中文**（`min_length=1` / `ge=1` 先挡一道，
+      由 `core/validation_errors.py` 全局翻译）；服务层 `_validate_lines` 还会再挡一道；
+    · 超上限 / 非整数 → 中文 422（`core/validation_errors.py` 全局翻译），越界的中文与申请时逐字一致。
+
+    ⚠️ 取申请行时锁住（`lock=True`）再锁订单行 —— 与 `fulfill` 同一条顺序：
+       两个人同时改同一张申请，后到的那个要看到先到的结果（否则两边各按旧数量改一遍，
+       通知里写着两个`现在是`，谁也说不清最后生效的是哪一份）。
+    """
+    role = user_role_key(current)
+    if role not in (UserRole.SHIPPER.value, UserRole.DISPATCHER.value):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="只有货主、批发商和派单员能改退货申请",
+        )
+    actor_role = _amend_actor_role(current)
+    req = _load_request(db, request_id, lock=True)
+    order = _load_order_locked(db, req.order_id)
+    try:
+        result = svc.amend(
+            db,
+            order,
+            req,
+            actor_id=current.id,
+            actor_role=actor_role,
+            items=[ReturnItem(order_product_id=i.order_product_id, quantity=i.quantity) for i in body.items],
+        )
+    except svc.ReturnRequestError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    # 改动与这条事件**同一个事务**（与 create 那段同一条理由：入队只是一行事件，没有外部 I/O）。
+    # before / after 由服务层在改的那一刻算好放进来 —— worker 跑起来时明细已经是「改之后」了。
+    outbox.enqueue(db, "returns.amended", {
+        "request_id": req.id,
+        "actor_role": actor_role,
+        "before": result.before,
+        "after": result.after,
+    })
     db.commit()
     return _build_out(db, [_load_request(db, request_id)])[0]
 

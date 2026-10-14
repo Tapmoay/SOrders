@@ -225,6 +225,20 @@ class AppRepository(private val api: ApiBundle) {
     /** 派单员照申请办理：**库存与账本在这一刻才变**。 */
     suspend fun fulfillReturnRequest(requestId: Long) = api.orderApi.fulfillReturnRequest(requestId)
 
+    /**
+     * **改这张申请的商品明细**（2026-10-15 CHG-0130）：三方都能改，但**不改状态/钱/库存**。
+     *
+     * ⚠️ 它和上面那些写方法一样是"只写申请单"这一类：改完仍然是那张待处理的申请，
+     *    真正动库存与账本的仍然只有 [fulfillReturnRequest]。
+     */
+    suspend fun amendReturnRequest(
+        requestId: Long,
+        items: List<com.tapmoay.sorders.data.remote.dto.OrderReturnItem>,
+    ) = api.orderApi.amendReturnRequest(
+        requestId,
+        com.tapmoay.sorders.data.remote.dto.ReturnRequestAmendBody(items = items),
+    )
+
     /** 软删除订单（进入隔离区 30 天：用户不可见，派单员可恢复） */
     suspend fun deleteOrder(orderId: Long) = api.orderApi.deleteOrder(orderId)
 
@@ -1181,8 +1195,14 @@ class AppRepository(private val api: ApiBundle) {
     ) = api.orderApi.priceFreight(orderId, body)
 
     /** 这一单 + 这个司机的运价结论（匹配只有后端一处实现）。 */
-    suspend fun quoteFreight(orderId: Long, driverId: Long? = null, categoryId: Long? = null) =
-        api.freightTemplateApi.quoteFreight(orderId, driverId, categoryId)
+    suspend fun quoteFreight(
+        orderId: Long,
+        driverId: Long? = null,
+        categoryId: Long? = null,
+        /** true = 派单抽屉的自动带价：按路线取「最贴近」的一条，不看司机。 */
+        closest: Boolean? = null,
+        vehicleType: String? = null,
+    ) = api.freightTemplateApi.quoteFreight(orderId, driverId, categoryId, closest, vehicleType)
     suspend fun createFreightCategory(body: com.tapmoay.sorders.data.remote.dto.FreightCategoryCreateRequest) =
         api.freightTemplateApi.createFreightCategory(body)
     suspend fun updateFreightCategory(id: Long, body: com.tapmoay.sorders.data.remote.dto.FreightCategoryUpdateRequest) =

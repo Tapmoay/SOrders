@@ -777,6 +777,7 @@ pending: no
 | `returns.request_closed` | `order.return` | 那张申请被直连退货自动关掉了 | 同上 | ❌ 不会 |
 | `returns.done` | `order.return` | 货真的退掉了（钱已红冲、库存已回补） | 同上 | ❌ 不会 |
 | `returns.order_returned` | `order.return` | 退货**执行完了**（司机也要知道：他送的那一单被退了） | 同上 → 司机消息 | ❌ 不会（红冲 / 回补 / 订单状态在同一次事务里已经写好） |
+| `returns.amended` | `order.return` | 有人改了那张退货申请要退的商品 / 数量（**不动钱、不动库存、不改订单状态**） | 同上 → 货主或批发商 / 派单员消息 | ❌ 不会（改的只是申请单上的商品行，改动与审计在同一次事务里已经写好） |
 | `ledger.updated` | `money.ledger` | 账本有新的流水了 | 同上 → 账本页刷新 | ❌ 不会 |
 | `notifications.created` | `notification.data` | 有一条新的站内信 | 同上 → 收件人红点 | ❌ 不会（站内信是**数据**，已经在库里） |
 | `notifications.unread_changed` | `notification.data` | 未读数变了 | 同上 | ❌ 不会 |

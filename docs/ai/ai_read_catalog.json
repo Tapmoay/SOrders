@@ -1,6 +1,6 @@
 {
  "generated_by": "_gen_ai_read_catalog.py",
- "source_hash": "sha256:4c2fc9b3f0df249211b1b1cda29451cbce07734b30af0d04aa71d1f771833051",
+ "source_hash": "sha256:2c86170fdf8e4b22ad5e5987e32f59b1e0cbcf8a8cd9899203b31aa2094c54c2",
  "authority_note": "只读端点目录，参数来自 backend/app/api/v1/*.py 的 AST（含 alias）。只收**路径里没有 {}** 的端点：带路径参数的是按 id 查详情，而 AI 看不到任何内部编号。",
  "counts": {
   "read_endpoints": 90,
@@ -323,7 +323,7 @@
    "module_cn": "司机账单",
    "method": "get",
    "path": "/api/v1/driver-bills",
-   "at": "backend/app/api/v1/driver_bills.py:39",
+   "at": "backend/app/api/v1/driver_bills.py:55",
    "auth": "仅登录 + 体内仅允许:派单员\\|司机",
    "roles": [
     "dispatcher",
@@ -586,7 +586,7 @@
    "module_cn": "订单/运费模板",
    "method": "get",
    "path": "/api/v1/freight-templates",
-   "at": "backend/app/api/v1/freight_templates.py:220",
+   "at": "backend/app/api/v1/freight_templates.py:222",
    "auth": "权限:ORDER_DISPATCH",
    "roles": [
     "dispatcher"
@@ -2096,7 +2096,7 @@
    "module_cn": "退货申请",
    "method": "get",
    "path": "/api/v1/return-requests/mine",
-   "at": "backend/app/api/v1/return_requests.py:245",
+   "at": "backend/app/api/v1/return_requests.py:261",
    "auth": "权限:ORDER_RETURN_REQUEST + 角色:shipper",
    "roles": [
     "shipper"
@@ -2149,7 +2149,7 @@
    "module_cn": "退货申请",
    "method": "get",
    "path": "/api/v1/return-requests",
-   "at": "backend/app/api/v1/return_requests.py:314",
+   "at": "backend/app/api/v1/return_requests.py:412",
    "auth": "权限:ORDER_RETURN",
    "roles": [
     "dispatcher"
@@ -2922,7 +2922,7 @@
    "module_cn": "司机/货主/批发商/账号",
    "method": "get",
    "path": "/api/v1/users",
-   "at": "backend/app/api/v1/users.py:130",
+   "at": "backend/app/api/v1/users.py:135",
    "auth": "权限:USER_MANAGE",
    "roles": [
     "dispatcher"

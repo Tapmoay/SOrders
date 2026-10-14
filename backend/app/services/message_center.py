@@ -73,6 +73,9 @@ SEVERITY_BY_TYPE: dict[str, str] = {
     "order.return_request.rejected": SEVERITY_WARN,
     "order.return_request.done": SEVERITY_WARN,
     "order.return_request.closed": SEVERITY_WARN,
+    # 明细被改了（CHG-0130）：与"申请/驳回/办理"同级 —— 它同样改动了那张单要退什么，
+    # 只是还没走到钱和库存那一步。
+    "order.return_request.amended": SEVERITY_WARN,
     "order.returned": SEVERITY_WARN,
     # ── 系统 / 维护：要派单员动手（订单被保留策略挡住、司机应付明细作废）──────
     "order_purge_blocked": SEVERITY_WARN,
@@ -117,6 +120,7 @@ EMPHASIS_BY_TYPE: dict[str, tuple[str, ...]] = {
     "order.return_request.rejected": ("被驳回",),
     "order.return_request.done": ("已办理",),
     "order.return_request.closed": ("已自动关闭",),
+    "order.return_request.amended": ("有改动",),
     "order.returned": ("退货了",),
     "order_purge_blocked": ("没有被清理",),
     "driver_bill_cancelled": ("作废",),
@@ -1061,6 +1065,92 @@ async def publish_return_request_done(
         req.shipper_id,
         {"type": "order.return_request.done", "order_id": req.order_id, "request_id": req.id},
     )
+
+
+async def publish_return_request_amended(
+    db: Session,
+    request_id: int,
+    *,
+    actor_role: str,
+    before: str,
+    after: str,
+    event_id: int,
+) -> None:
+    """有人改了这张退货申请的商品明细 → **只发一条**通知（2026-10-15 CHG-0130）。
+
+    用户原话：「退货是可以改的……只不过我们会发个通知，告诉货主或批发商他的这个退货申请的
+    订单我们改动了」「货主也是可以更改的，就是只要派单员还没有确认，他也是可以更改，
+    **改完之后只会重新发个信息给派单员**说此退货订单发生了改动」。
+
+    · **派单员改的** → 告诉货主 / 批发商（这张申请是他提的）；
+    · **货主 / 批发商改的** → 告诉全体派单员（这张申请是他们的待办，谁在线谁办，与申请时同一条口径）。
+
+    ⛔ 一次改动**只发一条**：按字段逐条发是这一轮明确否掉的做法 ——
+       用户要的就是"你的这张申请被改动了"这一条消息。
+    ⚠️ 幂等键必须带**发件箱那一行的编号** event_id：同一张申请可以被改很多次，
+       只用 request_id 的话第二次以后会被 create_message 当成重复吞掉
+       （publish_order_returned_to_driver 踩过这个坑，那条注释就是这么写的）。
+    before / after 是服务层**改的那一刻**算好的摘要，⛔ 不在这里回查明细：
+    这条链路是异步的，等它跑起来时明细已经是"改之后"的样子，"改之前"查不回来了。
+    """
+    req = db.get(OrderReturnRequest, request_id)
+    if req is None:
+        return
+    order = db.get(Order, req.order_id)
+    ono = order.order_no if order else str(req.order_id)
+    payload = _return_request_payload(req, ono)
+    # 消息里要能回答"改成了什么"：客户端点了通知跳到这张申请上，明细也已经是新的了
+    payload["before"] = before
+    payload["after"] = after
+    payload["actor_role"] = actor_role
+    idem = f"order.return_request.amended:{request_id}:{event_id}"
+    who = _user_label(db, req.shipper_id) or "货主"
+    if actor_role == "dispatcher":
+        n = create_message(
+            db,
+            recipient_id=req.shipper_id,
+            category="order",
+            type="order.return_request.amended",
+            title="退货申请有改动",
+            content=f"订单 {ono} 的退货申请被派单员改了：原来是 {before}，现在是 {after}。",
+            emphasis=(after,),
+            payload=payload,
+            speech_important=False,
+            idem_key=idem,
+        )
+        db.commit()
+        db.refresh(n)
+        # 与 rejected / done 同一条：emit_notification 内部已发 unread_count，不许再补
+        await emit_notification(n)
+        await emit_realtime(
+            req.shipper_id,
+            {
+                "type": "order.return_request.amended",
+                "order_id": req.order_id,
+                "request_id": req.id,
+            },
+        )
+        return
+    dispatchers_recipients = active_dispatchers(db)
+    for d in dispatchers_recipients:
+        n = create_message(
+            db,
+            recipient_id=d.id,
+            category="order",
+            type="order.return_request.amended",
+            title="退货申请有改动",
+            content=(
+                f"{who} 改了订单 {ono} 的退货申请：原来是 {before}，现在是 {after}。"
+                "请按新的数量办理。"
+            ),
+            emphasis=(who,),
+            payload=payload,
+            speech_important=False,
+            idem_key=idem,
+        )
+        db.commit()
+        db.refresh(n)
+        await emit_notification(n)
 
 
 async def publish_order_returned_to_driver(

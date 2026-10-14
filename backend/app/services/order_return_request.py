@@ -156,7 +156,8 @@ def submit(
         got = "、".join(f"{ln.product_name}×{ln.quantity}" for ln in existed.lines) or "（明细为空）"
         raise ReturnRequestError(
             f"这张单已经有一张待处理的退货申请了（{got}），"
-            "派单员还没处理。要改就先把那一张撤回，再重新申请。"
+            # CHG-0130 之前这里写的是"要改就先把那一张撤回，再重新申请"——现在改明细不用重来了
+            "派单员还没处理。要改就直接改那一张（不用撤回重提）。"
         )
 
     req = OrderReturnRequest(
@@ -238,6 +239,105 @@ def reject(
         action=OperationAction.ORDER_RETURN_REQUEST_REJECT,
         change_payload={"申请单号": str(req.id), "驳回原因": req.reject_reason},
     )
+
+
+@dataclass
+class AmendResult:
+    """改明细的结果：**改之前 / 改之后**的摘要。
+
+    ⛔ 由本函数算一次、通知与审计都用它：各拼一遍就是"同一件事两套说法"的开头
+       （用户在站内信里看到的是「苹果×2」，审计页里是「苹果 2 件」——对不上时谁也说不清哪个对）。
+    """
+
+    before: str
+    after: str
+
+
+#: 「谁改的」只有两个取值（通知发给谁、审计怎么写，都按它分岔）。
+#: 批发商在库里也是货主（`users.is_member`，申请单的 `shipper_id` 就是他本人），所以没有第三个值。
+ACTOR_DISPATCHER = "dispatcher"
+ACTOR_SHIPPER = "shipper"
+
+
+def lines_summary(lines: list[OrderReturnRequestLine]) -> str:
+    """一行话把明细说清（"苹果×2、梨×1"）；空明细有专门的说法。"""
+    return "、".join(f"{ln.product_name}×{ln.quantity}" for ln in lines) or "（没有商品）"
+
+
+def amend(
+    db: Session,
+    order: Order,
+    req: OrderReturnRequest,
+    *,
+    actor_id: int,
+    actor_role: str,
+    items: list[ReturnItem],
+) -> AmendResult:
+    """改这张申请的商品明细（**三方都能改**；调用方负责 `db.commit()`）。2026-10-15 CHG-0130。
+
+    用户原话：「退货是可以改的……派单员是可以更改的，**不需要重新**……让货主撤销然后再重新
+    申请一下，只不过我们会发个通知」「货主也是可以更改的，就是只要派单员还没有确认……主要改的
+    是退货的商品……商品种类、商品数量」。
+
+    ## 谁在什么时候能改
+    · **只有待处理（pending）能改**：已办理 / 已驳回 / 已撤回 / 已自动关闭一律拒绝 ——
+      终态就是终态。话术走 `_check_pending`，与撤回/驳回逐字一致（⛔ 不另写一套说法）。
+    · **派单员**：不限（这件事本来就是他办的）。
+    · **货主 / 批发商**：只能改**自己**那张（`_check_operator_is_owner`）。
+    · 司机等其余角色在接口层就 403（他们也没有 ORDER_RETURN_REQUEST 这个权限点）。
+
+    ## 改什么、不改什么
+    · 改的**只有商品明细**（哪一行商品 + 退多少件），校验走提交申请那一份 `_validate_lines`
+      （同一套 `max_returnable` 上限、同一套中文话术）—— ⛔ 不在这里另写一份上限：
+      "能退几件"算错一件，红冲金额与补回库存就跟着错。
+    · 已经在申请里的行**就地改数量**（同一个行 id），⛔ 不删行重建：那一行是凭证的一部分，
+      删了重建会在审计上分不出"改了数量"和"换了一条"。
+    · 本次不再要的行**删掉**、新勾的行照提交申请那样写商品名快照 —— 用户口径里的
+      "商品种类可以改"就是这个意思。
+    · ⛔ **状态、备注、驳回理由、办理人一个都不动**；⛔ 不写账本、不写库存、不改订单状态 ——
+      那仍然是办理（`fulfill`）那一刻的事（模块头三条不变量第 1 条，红线盯着这一条）。
+    """
+    _check_pending(req, "改")
+    if actor_role != ACTOR_DISPATCHER:
+        _check_operator_is_owner(req, actor_id)
+    if order.deleted_at is not None:
+        raise ReturnRequestError("这张单在回收站里（已删除），改不了退货申请。请先恢复它。")
+    ops = _validate_lines(order, items)
+
+    before = lines_summary(list(req.lines))
+    wanted = {it.order_product_id: it.quantity for it in items}
+    for ln in list(req.lines):
+        if ln.order_product_id in wanted:
+            ln.quantity = wanted.pop(ln.order_product_id)
+        else:
+            # 这一行不再退了（"商品种类可以改"）：删掉，改动前后都留在审计日志里
+            req.lines.remove(ln)
+    for op_id, qty in wanted.items():
+        db.add(
+            OrderReturnRequestLine(
+                request_id=req.id,
+                order_product_id=op_id,
+                # 存快照：订单商品行是物理增删的，事后可能已经不在了
+                product_name=ops[op_id].product_name_snapshot,
+                quantity=qty,
+            )
+        )
+    db.flush()
+    # "改之后"按**提交上来的顺序**拼（就是用户刚在界面上点的那些行），不依赖数据库回来的行序
+    after = "、".join(f"{ops[it.order_product_id].product_name_snapshot}×{it.quantity}" for it in items)
+    write_log(
+        db,
+        operator_id=actor_id,
+        order_id=req.order_id,
+        action=OperationAction.ORDER_RETURN_REQUEST_AMEND,
+        change_payload={
+            "申请单号": str(req.id),
+            "改动前": before,
+            "改动后": after,
+            "改动人": "派单员" if actor_role == ACTOR_DISPATCHER else "货主/批发商",
+        },
+    )
+    return AmendResult(before=before, after=after)
 
 
 @dataclass
