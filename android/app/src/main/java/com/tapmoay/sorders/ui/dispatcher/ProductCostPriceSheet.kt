@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -100,7 +101,9 @@ internal fun ProductCostPriceSheet(
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp),
+            // 「拉到最上面」（`_check_sheet_form_pages.py` 的形态三件套之一）：抽屉一打开就占满可用高度，
+            // 字段比一屏高时由下面那两处滚动容器接管 —— 少了这一行抽屉就退回「半截」。
+            Modifier.fillMaxWidth().fillMaxHeight(0.9f).padding(horizontal = 20.dp).padding(bottom = 24.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -115,8 +118,6 @@ internal fun ProductCostPriceSheet(
                 productName.ifBlank { "这个商品" } + "（单位：" + u + "）",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(8.dp))
             // ⚠️ 这一句是**钱的口径**（`_check_hints.py` 的四族关键解释句之一）⇒ **走 Text，不走 Hint**：

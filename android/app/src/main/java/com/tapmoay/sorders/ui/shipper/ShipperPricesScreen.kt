@@ -3,28 +3,40 @@ package com.tapmoay.sorders.ui.shipper
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.tapmoay.sorders.core.AppContainer
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.api.ShipperPriceDto
 import com.tapmoay.sorders.data.remote.api.ShipperPriceProductDto
 import com.tapmoay.sorders.data.remote.dto.ContactDto
 import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.theme.MoneyOrange
+import com.tapmoay.sorders.ui.theme.ThemeGreen
+import com.tapmoay.sorders.util.formatMoney
 
 /**
- * 货主端「下游定价」（台账 L-38 / CHG-0077）。
+ * 货主端「下游定价」（台账 L-38 / CHG-0077；2026-10-15 改版走**甲案** CHG-0131）。
  *
  * ## 一段话看懂这一页
  * 批发商货主在这里定「**我卖给下游多少钱**」：一件商品一个**默认价**（给全部下游），
  * 还能给**某一位**下游单独一个价（专人价）。派单员给他的价（「我拿货」）只是参考，
  * 不参与计算 —— 差额归他自己。
+ *
+ * ## 甲案：一件商品一张卡，默认价就在卡上改
+ * 一张卡从上到下：商品名 / 单位 → 大字「卖给下游的价」＋「我拿货（参考）」→ **默认价的输入框 ＋ 保存**
+ * → 「按人定价 · N 人」＋「定价」。**默认价不必进抽屉**；
+ * 只有要给**某一个人**单独定价时，才点那个人右侧的「定价」进抽屉（见 [DownstreamPersonSheet]）。
  *
  * ## ⛔ 这一页只写不算
  * 单价原样填、原样提交，一分钱的算法全在后端（`order_money` 那一处）。
@@ -83,7 +95,7 @@ fun ShipperPricesScreen(
                             }
                         }
                         items(vm.products, key = { it.productId }) { product ->
-                            ProductPriceCard(
+                            DownstreamPriceCard(
                                 product = product,
                                 vm = vm,
                             )
@@ -92,6 +104,12 @@ fun ShipperPricesScreen(
                 }
             }
         }
+    }
+
+    // 「给谁单独定价」抽屉：只有要动**某一个人**的价时才开（甲案）。
+    val pricing = vm.products.firstOrNull { it.productId == vm.pricingProductId }
+    if (pricing != null) {
+        DownstreamPersonSheet(product = pricing, vm = vm)
     }
 
     // 删除要二次确认（会改变"以后下的单"怎么算），失败原因画在弹层自己里面。
@@ -119,6 +137,7 @@ private fun PriceRuleCard() {
         RuleLine("不填就是没价：真正的算法只有后端那一处，这一页一个数都不算。")
         RuleLine("改价、删价都不追改已经下的单：老单按下单那一刻的价算。")
         RuleLine("删掉的行进回收站，能恢复；恢复只让它重新生效，不放回已经算过的钱。")
+        RuleLine("默认价在这张卡上直接改；要给某一个人单独定价，点右边的「定价」。")
     }
 }
 
@@ -157,10 +176,19 @@ private fun PriceGateCard(isMember: Boolean) {
     }
 }
 
-/** 一件商品：先给三条现状（我拿货 / 我的默认价 / 几个专人价），点「定价」展开这一件。 */
+/**
+ * 一件商品一张卡（甲案）：
+ * 上段 = 商品名 / 单位 ＋ 大字「卖给下游的价」＋「我拿货（参考）」—— 两个价放在一起，
+ * 「我拿货 ¥17、我卖 ¥18」一眼就能对上；
+ * 中段 = **默认价的输入框 ＋ 保存**（不必进抽屉）；
+ * 下段 = 「按人定价 · N 人」＋「定价」—— 点它才进抽屉给某一个人单独定价。
+ *
+ * ⛔ 卡上的默认价取 `product.defaultUnitPrice`（商品列表端点自带），
+ *    不在这里读 `vm.prices` —— 那里面只有抽屉开着的那件商品的价。
+ */
 @Composable
-private fun ProductPriceCard(product: ShipperPriceProductDto, vm: ShipperPricesViewModel) {
-    val open = vm.openProductId == product.productId
+private fun DownstreamPriceCard(product: ShipperPriceProductDto, vm: ShipperPricesViewModel) {
+    val fallback = product.defaultUnitPrice
     SectionCard {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -171,13 +199,39 @@ private fun ProductPriceCard(product: ShipperPriceProductDto, vm: ShipperPricesV
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            TextButton(onClick = { vm.toggleProduct(product.productId) }) {
-                Text(if (open) "收起" else "定价")
-            }
+            Text(
+                if (fallback.isNullOrBlank()) "还没设默认价" else "已设默认价",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (fallback.isNullOrBlank()) MaterialTheme.colorScheme.outline else Color(MoneyOrange),
+            )
         }
-        Spacer(Modifier.height(4.dp))
-        Row(Modifier.fillMaxWidth()) {
-            PriceFact("我拿货（参考）", Modifier.weight(1f)) {
+
+        HorizontalDivider(Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            Column(Modifier.weight(1f)) {
+                if (fallback.isNullOrBlank()) {
+                    Text(
+                        "未设",
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                } else {
+                    Text(
+                        "¥" + formatMoney(fallback),
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(MoneyOrange),
+                    )
+                }
+                Text(
+                    "卖给下游的价",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            PriceFact("我拿货（参考）") {
                 // 后端没给这个价时如实说"没记录"，不印 ¥0（那会被读成"不要钱"）。
                 if (product.supplyUnitPrice.isNullOrBlank()) {
                     Text("没记录", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
@@ -185,25 +239,35 @@ private fun ProductPriceCard(product: ShipperPriceProductDto, vm: ShipperPricesV
                     MoneyText(product.supplyUnitPrice, style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            PriceFact("我的默认价", Modifier.weight(1f)) {
-                if (product.defaultUnitPrice.isNullOrBlank()) {
-                    Text("未设", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
-                } else {
-                    MoneyText(product.defaultUnitPrice, style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-            PriceFact("专人价", Modifier.weight(1f)) {
-                Text(product.contactPriceCount.toString() + " 个", style = MaterialTheme.typography.bodyMedium)
-            }
         }
 
-        if (open) {
-            HorizontalDivider(Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            PriceEditor(product = product, vm = vm)
+        DownstreamPriceInput(
+            productId = product.productId,
+            contactId = null,
+            saveLabel = "保存",
+            vm = vm,
+            onSave = { vm.save(product, null) },
+        )
+        if (vm.formErrorProductId == product.productId) {
+            FormErrorLine(vm.formError)
+        }
+
+        HorizontalDivider(Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "按人定价 · " + product.contactPriceCount + " 人",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            TextButton(onClick = { vm.openPricing(product) }) {
+                Text("定价")
+            }
         }
     }
 }
 
+/** 现状价的标签 + 值（小字标签在上、值在下）。 */
 @Composable
 private fun PriceFact(label: String, modifier: Modifier = Modifier, value: @Composable () -> Unit) {
     Column(modifier) {
@@ -214,122 +278,218 @@ private fun PriceFact(label: String, modifier: Modifier = Modifier, value: @Comp
 }
 
 /**
- * 展开后的编辑器：**默认价**一格（给全部下游）＋ 每位联系人一格（专人价）。
+ * 「给谁单独定价」抽屉（甲案）：顶部两档（在用 / 回收站）＋「全部下游的默认价」一行
+ * ＋ 一位下游一行（姓名 ＋ 电话 ＋ 单价输入框 ＋ 保存，在用的那条右边带「删除这条价」）。
  *
- * 每格都是"输入框 + 保存"，保存成功时后端会**复活＋覆盖**命中的那一行（不插新行），
- * 所以这里不需要"先删再改"那种两步操作。
+ * ⛔ 抽屉体必须 fillMaxHeight + verticalScroll：下游客户多了要能滚，
+ *    而且表单错（[FormErrorLine]）必须跟表单在同一屏里 —— 不然用户不知道保存为什么没成。
+ * ⛔ 默认价那一行的输入框与列表卡片上那个**共用同一个草稿格**（[draftKeyOf] 按商品 + 人算键），
+ *    两处写的是同一个价，不会各写各的。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PriceEditor(product: ShipperPriceProductDto, vm: ShipperPricesViewModel) {
-    val productId = product.productId
-    Text("给不同的人不同的价", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-    Spacer(Modifier.height(4.dp))
-    Text(
-        "不填的人按默认价算；没设默认价、也没专人价的人，这一页不管（后端那一处说了算）。",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Spacer(Modifier.height(12.dp))
-
-    // ① 默认价
-    PriceEditRow(
-        title = "全部下游的默认价",
-        subtitle = null,
-        row = vm.priceOf(productId, null),
-        draftKey = SHIPPER_PRICE_DEFAULT_KEY,
-        vm = vm,
-        onSave = { key -> vm.save(product, null, key) },
-    )
-
-    HorizontalDivider(Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
-
-    // ② 每位联系人
-    if (vm.contacts.isEmpty()) {
-        Text(
-            "你的联系人还是空的 —— 先去「地址与联系人」添一位下游客户，再回来给他单独定价",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    } else {
-        vm.contacts.forEach { contact ->
-            PriceEditRow(
-                title = contact.displayName.ifBlank { contact.phone.ifBlank { "联系人 " + contact.id } },
-                subtitle = contactLine(contact),
-                row = vm.priceOf(productId, contact.id),
-                draftKey = contact.id,
-                vm = vm,
-                onSave = { key -> vm.save(product, contact.id, key) },
+private fun DownstreamPersonSheet(product: ShipperPriceProductDto, vm: ShipperPricesViewModel) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = { vm.closePricing() }, sheetState = sheetState) {
+        Column(
+            Modifier.fillMaxWidth()
+                .fillMaxHeight(0.9f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "给谁单独定价",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+                SheetCloseButton(onClick = { vm.closePricing() })
+            }
+            Text(
+                product.productName + "（单位：" + (product.unit ?: "件") + "）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(12.dp))
+
+            // 两档：默认只看在用的；回收站里躺着的那几条要能看见、要能恢复。
+            SegmentedPicker(
+                labels = listOf(
+                    "在用 · " + activePersonCount(vm.prices) + " 人",
+                    "回收站 · " + deletedCount(vm.prices) + " 条",
+                ),
+                selected = if (vm.includeDeleted) 1 else 0,
+                onSelect = { vm.toggleIncludeDeleted(it == 1) },
+                accent = Color(ThemeGreen),
+            )
+            Spacer(Modifier.height(8.dp))
+
+            val fallback = defaultPrice(vm.prices)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("全部下游的默认价", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "不填的人按这个价算",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                when {
+                    fallback == null -> Text(
+                        "未设",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                    fallback.isDeleted -> Text(
+                        "已删除 ¥" + money(fallback),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                    else -> MoneyText(fallback.unitPrice, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            DownstreamPriceInput(
+                productId = product.productId,
+                contactId = null,
+                saveLabel = "保存",
+                vm = vm,
+                onSave = { vm.save(product, null) },
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "不填的人按默认价算；没设默认价、也没专人价的人，这一页不管（后端那一处说了算）。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            HorizontalDivider(Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+            if (vm.contacts.isEmpty()) {
+                Text(
+                    "你的联系人还是空的 —— 先去「地址与联系人」添一位下游客户，再回来给他单独定价",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // 第二行跟联系人那一页同一个口径：电话 · 备注（备注只有他自己看得见）。
+            val contactById = vm.contacts.associateBy { it.id }
+            personRows(vm.contacts, vm.prices, vm.includeDeleted).forEach { row ->
+                PersonPriceRow(
+                    row = row,
+                    subtitle = contactById[row.contactId]?.let { contactLine(it) },
+                    product = product,
+                    vm = vm,
+                )
+            }
+
+            if (vm.pricesLoading) {
+                Spacer(Modifier.height(8.dp))
+                LoadingBox()
+            }
+
+            FormErrorLine(vm.formError)
+
+            if (vm.formError != null) {
+                TextButton(onClick = { vm.dismissFormError() }) { Text("知道了") }
+            }
         }
-    }
-
-    if (vm.pricesLoading) {
-        Spacer(Modifier.height(8.dp))
-        LoadingBox()
-    }
-
-    FormErrorLine(vm.formError)
-
-    // 回收站开关：默认只看在用的（多了这一档，列表会长出一截"已删除"的行）。
-    TextButton(onClick = { vm.toggleIncludeDeleted(!vm.includeDeleted) }) {
-        Text(if (vm.includeDeleted) "只看在用的价" else "显示已删除的价（回收站）")
-    }
-
-    if (vm.formError != null) {
-        TextButton(onClick = { vm.dismissFormError() }) { Text("知道了") }
     }
 }
 
-/** 一行"某人 / 默认价"：现状 + 输入框 + 保存（已删除的行给"恢复"）。 */
+/**
+ * 抽屉里一位下游一行：姓名 ＋ 电话 ＋ 单价输入框 ＋ 保存。
+ *
+ * 右边那一格是他**现在这个价**：在用的给价 ＋「删除这条价」；回收站里的给「已删除 ¥…」＋「恢复」；
+ * 还没给他单独定过价的，直接告诉他现在按默认价算多少钱（没默认价才说「未设」）。
+ */
 @Composable
-private fun PriceEditRow(
-    title: String,
+private fun PersonPriceRow(
+    row: DownstreamPersonRow,
     subtitle: String?,
-    row: ShipperPriceDto?,
-    draftKey: Long,
+    product: ShipperPriceProductDto,
     vm: ShipperPricesViewModel,
-    onSave: (Long) -> Unit,
 ) {
+    val own = row.price
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge)
-                if (!subtitle.isNullOrBlank()) {
-                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                Text(row.name, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    if (subtitle.isNullOrBlank()) "没留电话" else subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            // 现状：在用的给价 + 删除；回收站里的给"已删除" + 恢复。
             when {
-                row == null -> Text("未设", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
-                row.isDeleted -> {
-                    Text("已删除 ¥" + money(row), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
-                    TextButton(onClick = { vm.restore(row) }, enabled = !vm.acting) { Text("恢复") }
+                own == null -> if (row.effectiveUnitPrice != null) {
+                    MoneyText(row.effectiveUnitPrice, style = MaterialTheme.typography.bodySmall, prefix = "按默认价 ¥")
+                } else {
+                    Text("未设", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
+                }
+                own.isDeleted -> {
+                    Text(
+                        "已删除 ¥" + money(own),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                    TextButton(onClick = { vm.restore(own) }, enabled = !vm.acting) { Text("恢复") }
                 }
                 else -> {
-                    MoneyText(row.unitPrice, style = MaterialTheme.typography.bodyMedium)
-                    TextButton(onClick = { vm.askDelete(row) }) { Text("删除") }
+                    MoneyText(own.unitPrice, style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = { vm.askDelete(own) }, enabled = !vm.acting) { Text("删除这条价") }
                 }
             }
         }
-        if (row?.isDeleted != true) {
-            Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                SoTextField(
-                    value = vm.draftFor(draftKey),
-                    // 过滤规则唯一实现在 core/InputRules.kt：单价列是 Numeric(14,4) ⇒ priceInput（四位小数）。
-                    onValueChange = { vm.setDraft(draftKey, InputRules.priceInput(it)) },
-                    modifier = Modifier.weight(1f),
-                    placeholder = "单价（元）",
-                    keyboardType = KeyboardType.Decimal,
-                    enabled = !vm.submitting,
-                    // 价框点进去整串选中：用户报过「1」+「15」=「115」那类事故。
-                    selectAllOnFocus = true,
-                )
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = { onSave(draftKey) }, enabled = !vm.submitting) {
-                    Text(if (row == null) "设价" else "改价")
-                }
-            }
+        if (own?.isDeleted != true) {
+            DownstreamPriceInput(
+                productId = product.productId,
+                contactId = row.contactId,
+                saveLabel = "保存",
+                vm = vm,
+                onSave = { vm.save(product, row.contactId) },
+            )
+        }
+    }
+}
+
+/**
+ * 一行「单价输入框 ＋ 保存」—— 卡片上的默认价、抽屉里的默认价、抽屉里每一位下游，三处都复用它。
+ *
+ * ⛔ 全页**只有这一处**画单价输入框：过滤规则（[InputRules.priceInput]，单价是 Numeric(14,4)）
+ *    与"点进去整串选中"的口径只写一遍 —— 抄成三份的话，迟早有一处漏掉。
+ */
+@Composable
+private fun DownstreamPriceInput(
+    productId: Long,
+    contactId: Long?,
+    saveLabel: String,
+    vm: ShipperPricesViewModel,
+    onSave: () -> Unit,
+) {
+    // 草稿格按「商品 + 人」算键：A 商品打了一半的字不许跑到 B 商品的框里。
+    val draftKey = draftKeyOf(productId, contactId)
+    Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        SoTextField(
+            value = vm.draftFor(draftKey),
+            // 过滤规则唯一实现在 core/InputRules.kt：单价列是 Numeric(14,4) ⇒ priceInput（四位小数）。
+            onValueChange = { vm.setDraft(draftKey, InputRules.priceInput(it)) },
+            modifier = Modifier.weight(1f),
+            placeholder = "单价（元）",
+            keyboardType = KeyboardType.Decimal,
+            enabled = !vm.submitting,
+            // 价框点进去整串选中：用户报过「1」+「15」=「115」那类事故。
+            selectAllOnFocus = true,
+        )
+        Spacer(Modifier.width(8.dp))
+        Button(
+            onClick = onSave,
+            modifier = Modifier.height(52.dp),
+            enabled = !vm.submitting,
+            // 钱的事用钱的色（焦糖）：跟这一页那个大字价是同一个颜色。
+            colors = ButtonDefaults.buttonColors(containerColor = Color(MoneyOrange)),
+        ) {
+            Text(saveLabel)
         }
     }
 }
