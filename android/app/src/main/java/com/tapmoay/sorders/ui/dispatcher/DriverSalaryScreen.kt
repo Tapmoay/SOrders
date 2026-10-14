@@ -402,7 +402,7 @@ private fun MonthCard(vm: DriverSalaryViewModel) {
             ) { Text(if (vm.working) "处理中…" else "核销这个月的工资") }
         }
         Spacer(Modifier.height(4.dp))
-        Text(
+        Hint(
             "「生成 / 重算」只动没核销的那几张（按他现在的固定工资重算）；已核销的一分不变 —— 那是拍过板的凭据。",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
