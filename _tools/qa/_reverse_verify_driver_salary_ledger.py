@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""反向验证：固定工资司机的工资账只算工资、未核销的跟着新工资走、已核销的一分不动（CHG-0127）—— 10 种破坏方式都得被抓。
+"""反向验证：固定工资司机的工资账只算工资、未核销的跟着新工资走、已核销的一分不动（CHG-0127）—— 12 种破坏方式都得被抓。
 
 判据全绿不等于判据盯着东西：_tools/qa/_check_driver_salary_ledger.py 里每一条断言都可能
 写成空转（路径写错、字符串少一个空格、顺序比较反了、条数写法变了）。
@@ -120,6 +120,20 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "                    if (showSalary) salaryItems(vm)",
         "                    if (false) salaryItems(vm)",
         "两半页各画各的",
+    ),
+    (
+        "抽屉那份名册不筛（搜索框画着、打字名册不动）：71 位司机里找一个人只能靠滚",
+        SAL_SCR,
+        "    val visibleDrivers: List<UserDto> get() = UserSearch.filter(drivers, query, { driverText(it) }, { it.phone })",
+        "    val visibleDrivers: List<UserDto> get() = drivers",
+        "抽屉那份名册真的会筛（走唯一实现 UserSearch，不是画个框）",
+    ),
+    (
+        "结算单那一行数错了对象（数 order_ids —— 工资结算单没有订单，于是「工资单 0 笔」挂在 ¥8000 旁边）",
+        SAL_SCR,
+        '                        s.paidAt?.let { "已付 " + it.take(10) } ?: "工资单 " + settledBillCountOf(vm.bills, s.id) + " 笔",',
+        '                        s.paidAt?.let { "已付 " + it.take(10) } ?: "工资单 " + s.orderIds.orEmpty().size + " 笔",',
+        "结算单那一行数的是「被它锁住的工资单」张数（工资结算单没有订单，数 order_ids 必然是 0）",
     ),
 ]
 

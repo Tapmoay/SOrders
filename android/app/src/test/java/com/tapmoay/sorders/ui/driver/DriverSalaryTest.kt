@@ -16,7 +16,8 @@ import org.junit.Test
  *     「这个月到底结了多少」；
  *  ③ **任职期间工资变过要有记录**：相邻两张月薪单金额不一样就是一次变更（工资单是按"当月的固定
  *     工资"生成的，改规则不改历史账单 ⇒ 账单本身就是那张工资表的时间线）；
- *  ④ 月份要说人话（「2026 年 10 月」），脏数据**原样回**，不许把那一行变成空白。
+ *  ④ 月份要说人话（「2026 年 10 月」），脏数据**原样回**，不许把那一行变成空白；
+ *  ⑤ 派单端那张结算单要说清自己锁了几张工资单 —— 数 `order_ids` 永远得 0（真机走查抓到过）。
  */
 class DriverSalaryTest {
 
@@ -187,5 +188,23 @@ class DriverSalaryTest {
         assertEquals("2026-xx", salaryMonthWord("2026-xx"))     // 月不是数字
         assertEquals("2026-00", salaryMonthWord("2026-00"))     // 月份是 0（trimStart('0') 之后空了）
         assertEquals("2026 年 10 月", salaryMonthWord(" 2026-10 "))
+    }
+
+    // ⑤ 结算单那一行数几张「工资单」 -------------------------------------------
+
+    @Test
+    fun `结算单数的是被它锁住的工资单_不是订单`() {
+        val rows = listOf(
+            bill(1, "2026-09", "6000.00", settledDocId = 7),
+            bill(2, "2026-10", "8000.00", settledDocId = 7),
+            bill(3, "2026-11", "8000.00"),                      // 还没核销，不算
+            bill(4, "2026-11", "198.00", type = "piece", settledDocId = 8),
+        )
+        // 工资结算单覆盖的是**工资单**（后端存 bill_ids），它那张单的 order_ids 天生是空的 ——
+        // 数订单必然得 0：真机上就写着「工资单 0 笔」，旁边挂着 ¥8000。
+        assertEquals(2, settledBillCountOf(rows, 7))
+        assertEquals(1, settledBillCountOf(rows, 8))
+        assertEquals(0, settledBillCountOf(rows, 99))   // 别人的单锁的不算
+        assertEquals(0, settledBillCountOf(emptyList(), 7))
     }
 }

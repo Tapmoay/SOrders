@@ -28,6 +28,7 @@ import com.tapmoay.sorders.ui.driver.SalaryTotals
 import com.tapmoay.sorders.ui.driver.isSettledBill
 import com.tapmoay.sorders.ui.driver.salaryBillsOf
 import com.tapmoay.sorders.ui.driver.salaryChangesOf
+import com.tapmoay.sorders.ui.driver.settledBillCountOf
 import com.tapmoay.sorders.ui.driver.salaryMonthWord
 import com.tapmoay.sorders.ui.driver.salaryTotalsOf
 import com.tapmoay.sorders.ui.theme.MgrGreen
@@ -95,6 +96,15 @@ class DriverSalaryViewModel(private val container: AppContainer) : ViewModel() {
     val lastMonth: String get() = LocalDate.now().minusMonths(1).toString().substring(0, 7)
 
     val selectedName: String get() = drivers.firstOrNull { it.id == selectedId }?.let { driverText(it) }.orEmpty()
+
+    /**
+     * 抽屉里那份名册：按 [query] 过滤。
+     *
+     * 走唯一实现 `UserSearch`（姓名 / 手机号，**后 4 位天然命中**：`8006` 命中 `13800000006`）——
+     * 名册一次回全量（`/users?role=driver&limit=500`，71 人），不筛的话搜索框就是画着好看：
+     * 找一个人只能靠滚。2026-10-15 真机走查时发现的（在框里打 0006，名册纹丝不动）。
+     */
+    val visibleDrivers: List<UserDto> get() = UserSearch.filter(drivers, query, { driverText(it) }, { it.phone })
 
     val salaryRows: List<DriverBillDto> get() = salaryBillsOf(bills)
     val totals: SalaryTotals get() = salaryTotalsOf(bills)
@@ -264,7 +274,7 @@ fun DriverSalaryScreen(
             ModalDrawerSheet {
                 PersonDrawer(
                     title = "选择司机",
-                    options = vm.drivers.map {
+                    options = vm.visibleDrivers.map {
                         PersonOption(
                             key = it.id.toString(),
                             title = driverText(it),
@@ -512,7 +522,7 @@ private fun SettlementCard(
                 Column(Modifier.weight(1f)) {
                     Text("#" + s.id + " · " + s.month + " · " + settlementWord(s.status), style = MaterialTheme.typography.bodyMedium)
                     Text(
-                        s.paidAt?.let { "已付 " + it.take(10) } ?: "工资单 " + s.orderIds.orEmpty().size + " 笔",
+                        s.paidAt?.let { "已付 " + it.take(10) } ?: "工资单 " + settledBillCountOf(vm.bills, s.id) + " 笔",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

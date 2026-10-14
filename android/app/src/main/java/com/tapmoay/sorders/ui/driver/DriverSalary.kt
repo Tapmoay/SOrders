@@ -40,6 +40,17 @@ internal fun salaryBillsOf(bills: List<DriverBillDto>): List<DriverBillDto> =
     bills.filter { isSalaryBill(it) }.sortedByDescending { it.month }
 
 /**
+ * 这张结算单**锁住了几张工资单**。
+ *
+ * ⛔ 不能数 `SettlementDto.orderIds`：工资结算单覆盖的是**工资单**（后端存的是 `bill_ids`），
+ *    不是订单 —— 那张单的 `order_ids` 天生就是空的。2026-10-15 真机走查抓到的原样：结算单
+ *    那一行左边写着「工资单 0 笔」，右边却挂着八千块。工资单自己知道是谁锁的它（`settled_doc_id`），
+ *    所以这个数在本地就能算准，不用求后端改口径。
+ */
+internal fun settledBillCountOf(bills: List<DriverBillDto>, docId: Long): Int =
+    bills.count { it.settledDocId == docId }
+
+/**
  * 已核销 / 未核销两本小账（用户：「表示已核销……那个没有核销的工资」）。
  *
  * ⚠️ 两个数**分开给**，不给"合计"了事：已核销的是**已经拍过板的凭据**（不再变），

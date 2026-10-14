@@ -45,9 +45,10 @@ _tools/qa/_reverse_verify_driver_salary_ledger.py（逐条注入破坏）。
 8. 入口闸门三个字段**并列**在同一个表达式里（不许抽成辅助函数）。
 9. 路由 / NavGraph / 运费结算页那个出口都在，且出口行不写金额。
 10. 单测、变更单、反向验证脚本都在，且条数对得上。
+11. 结算单那一行数的是**被它锁住的工资单**张数（工资结算单没有订单，数 order_ids 必然是 0）。
 
 ⚠️ 注入式反向验证（改坏 → 本脚本必须红，改回 → 绿）：
-   python _tools/qa/_reverse_verify_driver_salary_ledger.py（10 种破坏方式全被抓）
+   python _tools/qa/_reverse_verify_driver_salary_ledger.py（12 种破坏方式全被抓）
 
 用法：python _tools/qa/_check_driver_salary_ledger.py
 """
@@ -270,6 +271,12 @@ def main() -> int:
        'settlementAction(s.id, "pay")' in ds_kt and 'settlementAction(s.id, "cancel")' in ds_kt)
     ok("两个按钮的字面都在", "生成 / 重算" in ds and "核销这个月的工资" in ds)
     ok("选司机用现成抽屉（PersonDrawer）", "PersonDrawer(" in ds_kt)
+    ok("抽屉那份名册真的会筛（走唯一实现 UserSearch，不是画个框）",
+       "UserSearch.filter(drivers, query, { driverText(it) }, { it.phone })" in ds_kt
+       and "options = vm.visibleDrivers.map {" in ds_kt)
+    ok("结算单那一行数的是「被它锁住的工资单」张数（工资结算单没有订单，数 order_ids 必然是 0）",
+       "settledBillCountOf(vm.bills, s.id)" in ds_kt and "orderIds" not in ds_kt
+       and "bills.count { it.settledDocId == docId }" in kt(SALARY))
     ok("空态说清下一步", "点上面「生成 / 重算」" in ds)
     fts = kt(FREIGHT_SETTLE)
     ok("运费结算页多了一个出口参数", "onOpenSalaries: () -> Unit = {}," in fts)
