@@ -22,16 +22,16 @@
 
 | 字段 | 值 | 现取命令（可复现） |
 |---|---|---|
-| **Git SHA** | `1c2fcb60`（**0.2.19 发布点**：2026-10-15T08:15:04+08:00 1c2fcb60；⚠️ **0.2.19 这个包是用「工作区」打的** —— 同一工作区里还有别的会话未提交的在途改动（`git status` 里那一批 ` M`），包内容 ≠ 这一棵树，只有本单那 3 个 `.kt` 能对上本 SHA。上一个发布点 0.2.17 = `469e4ed3277b339db144d68793c902ae9421e7d0`（2026-10-11T03:03:25+08:00，含 BUG-0023…0036 修复、CHG-0106、GOV-0012）） | `git rev-parse HEAD` |
+| **Git SHA** | `c1c8eb09`（**0.2.20 发布点**：提交时刻 2026-10-15T23:49:38+08:00；⚠️ **这个包是用「工作区」打的** —— 同一工作区里还有别的会话未提交的在途改动（`git status` 里那一批 ` M`），包内容 ≠ 这一棵树。上一个发布点 0.2.19 = `1c2fcb60`（本单 2 笔：BUG-0039 修复 ＋ 其随动），再往前 0.2.17 = `469e4ed3277b339db144d68793c902ae9421e7d0`） | `git rev-parse HEAD` |
 | **运行时代码指纹**（⛔ 这条比 SHA 本身更要紧） | 发布点之后还可能推**只改文档/工具**的提交 ⇒ 真正要核的是「运行时代码没变」：`git diff --stat <Git SHA>..<发布点> -- backend/` **必须为空** | `git diff --stat <Git SHA>..HEAD -- backend/` |
-| 提交时刻 | 2026-10-15T08:15:04+08:00（0.2.19 发布点；本单两笔：`8b37f5c7` 代码 ＋ `1c2fcb60` 随动） | `git log -1 --format=%cI` |
+| 提交时刻 | 2026-10-15T23:49:38+08:00（0.2.20 发布点；本单 `c1c8eb09`） | `git log -1 --format=%cI` |
 | **DB migration version** | **35**（⛔ 这是**仓库头**：0.2.8 发布时生产跑到 **29**；此后 FEAT-0018 加了 `031_account_devices`、FEAT-0019 加了 `032_notification_severity`、FEAT-0021/0022 走完又加了 `033_vehicle_inspection_dates`（车辆上牌/上次年检两格）⇒ 仓库头现为 **33**。✅ 生产已于 2026-10-11 部署到 **35**（0.2.17 那次八步全绿，含 FEAT-0025 的 034 与 FEAT-0026 的 035），下一次发布必须走 `_release.py --step migrate` 并回读「当前版本 == 仓库迁移头、待跑 0 / 漂移 0」） | `ls backend/app/migrations/0*.py | tail -1` |
-| **Android 版本** | 产品 **0.2.20**（**仓库现值**：BUG-0039 收尾把根 VERSION 从 0.2.19 抬到 0.2.20，还没打包。已发布过 **0.2.19**：2026-10-15 发出 `sorders-0.2.19-2026101501.apk`，`versionCode=2026101501`，短链 `http://8.145.40.22/apk` 回读 `version=0.2.19 versionCode=2026101501 OK`；CHG-0133 收尾把根 `VERSION` 从 0.2.18 抬到 0.2.19。上一版 **0.2.17**：`sorders-0.2.17-2026101013.apk`）（唯一来源＝仓库根 `VERSION`：FEAT-0018 收尾把它从 0.2.13 抬到 0.2.14） | `Get-Content VERSION` ＋ `android/app/build/outputs/apk/phone/release/output-metadata.json` |
+| **Android 版本** | 产品 **0.2.20** = **已发布**（2026-10-15 发出 `sorders-0.2.20-2026101502.apk`，`versionCode=2026101502`，短链 `http://8.145.40.22/apk` 回读 `version=0.2.20 versionCode=2026101502 OK`；BUG-0039 收尾把根 `VERSION` 从 0.2.19 抬到 0.2.20。上一版 **0.2.19**：`sorders-0.2.19-2026101501.apk`）（唯一来源＝仓库根 `VERSION`） | `Get-Content VERSION` ＋ `android/app/build/outputs/apk/phone/release/output-metadata.json` |
 | **Backend 版本** | `app_version` = **0.2.20**（**仓库现值**：与上一格同一个来源，BUG-0039 收尾抬版；`config._repo_version()` 现读同一个 `VERSION`；⚠️ 2026-10-15 那次**只发了 Android**（0.2.19 / 0.2.20），后端没重发，所以这一格仍是**仓库现值** —— 后端下次发布时用 `/health` 实测值回填） | `python -c "from app.config import settings; print(settings.app_version)"` |
 | **Frontend 版本** | ⛔ **没有**：`frontend/`（Vue3 旧 H5）已不在工作区，本轮不发布前端 | `git ls-files frontend`（0 个文件） |
 | **requirements lock** | ⛔ **没有 lock** —— R3-07d 决策②「本轮不锁」（保持开区间）；改用**生产真实 freeze 指纹**当基准 | `ssh … '.venv/bin/pip freeze | sha256sum'` |
 | **config checksum** | systemd unit `sorders-api*.service` 的 sha256 前 16 位（发布后现取；本轮 unit 未改，与 0.2.7 同值） | `ssh … 'systemctl cat <enabled 的 sorders-api*.service> | sha256sum'` |
-| **artifact checksum** | `app-phone-release.apk`（0.2.19）→ 线上 `/opt/SOrders/backend/uploads/app/sorders-0.2.19-2026101501.apk`：**45,719,481 字节 / `3711A60043CC9563`**（sha256 前 16 位；`publish_apk.py` 回读 `version=0.2.19 versionCode=2026101501 OK`；签名指纹与线上一致；后端址 `https://8.145.40.22`；短链 `http://8.145.40.22/apk` → `sorders-latest.apk`，HTTP 206 / 45,719,481 字节）（更早一次 0.2.15：45,555,641 字节 / `83E57F1FF08D17D8`） | `python _tools/deploy/publish_apk.py --apk … --version-code … --note …` |
+| **artifact checksum** | `app-phone-release.apk`（0.2.20）→ 线上 `/opt/SOrders/backend/uploads/app/sorders-0.2.20-2026101502.apk`：**45,719,477 字节 / `C87C0FB48A14ED9E`**（sha256 前 16 位；`publish_apk.py` 回读 `version=0.2.20 versionCode=2026101502 OK`；签名指纹与线上一致；后端址 `https://8.145.40.22`；短链 `http://8.145.40.22/apk` → `sorders-latest.apk`，HTTP 206 / 45,719,477 字节；**从短链下载回来现算 sha256 = 本地包**）（更早一次 0.2.19：45,719,481 字节 / `3711A60043CC9563`） | `python _tools/deploy/publish_apk.py --apk … --version-code … --note …` |
 
 ---
 
