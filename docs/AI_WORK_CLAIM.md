@@ -7516,6 +7516,43 @@ Python 会发 `SyntaxWarning`，而 `_check_all.py` 的摘要是**取子进程�
 
 **用户原话**（ref **m00001**）：「你要做的就是我们司机端，他不是有一个可以要确认订单吗？就是接订单嘛，这个确认订单，他的按钮是进入订单详情面才能确认这个就太麻烦了，直接把它改一下改成他不是有订单那个卡片吗？呃直接在订单卡片里面的最底下是有一个呃按钮，他可以直接在那里点击确认这样子的话，他就很方便了他就不需要直接的点进去啊？进行确认就可以了」。台账：`_tmp/USER_BUG_LEDGER_20261006.md` **L-51**（本单补记 —— 该台账原有的 L-01…L-48 只覆盖 2026-10-06 那一轮走查）。
 
+### [2026-10-15 → ✅ 已完成（代码 / 判据 37 项 / 反验 9 条 / 编译 / 全量单测 131 类 1805 例 0 失败 / 全量静检无新增红 / 真机三态复验）] 会话：**BUG-0039 地图选点拿不到定位时静默停在高德默认视图（北京），且那个从没选过的中心还能直接确认**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`，主会话亲自施工）
+
+`用户口径`（2026-10-15，逐字）：「我在测试的时候出现了一个bug，就是我在代理下单选择地图选点的时候呃没有弹出正确的显示啊，看一下是什么原因包括还有一些其他的地方呃主要是涉及到地图选点呃看一下是哪些原因，然后修复一下」。
+
+**已复现（emulator-5554，派单员 `13800000001`，dev 后端；截图 `_tmp/bug_map_01.png`）**：工作台 → 代理下单 →「地图选点」⇒ 弹层正常打开，但**地图停在「北京」**（高德默认视图）、底部只有 `拖动地图或点击地图选择位置`、**没有任何提示**；点「定位到当前位置」也毫无反馈（按钮不变、无报错）。根因：`core/AmapLocationManager.kt` 定位失败时**照常回调 `(0,0)` 哨兵**（`else` 分支），而 `AmapPickerDialog` 的 collector 只写 `locating = false` 再 `if (pt.lat != 0.0 || pt.lng != 0.0)` 跳过 —— **哨兵被悄悄吞掉**；同时「确认」那道闸（`SunLocation.isPlausible`）只知道 `(0,0)` 不可信，**挡不住北京**（`39.9,116.4` 是可信坐标）⇒ 一个从没看过的中心能被确认进订单／地点库。
+
+**改哪些文件**：`android/app/src/main/java/com/tapmoay/sorders/ui/common/AmapPicker.kt`（新增 `locateNote` / `centered` 两个状态；定位失败那句中文；`requestSingle()` 的返回值不再丢；没权限也说话；`jumpTo(...)` 与 `onCameraChangeFinish` 置 `centered = true`；「确认」在 `!centered` 时不出坐标）＋ 判据 `_tools/qa/_check_map_picker.py` ＋ 反验 `_tools/qa/_reverse_verify_map_picker.py` ＋ 文书 `docs/changes/BUG-0039.md`。
+**明确不碰**：⛔ `core/AmapLocationManager.kt`（`(0,0)` 哨兵语义与 `SunLocation.update` 的锚点不动，`_check_ai_guardrails.py:3214-3218` 钉着）、⛔ `core/DeviceLocation.kt`（WGS84 只喂日落，⛔ 不许进地图选点 —— 会把坐标偏几百米）、⛔ `ui/common/AmapViewDialog.kt`（只读地图、不是取点口）、⛔ 三个调用方的签名与 `startSatellite` 口径、⛔ 后端一个字节。
+**核心改动**：不适用（没有改 `_tools/qa/_core_files.txt` 里的任何文件）。
+**证据**：① 判据 `python -X utf8 _tools/qa/_check_map_picker.py` → **37 项全绿**（新增 1b 节 11 项）；② 反验 `python -X utf8 _tools/qa/_reverse_verify_map_picker.py` → **9/9 全被抓**（新增 ⑧ 失败又变静默 / ⑨ centered 闸被删）；③ 设备三态复验（emulator-5554 派单员）：打开即说「没拿到当前位置…」/ 直接点确认被拦（「请先在地图上选一个点…」，弹层不关）/ 拖动后确认成功并把「北京市昌平区崔村镇天桥路…」写进代理下单表单；④ 编译 `:app:assembleEmuDebug` → BUILD SUCCESSFUL；⑤ 全量单测 `:app:testEmuDebugUnitTest` → BUILD SUCCESSFUL in 1m 10s（131 类 / tests=1805 / 0 失败 / 2 跳过）；⑥ 全量静检 `_tools/qa/_check_all.py` → **18/272**，与上一轮 **20/272** 比对 **新增 0 条、转绿 2 条**。
+⚠️ 顺带修好一条**已失效的老注入**：反验 ⑦「司机那一侧不再强制标准」在 CHG-0133 之后**已经抓不住**（那一页多了第二处 `startSatellite =`，判据原来只要求「存在一处带 driver」）—— 本单把判据改成**逐处都判**并同步了注入的期望关键字。
+
+
+### [2026-10-15 → ✅ 已完成（代码 / 判据 110 项 / 反验 10 条 / 编译 / 全量单测 131 类 1805 例 0 失败 / 全量静检无新增红 / 真机走查；提交 `8b37f5c7`）] 会话：**CHG-0133 派单员改订单「地点信息」改走地点库 / 地图选点 /「我就在这里」，并让订单真的落坐标**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`，主会话亲自施工）
+
+`用户口径`（2026-10-15 m45885，用户原话未逐字留存，此处为转述）：订单详情里派单员改「地点信息」，要能像下单页那样从**地点库**（线路 / 我的地点 / 共享地点）里挑、能**在地图上选点**、能用**「我就在这里」**，并且订单要**真的落坐标**（不能只改一行文字、坐标仍指着老地方）。
+
+**已定口径**：① 地址块里加「地址库」「地图选点」两颗按钮 + 整宽「我就在这里」，坐标单独一行（空则橙字「还没选坐标」）；② 三处入口都只写草稿（`editDrafts` 的 `addressLat`/`addressLng`/`addressDetail`），**点「保存地址」才落库**；③ ⛔ 原单带坐标、草稿坐标却空了 ⇒ **fail-closed 拦住不提交**（文案讲清「司机照坐标走」并给出两条出路）；④ 文字改了而坐标没换 ⇒ 坐标行下加一句橙字提醒（只提醒、不拦）；⑤ 共享库管理（改 / 删 / 撤销 / 恢复 / 设为共享）只在**派单员**手上出现，门用 `container.tokenStore.cachedRole() == "dispatcher"`（⛔ 不用 `place:manage` —— 那个能力货主也有，拿它当门＝货主也能改别人的地点）；⑥ 「我就在这里」复用 `container.locationManager` + `SunLocation.isPlausible` 闸 + `hereResultOf`（⛔ 不引 `DeviceLocation`），超时 20s 兜底并给出另一条出路。
+
+**改哪些文件**：`android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderEditInline.kt`（`OrderEditField` 追加 `ADDRESS_LAT`/`ADDRESS_LNG`；`OrderEditHost` 追加 `val appContainer` / `openAddressLibrary()` / `openAddressMap()` / `applyPickedCoord(lat, lng, address)` / `val addressCoordNotice: String?`；`AddressEditBlock(edit, modifier)` 重写：地址多行框 + 两颗按钮 + 「我就在这里」+ 坐标行 + 橙字提醒，新增 `private const val DETAIL_HERE_TIMEOUT_MS = 20_000L`）、`.../ui/order/OrderDetailViewModel.kt`（`startEdit` 把原坐标抄进草稿；`saveEdit` 追加坐标两闸（fail-closed 在发请求之前）+ 两个坐标字段随单提交；新增一整节 `// ---- 改「地点信息」走地点库 / 地图 / 「我就在这里」（CHG-0133）----`：两个弹层状态 + 三份库数据 + 五个管理动作，反馈**全走 `actionResult`**——⛔ VM 里不许出现 `Toast`）、`.../ui/order/OrderDetailScreen.kt`（`preview.Show()` 之前挂两个屏级弹层：`AddressPickerSheet(title = "改收货地址")` 与 `AmapPickerDialog`）。
+
+**明确不碰**：⛔ `backend/**` 一个字节不动（`OrderUpdateRequest` 早有 `address_lat`/`address_lng`，`backend/app/commands/order.py:405-410` 是「不给就不改」；`_check_client_contract.py` / `_check_order_commands.py` 按字面形状解析状态门，一个字都不能改）；⛔ `ui/shipper/**` 的现有实现（`AddressPickerSheet` 只调用、不改签名与文案；下单页 / 地址页一字不动）；⛔ 详情页那处调用必须逐字 `AddressEditBlock(edit)`（`_tools/qa/_check_detail_inline_edit.py:249` 钉着）；⛔ 六字段全量提交的既有字面量与两颗电话校验的先后（同判据 :348-372）；⛔ `EditHint(` 计数与三处编辑块既有文案；⛔ 钱 / 账本 / 状态机 / 权限词表 / outbox。
+
+**核心改动**：不适用（没有改 `_tools/qa/_core_files.txt` 里的任何文件）。
+
+**判据**：新增 `_tools/qa/_check_detail_place_edit.py`（**110 项**，EXIT=0；含「坐标落草稿前先归一成 6 位小数」那条）+ 反验 `_tools/qa/_reverse_verify_detail_place_edit.py`（**10/10** 种破坏方式被抓，逐字节还原）。⚠️ 按房规动了别人的两处判据资产 + 一份生成物，见下面「交叉点」。
+
+**证据**：① 判据 `python -X utf8 _tools/qa/_check_detail_place_edit.py` → **✅ 全部 110 项通过**（EXIT=0）；
+② 反验 `python -X utf8 _tools/qa/_reverse_verify_detail_place_edit.py` → **10/10 种破坏方式被抓住**（EXIT=0，逐字节还原）；
+③ 编译 `:app:assembleEmuDebug` → `BUILD SUCCESSFUL in 18s`（APK `android/app/build/outputs/apk/emu/debug/app-emu-debug.apk` 45632688 字节 / 07:52:32）；
+④ 全量单测 `:app:testEmuDebugUnitTest` → `BUILD SUCCESSFUL in 1m 11s`；`android/app/build/test-results/testEmuDebugUnitTest/*.xml` 现算 = **131 个测试类 / tests=1805 / 0 失败 / 2 跳过**（本单**未新增单测**：本模块没有 Robolectric、VM 构造要 `AppContainer`、判据按字面形状钉 VM ⇒ 抽纯函数会把被钉的字面量搬走）；
+⑤ 全量静检 `python -X utf8 _tools/qa/_check_all.py` → **20/272**，与第一轮 **25/272** 逐条比对：**新增 0 条、转绿 5 条**（本单自己造成的 6 条红全绿：`_check_address_here_button.py` / `_check_page_truncation_wiring.py`（`MIN_META_READS` 18→19）/ `_check_hints.py` / `_hint_inventory.py`（按脚本印的修法重跑 `python -X utf8 _tools/qa/_hint_inventory.py --md`）/ `_check_generated_freshness.py` / `_check_order_contact_edit.py`）；
+⑥ 真机走查（派单员 `emulator-5560`，订单 **624** `SO202610153664555664`）七张截图：`_tmp/w0133_02_addr_edit.png`（编辑态三颗入口 + 坐标行）/ `_tmp/w0133_03_place_sheet.png`（抽屉标题「改收货地址」+ 线路 / 我的地点 / 共享地点三组）/ `_tmp/w0133_04_place_menu.png`（共享地点三条管理菜单逐字）/ `_tmp/w0133_05_picked.png`（挑地点后文字与坐标一起换）/ `_tmp/w0133_06_map.png`（高德选点弹层）/ `_tmp/w0133_07_map_clean_coord.png`（坐标 6 位小数）/ `_tmp/w0133_08_coord_notice.png`（「地址文字改了，坐标还是原来那个点」那句橙字）；
+⑦ **走查抓到并修掉一处真缺陷**：坐标行印过 `坐标：23.021498000000005，114.32837300000001`（`Double.toString()` 的浮点尾巴）⇒ 新增 `private fun coordDraft(v: Double): String = String.format(java.util.Locale.US, "%.6f", v)`（`ui/order/OrderDetailViewModel.kt:1395`），并把判据那条断言与反验第 ⑩ 条一起补上；
+⑧ 走查**未写库**：订单 624 仍是 `DISPATCHED` / `'仲恺区惠风东三路40号 8栋1366室'` / `address_lat=23.045414` / `address_lng=114.32036`，它的 outbox 仍只有 id 1110 `orders.created` 与 id 1111 `orders.assigned`（没有 `orders.edited`）；
+⑩ **已发生产**：`sorders-0.2.19-2026101501.apk`（45,719,481 字节 / sha256 前 16 位 `3711A60043CC9563`），`publish_apk.py` 回读 `version=0.2.19 versionCode=2026101501 OK`、短链 206；⚠️ 包是**工作区**打的（含其它会话未提交的在途改动）。
+⑨ 用户（m47057 逐字：「不用测试了，只要代码没问题就可以了。因为这些像这样子代码，我们在呃下单的时候就已经写过了」）指示不再继续走查 ⇒ fail-closed 拦阻与「真的存一次（写库 + 司机收到 `orders.edited`）」两条分支只由判据与反验覆盖形状，已写进 `docs/changes/CHG-0133.md` §⑨ Known Limitations。
 **病灶**：司机「任务列表」的卡片只有 `onClick = { onOpenOrder(order.id) }` 一个动作 —— 要接单得 点卡 → 进详情页 → 滑到页面底部 → 点那颗绿底「确认接单」→ 再返回。一屏三四张单时每张都要走一遍来回。接单这件事、那颗按钮、那条端点（`POST /orders/{id}/driver-ack`）都是现成的，缺的只是**入口的位置**。
 
 **改法（3 个 Android 文件 ＋ 2 份新判据 ＋ 1 条既有误报修正 ＋ 5 份文档，边界结论 PRESENTATION）**：

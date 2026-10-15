@@ -18,7 +18,7 @@
 4. **三个调用方共用这一份**：哪个页面自己再画一个地图弹层，"坐标不可信"那道闸就会漏掉那一页。
 
 用法：python _tools/qa/_check_map_picker.py
-配套：python _tools/qa/_reverse_verify_map_picker.py（7 种破坏方式全被抓）
+配套：python _tools/qa/_reverse_verify_map_picker.py（9 种破坏方式全被抓）
 """
 from __future__ import annotations
 
@@ -71,6 +71,35 @@ def main() -> int:
          'coordError = "' in src and "coordError" in src)
     c.ok("重新选点时把上一次的提示撤掉", "coordError = null" in src)
 
+    # ── 1b. 拿不到定位 / 还没选过点：**不许静默**、**不许确认**（BUG-0039，2026-10-15）──
+    # 现场（emulator-5554 派单员，代理下单 → 地图选点）：地图停在高德默认视图（北京）、
+    # 底部只有"拖动地图或点击地图选择位置"、点「定位到当前位置」毫无反馈。
+    # 两个根因：① 高德失败回的是哨兵 `(0,0)`，collector 原来直接跳过 —— 一句话都不说；
+    #          ② 「确认」那道闸只知道 `(0,0)` 不可信，**挡不住北京**（39.9,116.4 是可信坐标）。
+    c.section("1b. 拿不到定位要说话、没选过的中心不许确认（BUG-0039）")
+    c.ok("定位失败那条分支真的会说话（哨兵 `(0,0)` 不再被 `if` 吞掉）",
+         re.search(r"if \(pt\.lat != 0\.0 \|\| pt\.lng != 0\.0\)[\s\S]{0,600}?else \{[\s\S]{0,300}?locateNote = \"", src)
+         is not None)
+    c.ok("成功那条分支会把那句话撤掉（成功还挂着失败提示 = 自相矛盾）",
+         re.search(r"if \(pt\.lat != 0\.0 \|\| pt\.lng != 0\.0\) \{\s*\n\s*locateNote = null", src) is not None)
+    c.ok("`requestSingle()` 的返回值不再丢（false = 一个回调都不会来）",
+         "if (!container.locationManager.requestSingle()) {" in src)
+    c.ok("`requestSingle()` 返回 false 时按钮不再卡在「定位中…」",
+         re.search(r"if \(!container\.locationManager\.requestSingle\(\)\) \{\s*\n\s*locating = false", src) is not None)
+    c.ok("权限被拒也说话（那条路上同样一个回调都没有）",
+         'locateNote = "没有定位权限' in src)
+    c.ok("那句话画在屏上（不是只写进状态没人用）", "locateNote?.let" in src)
+    c.ok("「这个中心有没有出处」进状态：`centered`", "var centered by remember { mutableStateOf(false) }" in src)
+    c.ok("跳转过的中心算有出处（初始坐标 / 上次定位 / 搜索命中 / 定位回流都走 `jumpTo`）",
+         re.search(r"fun jumpTo\(p: LatLng, zoom: Float = 16f\) \{[\s\S]{0,400}?centered = true", src) is not None)
+    c.ok("用户自己拖/点地图也算有出处（相机停稳那一支）",
+         re.search(r"onCameraChangeFinish[\s\S]{0,600}?centered = true", src) is not None)
+    c.ok("⛔ 没选过（`!centered`）就不许出坐标 —— 挡的是「北京」这种**可信但从没看过**的中心",
+         "if (!centered) {" in src)
+    c.ok("那道闸在**确认口里面**（写进状态却在别处判 = 白判）",
+         src.find("if (!centered) {") != -1 and src.find("if (!centered) {") > src.find("onClick = {")
+         and src.find("if (!centered) {") < src.find("onPicked("))
+
     # ── 2. 图层：卫星 / 标准 两档，且有切换入口 ─────────────────────────────
     c.section("2. 图层切换：卫星 ↔ 标准")
     c.ok("用了 SDK 的卫星图层常量", "AMap.MAP_TYPE_SATELLITE" in src)
@@ -84,8 +113,12 @@ def main() -> int:
     # ── 2b. 司机那一侧起步是标准（同一页里派单员仍是卫星）────────────────────
     c.section("2b. 司机那一侧起步 = **标准地图**（用户：「但是司机的导航是标准地图」）")
     detail = strip_comments(read(DETAIL))
-    c.ok("订单详情页**显式**传 `startSatellite`、且按角色判 driver（不拿「上次那个」给司机）",
-         re.search(r"startSatellite\s*=[\s\S]{0,120}?\"driver\"", detail) is not None)
+    # ⚠️ 这里必须**逐处**判（原来只要求"存在一处带 driver 的写法"）：CHG-0133 在这一页加了
+    #    第二处 `startSatellite =`（改地址那个弹层），于是"只把第一处改成全局值"这种注入
+    #    会被**第二处**顶绿 —— 2026-10-15 跑反验时当场抓到（注入 ⑦ 漏网）。改成"每一处都带 driver"。
+    _sat_sites = re.findall(r"startSatellite\s*=\s*([^\n,]+)", detail)
+    c.ok(f"订单详情页**每一处** `startSatellite` 都按角色判 driver（不拿「上次那个」给司机；实际 {len(_sat_sites)} 处）",
+         len(_sat_sites) >= 1 and all('"driver"' in s for s in _sat_sites))
     c.ok("下单页不传（用默认＝卫星）", "startSatellite" not in strip_comments(read(CREATE)))
     c.ok("地址与联系人页不传（用默认＝卫星）", "startSatellite" not in strip_comments(read(ADDR)))
     c.ok("图层是**当参数传**进去的（不在持有者里读全局 —— 否则司机会被「上次选的卫星」顶掉）",

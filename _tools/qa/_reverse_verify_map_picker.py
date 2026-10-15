@@ -10,7 +10,9 @@
    ② 坐标闸被"简化"掉（(0,0) 写进订单与共享地点库）；
    ③ `applyMapType` 挪进相机回调（每拖一次地图叠一层瓦片）；
    ④ 卫星档删掉、只留标准（用户点名的功能消失）；
-   ⑤ 恢复 `onDestroy`（高德 9.8.3 在 Android 15+/16 arm64 上 native SIGABRT）。
+   ⑤ 恢复 `onDestroy`（高德 9.8.3 在 Android 15+/16 arm64 上 native SIGABRT）；
+   ⑧ 定位失败又变成静默（弹层停在高德默认视图上，一句话都不说 —— BUG-0039 的原样）；
+   ⑨ 「没选过就不许确认」那道闸被删掉（默认视图的中心又能写进订单／地点库）。
 
 用法：
     python _tools/qa/_reverse_verify_map_picker.py          # 全部跑
@@ -88,7 +90,21 @@ INJECTIONS: list[tuple[str, str, str, str, str]] = [
         "android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailScreen.kt",
         '            startSatellite = if (role.key == "driver") false else AmapMapHolder.satellite,\n',
         "            startSatellite = AmapMapHolder.satellite,\n",
-        "订单详情页**显式**传 `startSatellite`",
+        "订单详情页**每一处**",
+    ),
+    (
+        "⑧ 定位失败又变成静默（弹层停在高德默认视图上，一句话都不说 —— BUG-0039 的原样）",
+        PICKER,
+        '                locateNote = "没拿到当前位置：请点「定位到当前位置」重试，或直接在图上拖动 / 点一下选点。"\n',
+        "                // 失败不说话（静默停在北京）\n",
+        "定位失败那条分支真的会说话",
+    ),
+    (
+        "⑨ 「没选过就不许确认」那道闸被删掉（高德默认视图的中心又能写进订单／地点库）",
+        PICKER,
+        "                                if (!centered) {\n",
+        "                                if (false) {\n",
+        "⛔ 没选过",
     ),
 ]
 

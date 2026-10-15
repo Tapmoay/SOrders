@@ -211,6 +211,21 @@ fun AmapPickerDialog(
     // 坐标不可信时的**就地**提示（2026-09-19 报告 P1-13）：以前这里没有这个状态，
     // 于是坐标是 (0,0) 时也照样确认出去。
     var coordError by remember { mutableStateOf<String?>(null) }
+    /**
+     * 「拿不到当前位置」那句话（BUG-0039）。
+     *
+     * 为什么必须有：高德定位失败时回调的是 `(0,0)`（见 `core/AmapLocationManager.kt` 的 else 分支），
+     * 这里原来把它**悄悄吞掉** —— 弹层既不说话、地图也不动，**停在高德的默认视图（北京）**。
+     * 用户看到的就是"地图选点打开的位置不对"，而且那个从没被选过的中心还能直接确认出去。
+     */
+    var locateNote by remember { mutableStateOf<String?>(null) }
+    /**
+     * 这一层里**有没有一个明确的中心**（我们给的点，或用户自己拖/点出来的）。
+     *
+     * 只有它为 true 时「确认」才是有意义的：没有它的时候地图停在高德默认视图上，
+     * 那个中心既不是用户选的、也不是这一单的地址 —— 确认出去等于把一个没看过的坐标写进订单。
+     */
+    var centered by remember { mutableStateOf(false) }
 
     // 地图载体：全程单例（规避 9.8.3 onDestroy 在 Android 16 arm64 上 native 崩溃）
     val mapView = remember { AmapMapHolder.get(context.applicationContext) }
@@ -223,9 +238,15 @@ fun AmapPickerDialog(
         AmapMapHolder.applyMapType(aMap, satellite)
     }
 
-    /** 相机跳转（无动画）：选点以相机中心为准（屏幕中央箭头指示，微信式） */
+    /**
+     * 相机跳转（无动画）：选点以相机中心为准（屏幕中央箭头指示，微信式）。
+     *
+     * ⚠️ 跳完就**算"这一层有了明确的中心"**（[centered]）：初始坐标 / 上次定位 / 搜索命中 /
+     * 定位回流四条路都走这里，它们给的中心都是有出处的（不是高德的默认视图）。
+     */
     fun jumpTo(p: LatLng, zoom: Float = 16f) {
         if (!alive) return
+        centered = true
         try { aMap.moveCamera(CameraUpdateFactory.newLatLngZoom(p, zoom)) } catch (_: Exception) {}
     }
 
@@ -281,6 +302,9 @@ fun AmapPickerDialog(
         if (grants.values.any { it }) {
             locating = true
             container.locationManager.requestSingle()
+        } else {
+            // 权限被拒 = 这条路上**一个回调都不会有**：必须当场说一句，别让用户对着北京干瞪眼。
+            locateNote = "没有定位权限，拿不到当前位置：直接在图上拖动 / 点一下选点。"
         }
     }
 
@@ -289,7 +313,13 @@ fun AmapPickerDialog(
             .all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
         if (ok) {
             locating = true
-            container.locationManager.requestSingle()
+            locateNote = null
+            // ⛔ 返回值不许丢：`false` = **连发起都没成功**（那种情况一个回调都不会来，
+            //    按钮会一直停在"定位中…"）—— 与 `OrderEditInline.kt` 那颗「我就在这里」同一条口径。
+            if (!container.locationManager.requestSingle()) {
+                locating = false
+                locateNote = "定位没启动起来：请检查定位权限，或直接在图上拖动 / 点一下选点。"
+            }
         } else {
             permLauncher.launch(
                 arrayOf(
@@ -306,10 +336,15 @@ fun AmapPickerDialog(
             locating = false
             if (!alive) return@collect
             if (pt.lat != 0.0 || pt.lng != 0.0) {
+                locateNote = null
                 lat = pt.lat
                 lng = pt.lng
                 if (pt.address.isNotBlank()) address = pt.address else regeo(pt.lat, pt.lng)
                 jumpTo(LatLng(pt.lat, pt.lng))
+            } else {
+                // ⛔ 这一支是**高德定位失败**（哨兵 `(0,0)`，不是"就在几内亚湾"）。原来这里什么都不做 ——
+                //    弹层于是静默停在高德默认视图上（BUG-0039）。失败要说话，与全仓"拿不到就如实说一句中文"同一条。
+                locateNote = "没拿到当前位置：请点「定位到当前位置」重试，或直接在图上拖动 / 点一下选点。"
             }
         }
     }
@@ -388,6 +423,9 @@ fun AmapPickerDialog(
                                 position?.let { p ->
                                     lat = p.target.latitude
                                     lng = p.target.longitude
+                                    // 用户自己拖/点出来的中心 = **有出处的中心**（BUG-0039）：
+                                    // 有了它「确认」才是"我选的那个位置"。
+                                    centered = true
                                     coordError = null   // 重新选了点，把上一次的提示撤掉
                                     regeo(lat, lng)
                                 }
@@ -448,6 +486,14 @@ fun AmapPickerDialog(
                         maxLines = 2,
                     )
                     Spacer(Modifier.height(8.dp))
+                    locateNote?.let { msg ->
+                        Text(
+                            msg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    }
                     coordError?.let { msg ->
                         Text(
                             msg,
@@ -468,6 +514,13 @@ fun AmapPickerDialog(
                                 //    真的"的唯一一份（`core/DeviceLocation.kt` 也用它过滤定位回调，
                                 //    注释里写明了"定位失败时高德回的是 (0,0)"）。
                                 //    闸放在这**唯一一个确认口**，三个调用方（下单/地址与联系人/导航）一起受保护。
+                                // ⛔ 先问"这个中心是不是**有出处**的"（BUG-0039）：没有定位、没有初始坐标、
+                                //    用户也还没动过地图时，屏上那个中心是高德的默认视图（北京）——
+                                //    它**不是 (0,0)**，所以下面那道 isPlausible 闸拦不住它。没选过就不许确认。
+                                if (!centered) {
+                                    coordError = "请先在地图上选一个点：拖动地图，或在图上点一下 —— 中心图钉指向的就是要选的位置。"
+                                    return@Button
+                                }
                                 if (!SunLocation.isPlausible(lat, lng)) {
                                     coordError = "还没拿到有效坐标：请点「定位到当前位置」，或在图上点一下/拖动地图重新选点。"
                                     return@Button
