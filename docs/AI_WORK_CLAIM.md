@@ -8737,7 +8737,7 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 - 实现提交：`7c0421b`
 | 2026-10-15 07:4x | **CHG-0133 改订单地点走地点库 / 地图 / 「我就在这里」**（我，`session-bd8fe093-bbe1-4814-af6d-586e0980ff81`） | `_tools/qa/_check_address_here_button.py`（**CHG-0122 的判据**，文件未跟踪）＋ `_tools/qa/_check_page_truncation_wiring.py:61` | ① 前者只把「我就在这里」的落点从「两处」扩成「四处」：常量区追加 `DETAIL_INLINE`/`DETAIL_VM` 两个路径、`want` 列表跟着扩、docstring 那句散文同步改（**只动这三处，判据口径一格没松**）；② 后者 `MIN_META_READS = 18` → `19`（它自己的注释就写着「下限＝实测值，不留余量」，我这一单的 `OrderDetailViewModel.loadPlaces()` 里 `placesTruncated = page.meta.hasMore` 使实测值变 19），并按房规在上一行补日期注释。两条重跑都 EXIT=0。 |
 | 2026-10-15 07:4x | **CHG-0133**（我） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（**生成物**，唯一作者是脚本） | 本单新增 6 条提示文案（改地址块那几句）⇒ 按脚本自己印的修法重跑 `python _tools/qa/_hint_inventory.py --md`（抽到 1908 条 / 349 个 .kt，行号随动）。同时修绿 `_check_hints.py` / `_hint_inventory.py` / `_check_generated_freshness.py` / `_check_order_contact_edit.py` 四条随动红。 |
-### [2026-10-15 → ✅ 已完成（代码 / 判据 110 项 / 反验 10 条 / 编译 / 全量单测 131 类 1805 例 0 失败 / 全量静检无新增红 / 真机走查）] 会话：**CHG-0133 派单员改订单「地点信息」改走地点库 / 地图选点 /「我就在这里」，并让订单真的落坐标**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`，主会话亲自施工）
+### [2026-10-15 → ✅ 已完成（代码 / 判据 110 项 / 反验 10 条 / 编译 / 全量单测 131 类 1805 例 0 失败 / 全量静检无新增红 / 真机走查；提交 `8b37f5c7`）] 会话：**CHG-0133 派单员改订单「地点信息」改走地点库 / 地图选点 /「我就在这里」，并让订单真的落坐标**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`，主会话亲自施工）
 
 `用户口径`（2026-10-15 m45885，用户原话未逐字留存，此处为转述）：订单详情里派单员改「地点信息」，要能像下单页那样从**地点库**（线路 / 我的地点 / 共享地点）里挑、能**在地图上选点**、能用**「我就在这里」**，并且订单要**真的落坐标**（不能只改一行文字、坐标仍指着老地方）。
 
