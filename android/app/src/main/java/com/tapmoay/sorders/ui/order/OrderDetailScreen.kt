@@ -47,6 +47,7 @@ import com.tapmoay.sorders.ui.dispatcher.DispatcherPoolViewModel
 import com.tapmoay.sorders.ui.dispatcher.centsToMoney
 import com.tapmoay.sorders.ui.dispatcher.lineReceivableCents
 import com.tapmoay.sorders.ui.dispatcher.orderReceivableCents
+import com.tapmoay.sorders.ui.shipper.AddressPickerSheet
 import com.tapmoay.sorders.ui.nav.Role
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
@@ -632,6 +633,47 @@ fun OrderDetailScreen(
     //   而是「已经拍了几张」（`vm.capturedPhotos`）。
 
     // 照片大图（翻页 / 双指缩放 / 保存到相册）—— 实现在 ui/common/ImagePreview.kt，
+    // 改「地点信息」的两个弹层（CHG-0133）：地点库抽屉与地图选点。
+    // ⚠️ 零件与下单页**是同一批**（ui/shipper/OrderCreateScreen.kt 里的 AddressPickerSheet、
+    //    ui/common/AmapPicker.kt 里的 AmapPickerDialog）—— 这里只喂这一单的草稿态，
+    //    选中的东西落进草稿、由「保存地址」那一下统一提交（取消就什么都不留）。
+    if (vm.showAddressSheet) {
+        AddressPickerSheet(
+            container = container,
+            title = "改收货地址",
+            addresses = vm.addresses,
+            locations = vm.locations,
+            places = vm.places,
+            categories = vm.placeCategories,
+            placesTruncated = vm.placesTruncated,
+            placesLimit = vm.placesLimit,
+            onPickAddress = { vm.pickAddressDraft(it) },
+            onPickLocation = { vm.pickLocationDraft(it) },
+            onPickPlace = { vm.pickPlaceDraft(it) },
+            onSearchPlaces = { vm.loadPlaces(it) },
+            onCategoriesChanged = { vm.reloadAddressLibrary() },
+            canManagePlaces = vm.canManageSharedPlaces,
+            recentlyDeleted = vm.recentlyDeletedPlace,
+            onUpdatePlace = { id, name, addr -> vm.updatePlace(id, name, addr) },
+            onDeletePlace = { vm.deletePlace(it) },
+            onDemotePlace = { vm.demotePlace(it) },
+            onRestorePlace = { vm.restorePlace(it) },
+            onShareLocation = { vm.shareLocation(it) },
+            // ⛔ 不传 onAddLocation：这一页没有"新建地点"那条流（下单页也不传，那一页自己另有入口）。
+            onDismiss = { vm.closeAddressSheet() },
+        )
+    }
+    if (vm.showAddressMap) {
+        AmapPickerDialog(
+            container = container,
+            initialLat = vm.draft(OrderEditField.ADDRESS_LAT).toDoubleOrNull(),
+            initialLng = vm.draft(OrderEditField.ADDRESS_LNG).toDoubleOrNull(),
+            onPicked = { lat, lng, address -> vm.applyPickedCoord(lat, lng, address) },
+            onDismiss = { vm.closeAddressMap() },
+            startSatellite = if (role.key == "driver") false else AmapMapHolder.satellite,
+        )
+    }
+
     // 全库只此一份：地址页、下单页、订单详情页点开的都是它。
     preview.Show()
 }

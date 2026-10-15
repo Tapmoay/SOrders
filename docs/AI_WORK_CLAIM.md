@@ -8735,3 +8735,28 @@ Android `BUILD SUCCESSFUL in 2m 12s`（43 tasks）。文档 `docs/changes/CHG-00
 - 核心改动：**无** —— 为什么：`backend/app/services/reports/balance_query.py` 不在 `_tools/qa/_core_files.txt` 里（但按 L2「钱」域配了判据＋反验＋单测＋红证）
 - 证据：单测 2 passed；判据 18/18（改前 6 条不成立）；反验 7/7 全红且逐字节还原
 - 实现提交：`7c0421b`
+| 2026-10-15 07:4x | **CHG-0133 改订单地点走地点库 / 地图 / 「我就在这里」**（我，`session-bd8fe093-bbe1-4814-af6d-586e0980ff81`） | `_tools/qa/_check_address_here_button.py`（**CHG-0122 的判据**，文件未跟踪）＋ `_tools/qa/_check_page_truncation_wiring.py:61` | ① 前者只把「我就在这里」的落点从「两处」扩成「四处」：常量区追加 `DETAIL_INLINE`/`DETAIL_VM` 两个路径、`want` 列表跟着扩、docstring 那句散文同步改（**只动这三处，判据口径一格没松**）；② 后者 `MIN_META_READS = 18` → `19`（它自己的注释就写着「下限＝实测值，不留余量」，我这一单的 `OrderDetailViewModel.loadPlaces()` 里 `placesTruncated = page.meta.hasMore` 使实测值变 19），并按房规在上一行补日期注释。两条重跑都 EXIT=0。 |
+| 2026-10-15 07:4x | **CHG-0133**（我） | `docs/PROJECT_MAP/09A_HINT_CATALOG.md`（**生成物**，唯一作者是脚本） | 本单新增 6 条提示文案（改地址块那几句）⇒ 按脚本自己印的修法重跑 `python _tools/qa/_hint_inventory.py --md`（抽到 1908 条 / 349 个 .kt，行号随动）。同时修绿 `_check_hints.py` / `_hint_inventory.py` / `_check_generated_freshness.py` / `_check_order_contact_edit.py` 四条随动红。 |
+### [2026-10-15 → ✅ 已完成（代码 / 判据 110 项 / 反验 10 条 / 编译 / 全量单测 131 类 1805 例 0 失败 / 全量静检无新增红 / 真机走查）] 会话：**CHG-0133 派单员改订单「地点信息」改走地点库 / 地图选点 /「我就在这里」，并让订单真的落坐标**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`，主会话亲自施工）
+
+`用户口径`（2026-10-15 m45885，用户原话未逐字留存，此处为转述）：订单详情里派单员改「地点信息」，要能像下单页那样从**地点库**（线路 / 我的地点 / 共享地点）里挑、能**在地图上选点**、能用**「我就在这里」**，并且订单要**真的落坐标**（不能只改一行文字、坐标仍指着老地方）。
+
+**已定口径**：① 地址块里加「地址库」「地图选点」两颗按钮 + 整宽「我就在这里」，坐标单独一行（空则橙字「还没选坐标」）；② 三处入口都只写草稿（`editDrafts` 的 `addressLat`/`addressLng`/`addressDetail`），**点「保存地址」才落库**；③ ⛔ 原单带坐标、草稿坐标却空了 ⇒ **fail-closed 拦住不提交**（文案讲清「司机照坐标走」并给出两条出路）；④ 文字改了而坐标没换 ⇒ 坐标行下加一句橙字提醒（只提醒、不拦）；⑤ 共享库管理（改 / 删 / 撤销 / 恢复 / 设为共享）只在**派单员**手上出现，门用 `container.tokenStore.cachedRole() == "dispatcher"`（⛔ 不用 `place:manage` —— 那个能力货主也有，拿它当门＝货主也能改别人的地点）；⑥ 「我就在这里」复用 `container.locationManager` + `SunLocation.isPlausible` 闸 + `hereResultOf`（⛔ 不引 `DeviceLocation`），超时 20s 兜底并给出另一条出路。
+
+**改哪些文件**：`android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderEditInline.kt`（`OrderEditField` 追加 `ADDRESS_LAT`/`ADDRESS_LNG`；`OrderEditHost` 追加 `val appContainer` / `openAddressLibrary()` / `openAddressMap()` / `applyPickedCoord(lat, lng, address)` / `val addressCoordNotice: String?`；`AddressEditBlock(edit, modifier)` 重写：地址多行框 + 两颗按钮 + 「我就在这里」+ 坐标行 + 橙字提醒，新增 `private const val DETAIL_HERE_TIMEOUT_MS = 20_000L`）、`.../ui/order/OrderDetailViewModel.kt`（`startEdit` 把原坐标抄进草稿；`saveEdit` 追加坐标两闸（fail-closed 在发请求之前）+ 两个坐标字段随单提交；新增一整节 `// ---- 改「地点信息」走地点库 / 地图 / 「我就在这里」（CHG-0133）----`：两个弹层状态 + 三份库数据 + 五个管理动作，反馈**全走 `actionResult`**——⛔ VM 里不许出现 `Toast`）、`.../ui/order/OrderDetailScreen.kt`（`preview.Show()` 之前挂两个屏级弹层：`AddressPickerSheet(title = "改收货地址")` 与 `AmapPickerDialog`）。
+
+**明确不碰**：⛔ `backend/**` 一个字节不动（`OrderUpdateRequest` 早有 `address_lat`/`address_lng`，`backend/app/commands/order.py:405-410` 是「不给就不改」；`_check_client_contract.py` / `_check_order_commands.py` 按字面形状解析状态门，一个字都不能改）；⛔ `ui/shipper/**` 的现有实现（`AddressPickerSheet` 只调用、不改签名与文案；下单页 / 地址页一字不动）；⛔ 详情页那处调用必须逐字 `AddressEditBlock(edit)`（`_tools/qa/_check_detail_inline_edit.py:249` 钉着）；⛔ 六字段全量提交的既有字面量与两颗电话校验的先后（同判据 :348-372）；⛔ `EditHint(` 计数与三处编辑块既有文案；⛔ 钱 / 账本 / 状态机 / 权限词表 / outbox。
+
+**核心改动**：不适用（没有改 `_tools/qa/_core_files.txt` 里的任何文件）。
+
+**判据**：新增 `_tools/qa/_check_detail_place_edit.py`（**110 项**，EXIT=0；含「坐标落草稿前先归一成 6 位小数」那条）+ 反验 `_tools/qa/_reverse_verify_detail_place_edit.py`（**10/10** 种破坏方式被抓，逐字节还原）。⚠️ 按房规动了别人的两处判据资产 + 一份生成物，见下面「交叉点」。
+
+**证据**：① 判据 `python -X utf8 _tools/qa/_check_detail_place_edit.py` → **✅ 全部 110 项通过**（EXIT=0）；
+② 反验 `python -X utf8 _tools/qa/_reverse_verify_detail_place_edit.py` → **10/10 种破坏方式被抓住**（EXIT=0，逐字节还原）；
+③ 编译 `:app:assembleEmuDebug` → `BUILD SUCCESSFUL in 18s`（APK `android/app/build/outputs/apk/emu/debug/app-emu-debug.apk` 45632688 字节 / 07:52:32）；
+④ 全量单测 `:app:testEmuDebugUnitTest` → `BUILD SUCCESSFUL in 1m 11s`；`android/app/build/test-results/testEmuDebugUnitTest/*.xml` 现算 = **131 个测试类 / tests=1805 / 0 失败 / 2 跳过**（本单**未新增单测**：本模块没有 Robolectric、VM 构造要 `AppContainer`、判据按字面形状钉 VM ⇒ 抽纯函数会把被钉的字面量搬走）；
+⑤ 全量静检 `python -X utf8 _tools/qa/_check_all.py` → **20/272**，与第一轮 **25/272** 逐条比对：**新增 0 条、转绿 5 条**（本单自己造成的 6 条红全绿：`_check_address_here_button.py` / `_check_page_truncation_wiring.py`（`MIN_META_READS` 18→19）/ `_check_hints.py` / `_hint_inventory.py`（按脚本印的修法重跑 `python -X utf8 _tools/qa/_hint_inventory.py --md`）/ `_check_generated_freshness.py` / `_check_order_contact_edit.py`）；
+⑥ 真机走查（派单员 `emulator-5560`，订单 **624** `SO202610153664555664`）七张截图：`_tmp/w0133_02_addr_edit.png`（编辑态三颗入口 + 坐标行）/ `_tmp/w0133_03_place_sheet.png`（抽屉标题「改收货地址」+ 线路 / 我的地点 / 共享地点三组）/ `_tmp/w0133_04_place_menu.png`（共享地点三条管理菜单逐字）/ `_tmp/w0133_05_picked.png`（挑地点后文字与坐标一起换）/ `_tmp/w0133_06_map.png`（高德选点弹层）/ `_tmp/w0133_07_map_clean_coord.png`（坐标 6 位小数）/ `_tmp/w0133_08_coord_notice.png`（「地址文字改了，坐标还是原来那个点」那句橙字）；
+⑦ **走查抓到并修掉一处真缺陷**：坐标行印过 `坐标：23.021498000000005，114.32837300000001`（`Double.toString()` 的浮点尾巴）⇒ 新增 `private fun coordDraft(v: Double): String = String.format(java.util.Locale.US, "%.6f", v)`（`ui/order/OrderDetailViewModel.kt:1395`），并把判据那条断言与反验第 ⑩ 条一起补上；
+⑧ 走查**未写库**：订单 624 仍是 `DISPATCHED` / `'仲恺区惠风东三路40号 8栋1366室'` / `address_lat=23.045414` / `address_lng=114.32036`，它的 outbox 仍只有 id 1110 `orders.created` 与 id 1111 `orders.assigned`（没有 `orders.edited`）；
+⑨ 用户（m47057 逐字：「不用测试了，只要代码没问题就可以了。因为这些像这样子代码，我们在呃下单的时候就已经写过了」）指示不再继续走查 ⇒ fail-closed 拦阻与「真的存一次（写库 + 司机收到 `orders.edited`）」两条分支只由判据与反验覆盖形状，已写进 `docs/changes/CHG-0133.md` §⑨ Known Limitations。

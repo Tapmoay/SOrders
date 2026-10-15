@@ -58,7 +58,11 @@ APIS = ANDROID / "data/remote/api/Apis.kt"
 #: ⚠️ 2026-10-08 上调 16 → 18：CHG-0082（台账 L-52）的「AI 操作流水」页要能被一直往前翻，
 #:    `AiOperationsViewModel` 的 `load()` 与 `loadMore()` 各读一次 `page.meta.hasMore`
 #:    （第一页与后续页都要知道"后面还有没有"）—— 增长时必须同步这一行，正是这条注释在防的事。
-MIN_META_READS = 18     # ViewModel 里读 `page.meta.hasMore` 的处数（实测值）
+#: ⚠️ 2026-10-15 上调 18 → 19：CHG-0133 让订单详情页改地址时也能从地点库挑地点
+#:    （`OrderDetailViewModel.loadPlaces()` 里的 `placesTruncated = page.meta.hasMore`）——
+#:    那个抽屉在详情页同样会被服务端截断，所以它也必须说一句实话。
+#:    增长时必须同步这一行，正是这条注释在防的事。
+MIN_META_READS = 19     # ViewModel 里读 `page.meta.hasMore` 的处数（实测值）
 #: ⚠️ 2026-10-05 上调 16 → 17：CHG-0039 给派单池加了「已完成派单」那一档（按司机分组），
 #:    它同样会被后端 300 条上限截断，所以也要说一句实话。
 #: ⚠️ 2026-10-08 上调 17 → 18：CHG-0082 的「AI 操作流水」同样会被服务端截断（后端 `limit + 1` +

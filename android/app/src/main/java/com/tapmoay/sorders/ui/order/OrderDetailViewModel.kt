@@ -7,9 +7,11 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.data.remote.dto.AddressDto
 import com.tapmoay.sorders.data.remote.dto.ContactCreateRequest
 import com.tapmoay.sorders.data.remote.dto.ContactDto
 import com.tapmoay.sorders.data.remote.dto.CustomerCreateRequest
+import com.tapmoay.sorders.data.remote.dto.LocationDto
 import com.tapmoay.sorders.data.remote.dto.OrderDiscountBody
 import com.tapmoay.sorders.data.remote.dto.OrderDto
 import com.tapmoay.sorders.core.InputRules
@@ -22,6 +24,9 @@ import com.tapmoay.sorders.data.remote.dto.OrderTransferLineBody
 import com.tapmoay.sorders.data.remote.dto.OrderTransferRequest
 import com.tapmoay.sorders.data.remote.dto.OrderTransferResultDto
 import com.tapmoay.sorders.data.remote.dto.OrderUpdateRequest
+import com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto
+import com.tapmoay.sorders.data.remote.dto.PlaceDto
+import com.tapmoay.sorders.data.remote.dto.PlaceUpdateRequest
 import com.tapmoay.sorders.data.remote.dto.ProductDto
 import com.tapmoay.sorders.data.remote.dto.ReceiptCreateRequest
 import com.tapmoay.sorders.data.remote.dto.ReturnRequestDto
@@ -1028,6 +1033,10 @@ class OrderDetailViewModel(
         editDrafts[OrderEditField.BOSS_NAME] = o.contactBossName
         editDrafts[OrderEditField.BOSS_PHONE] = o.contactBossPhone
         editDrafts[OrderEditField.REMARK_TEXT] = o.remark
+        // 坐标与地址文字**一起**铺草稿（CHG-0133）：坐标不是地址文字的附属品，它是司机最终照着
+        // 走的那个点 —— 改文字时不能顺手把它弄丢（[saveEdit] 里另有一道 fail-closed 闸守着）。
+        editDrafts[OrderEditField.ADDRESS_LAT] = o.addressLat.orEmpty()
+        editDrafts[OrderEditField.ADDRESS_LNG] = o.addressLng.orEmpty()
         editError = null
         editingLineId = null
         editingField = field
@@ -1036,6 +1045,9 @@ class OrderDetailViewModel(
     override fun cancelEdit() {
         editingField = null
         editError = null
+        // 取消 = 什么都不留，弹层也不该继续挂在屏幕上（地址库 / 地图选点都从这一块进去）
+        showAddressSheet = false
+        showAddressMap = false
     }
 
     /**
@@ -1070,6 +1082,18 @@ class OrderDetailViewModel(
         // 而不是让后端甩一句看不懂的话。
         InputRules.phoneError(phoneDraft)?.let { editError = it; return }
         InputRules.phoneError(bossDraft)?.let { editError = it; return }
+        // 坐标同样先取出来：下面既拿它当闸，又随这一单报上去（CHG-0133）。
+        val latDraft = draft(OrderEditField.ADDRESS_LAT).trim()
+        val lngDraft = draft(OrderEditField.ADDRESS_LNG).trim()
+        // ⛔ fail-closed：这一单**本来带着坐标**、而草稿里的坐标空了 ⇒ 就地拒绝保存。
+        //    坐标不是地址文字的附属品，它是司机最终照着走的那个点：悄悄丢掉它，界面看起来
+        //    「改成功了」，司机却只能按地址文字自己猜一个位置 —— 而猜错这件事在界面上看不出来。
+        //    宁可当场拦下来（出路写进文案：从「地址库」挑一条带坐标的，或用地图选点补一个）。
+        if (!o.addressLat.isNullOrBlank() && (latDraft.isBlank() || lngDraft.isBlank())) {
+            editError = "这一单原来带着坐标（司机照它走），现在这个坐标没了：请用「地图选点」重新点一下，" +
+                "或从「地址库」里挑一条带坐标的地点，再保存。"
+            return
+        }
         if (editBusy) return
         editBusy = true
         editError = null
@@ -1084,6 +1108,10 @@ class OrderDetailViewModel(
                         contactDongjiaName = draft(OrderEditField.DONGJIA_NAME).trim(),
                         contactBossName = draft(OrderEditField.BOSS_NAME).trim(),
                         remark = draft(OrderEditField.REMARK_TEXT).trim(),
+                        // 坐标随这一单一起报（后端的缺席语义是"不给就不改"，给了才叫"这一单落在哪"）：
+                        // 地址库 / 地图选点 /「我就在这里」三条路最后都汇到这两个字段上（CHG-0133）。
+                        addressLat = latDraft.ifBlank { null },
+                        addressLng = lngDraft.ifBlank { null },
                         internalNotes = o.internalNotes,
                     ),
                 )
@@ -1238,6 +1266,272 @@ class OrderDetailViewModel(
                 contactSaveError = toApiException(e).message ?: "联系人没建成"
             } finally {
                 creatingContact = false
+            }
+        }
+    }
+
+    // ---- 改「地点信息」走地点库 / 地图 / 「我就在这里」（CHG-0133）----
+    //
+    // 用户 2026-10-15：改这一单的地点要**能走地点库**（线路 / 我的地点 / 共享地点），也能在地图上
+    // 选一个点、或者点「我就在这里」，并且**订单要落坐标** —— 司机最终照着走的是那个坐标，
+    // 不是地址那一行字。
+    //
+    // ⚠️ 这一层是**下单页那套的镜像**（`ui/shipper/OrderCreateViewModel.kt:133-1136`），不是第二份
+    //    实现：弹层用的是同一批共用件（`AmapPickerDialog` / `AddressPickerSheet`；「我就在这里」
+    //    也走同一条 `LocationManager` + `hereResultOf`），连"每次打开都刷一遍那三份名册"这种
+    //    细节都照抄（理由见那边的注释）。
+    // ⛔ 反馈分两条路，各照抄它自己所在的那一边：改这一单失败 → [editError]（就地红字，内容还在）；
+    //    共享库的管理动作 → [actionResult]（那是"顺带做的一件事"，不是这一单的编辑态）。
+    // ⛔ 这一层**不许**出现弹窗式提示（判据 `_tools/qa/_check_detail_inline_edit.py:302`）。
+
+    /** 地点库抽屉（线路 / 我的地点 / 共享地点）的开关。弹层本体的宿主挂在 OrderDetailScreen 屏级。 */
+    var showAddressSheet by mutableStateOf(false)
+        private set
+
+    /** 地图选点弹层的开关。 */
+    var showAddressMap by mutableStateOf(false)
+        private set
+
+    var addresses by mutableStateOf<List<AddressDto>>(emptyList())
+        private set
+
+    var locations by mutableStateOf<List<LocationDto>>(emptyList())
+        private set
+
+    var places by mutableStateOf<List<PlaceDto>>(emptyList())
+        private set
+
+    var placeCategories by mutableStateOf<List<PlaceCategoryDto>>(emptyList())
+        private set
+
+    var placesTruncated by mutableStateOf(false)
+        private set
+
+    var placesLimit by mutableStateOf<Int?>(null)
+        private set
+
+    /** 刚删掉的那条共享地点（编号 + 名字）：有值就让抽屉顶上画一行「已删除 · 撤销」。 */
+    var recentlyDeletedPlace by mutableStateOf<Pair<Long, String>?>(null)
+        private set
+
+    /**
+     * 共享地点库的管理入口（改 / 删 / 撤销共享 / 恢复）。
+     *
+     * 与这一块的角色门同一口径：能进这个编辑态的就只有派单员，所以不必再按"是不是这一单的人"分。
+     */
+    val canManageSharedPlaces: Boolean
+        get() = container.tokenStore.cachedRole() == "dispatcher"
+
+    override val appContainer: AppContainer get() = container
+
+    /** 「地址库」那颗按钮：开抽屉**之前**先刷名册（这个 VM 从进页面起一直活着，那份可能是几十分钟前拉的）。 */
+    override fun openAddressLibrary() {
+        reloadAddressLibrary()
+        loadPlaces()
+        showAddressSheet = true
+    }
+
+    /** 「地图选点」那颗按钮：弹层本体由屏级宿主画，初始位置取草稿里已有的坐标。 */
+    override fun openAddressMap() {
+        showAddressMap = true
+    }
+
+    fun closeAddressSheet() {
+        showAddressSheet = false
+    }
+
+    fun closeAddressMap() {
+        showAddressMap = false
+    }
+
+    /**
+     * 三份名册**一起**刷。
+     *
+     * ⚠️ 分组**改名会在后端级联改掉挂着的地点的 `category`**，只刷其中一份的话，点进那个刚改名的
+     * 分组会显示「这个分组下还没有地点」（按新名字一条都筛不到），而数据其实一条没少
+     * —— 下单页那一边同一条注释，同一个坑。
+     */
+    fun reloadAddressLibrary() {
+        viewModelScope.launch { try { placeCategories = container.repo.placeCategories() } catch (_: Exception) {} }
+        viewModelScope.launch { try { addresses = container.repo.addresses() } catch (_: Exception) {} }
+        viewModelScope.launch { try { locations = container.repo.locations() } catch (_: Exception) {} }
+    }
+
+    /** 共享地点库（全库共用）的一页；搜索时由抽屉调 [loadPlaces]。 */
+    fun loadPlaces(q: String? = null) {
+        viewModelScope.launch {
+            try {
+                val page = container.repo.placesPage(q)
+                places = page.rows
+                placesTruncated = page.meta.hasMore
+                placesLimit = page.meta.limit
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * 地图上点了一个点 / 「我就在这里」定到了位 —— 两条路都汇到这里。
+     *
+     * ⚠️ 落的是**草稿**，不直接写库：取消就该什么都不留（与 [setDraft] 同一条道理）。
+     * ⛔ 与下单页那一边不同，这里**不碰联系人**：改收货人是另一扇门（[saveContactOnly]），
+     *    从地址库里挑一条线路不该顺手把这一单的收货人换掉。
+     */
+    override fun applyPickedCoord(lat: Double, lng: Double, address: String) {
+        setDraft(OrderEditField.ADDRESS_LAT, coordDraft(lat))
+        setDraft(OrderEditField.ADDRESS_LNG, coordDraft(lng))
+        setDraft(OrderEditField.ADDRESS_DETAIL, address)
+        editError = null
+        showAddressMap = false
+        showAddressSheet = false
+    }
+
+    /**
+     * 坐标落草稿前先归一：地图/定位回来的都是 [Double]，直接 `toString()` 会印成
+     * `23.021498000000005`（二进制浮点的尾巴）—— 屏上难看，报上去也拖一串没有意义的尾数。
+     *
+     * 统一按 6 位小数（≈0.1 米，与地点库里存着的那一份同一个精度）。只在这一处归一：
+     * 草稿既是画在屏上的那一份，也是随这一单报上去的那一份。
+     */
+    private fun coordDraft(v: Double): String = String.format(java.util.Locale.US, "%.6f", v)
+
+    /**
+     * 「地址文字改了、坐标还是原来那个点」时的那句警示（null = 没什么好说的）。
+     *
+     * 为什么要有它：文字与坐标是**两件事**。只改前者不改后者，司机照坐标照旧开到老地方，
+     * 而界面上地址看着已经改好了 —— 这个缺口必须说出来（真要换地点，就重新选一次点）。
+     */
+    override val addressCoordNotice: String?
+        get() {
+            val o = order ?: return null
+            // 只有正在改地址这一块时才说话：别的几块也带着这两栏草稿，但那不是在改地点。
+            if (editingField != OrderEditField.ADDRESS) return null
+            val lat = draft(OrderEditField.ADDRESS_LAT)
+            val lng = draft(OrderEditField.ADDRESS_LNG)
+            // 两栏都空时画的是「还没选坐标」（另一句），这里不重复说。
+            if (lat.isBlank() || lng.isBlank()) return null
+            if (lat != o.addressLat.orEmpty() || lng != o.addressLng.orEmpty()) return null
+            if (draft(OrderEditField.ADDRESS_DETAIL).trim() == o.addressDetail.trim()) return null
+            return "地址文字改了，坐标还是原来那个点 —— 司机照坐标走，会开到老地方。" +
+                "要换地点就再选一次（地图选点 / 地址库 / 我就在这里）。"
+        }
+
+    /** 从**线路**里挑一条（带回那次下单留下的地址与坐标）。 */
+    fun pickAddressDraft(a: AddressDto) {
+        setDraft(OrderEditField.ADDRESS_DETAIL, a.detailAddress)
+        setDraft(OrderEditField.ADDRESS_LAT, a.addressLat.orEmpty())
+        setDraft(OrderEditField.ADDRESS_LNG, a.addressLng.orEmpty())
+        editError = null
+        showAddressSheet = false
+    }
+
+    /** 从**我的地点**里挑一条。 */
+    fun pickLocationDraft(l: LocationDto) {
+        setDraft(OrderEditField.ADDRESS_DETAIL, l.detailAddress.ifBlank { l.name })
+        setDraft(OrderEditField.ADDRESS_LAT, l.addressLat.orEmpty())
+        setDraft(OrderEditField.ADDRESS_LNG, l.addressLng.orEmpty())
+        editError = null
+        showAddressSheet = false
+    }
+
+    /**
+     * 从**共享地点库**里挑一条（别人 / 司机标过的坐标）。
+     *
+     * 挑完顺手记一次"我用了它"：**同一个人用到第 2 次**时后端会自动把它收进我的地点库，
+     * 那时要说一句 —— 静默改了用户的库，他下次看到多出一条来源不明的记录只能猜。
+     * ⛔ 共享地点**不带联系人**（那张表全库共用，往上绑电话等于给所有人换了默认收货人）。
+     */
+    fun pickPlaceDraft(p: PlaceDto) {
+        setDraft(OrderEditField.ADDRESS_DETAIL, p.detailAddress.ifBlank { p.name })
+        setDraft(OrderEditField.ADDRESS_LAT, p.addressLat.orEmpty())
+        setDraft(OrderEditField.ADDRESS_LNG, p.addressLng.orEmpty())
+        editError = null
+        showAddressSheet = false
+        viewModelScope.launch {
+            try {
+                val r = container.repo.usePlace(p.id)
+                if (r.autoAdded) {
+                    actionResult = "「${p.name.ifBlank { p.detailAddress }}」你用过几次了，已加进你的「我的地点」"
+                    locations = container.repo.locations()
+                }
+            } catch (_: Exception) {
+                // 记账失败不该打断改单：它只是"常用地点"的统计，不是这一单的必要条件
+            }
+        }
+    }
+
+    // ===== 共享库的管理（**只有派单员**；与下单页 / 地址页同一批动作、同一批文案）=====
+    // 文案逐字照抄下单页那一边：同一件事在两页说成两种话，用户会以为是两件不同的事。
+
+    fun updatePlace(id: Long, name: String?, address: String?) {
+        if (name == null && address == null) {
+            actionResult = "没有要改的内容"
+            return
+        }
+        viewModelScope.launch {
+            try {
+                container.repo.updatePlace(id, PlaceUpdateRequest(name = name, detailAddress = address))
+                actionResult = "已改共享地点"
+                loadPlaces()
+            } catch (e: Exception) {
+                actionResult = toApiException(e).message
+            }
+        }
+    }
+
+    /** 从共享库**删掉**一个地点（软删 → 进回收站，界面立刻给一次「撤销」的机会）。 */
+    fun deletePlace(id: Long) {
+        viewModelScope.launch {
+            try {
+                container.repo.deletePlace(id)
+                recentlyDeletedPlace = id to (places.firstOrNull { it.id == id }?.name.orEmpty())
+                actionResult = "已从共享地点库删除（别人的选点列表里也没有它了；删错了可以点「撤销」）"
+                loadPlaces()
+            } catch (e: Exception) {
+                actionResult = toApiException(e).message
+            }
+        }
+    }
+
+    /** 把刚删掉的那条共享地点放回来（回收站里那一条）。 */
+    fun restorePlace(id: Long) {
+        viewModelScope.launch {
+            try {
+                container.repo.restorePlace(id)
+                recentlyDeletedPlace = null
+                actionResult = "已恢复这条共享地点"
+                loadPlaces()
+            } catch (e: Exception) {
+                actionResult = toApiException(e).message
+            }
+        }
+    }
+
+    /** **撤销**共享地址 → 降为**自己**的普通地点。 */
+    fun demotePlace(id: Long) {
+        viewModelScope.launch {
+            try {
+                val r = container.repo.demotePlace(id)
+                actionResult = if (r.created) "已撤销，并存进了你的「我的地点」"
+                else "已撤销（你本来就有这个地点，没有重复加）"
+                locations = container.repo.locations()
+                loadPlaces()
+            } catch (e: Exception) {
+                actionResult = toApiException(e).message
+            }
+        }
+    }
+
+    /** 把「我的地点」里的一个地点**设为共享地址**。 */
+    fun shareLocation(l: LocationDto) {
+        viewModelScope.launch {
+            try {
+                val p = container.repo.shareLocation(l.id)
+                // 如实说明"新建"还是"并入"：用户以为库里多了一条、而列表没变，是最容易困惑的地方
+                actionResult = if (p.merged) "已并入共享地点库里的「${p.name}」（坐标相近，没有重复建）"
+                else "已设为共享地址，以后大家都能直接选它"
+                loadPlaces()
+            } catch (e: Exception) {
+                actionResult = toApiException(e).message
             }
         }
     }

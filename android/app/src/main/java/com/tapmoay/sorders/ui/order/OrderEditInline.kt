@@ -1,4 +1,9 @@
 package com.tapmoay.sorders.ui.order
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -8,14 +13,29 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.core.content.ContextCompat
+import com.tapmoay.sorders.core.AppContainer
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.Capabilities
 import com.tapmoay.sorders.core.InputRules
@@ -25,6 +45,9 @@ import com.tapmoay.sorders.ui.common.ContactPickerSheet
 import com.tapmoay.sorders.ui.common.FormErrorLine
 import com.tapmoay.sorders.ui.common.FormInputRow
 import com.tapmoay.sorders.ui.common.FormTextAreaRow
+import com.tapmoay.sorders.ui.shipper.HereResult
+import com.tapmoay.sorders.ui.shipper.hereResultOf
+import kotlinx.coroutines.delay
 import com.tapmoay.sorders.ui.nav.Role
 
 /**
@@ -77,6 +100,48 @@ interface OrderEditHost {
 
     /** 存这一个编辑块（地址/收货人/下单人/备注 一起报，内部备注原样带回）。 */
     fun saveEdit()
+    // ---- 改「地点信息」走地点库 / 地图 / 「我就在这里」（CHG-0133）----
+
+    /**
+     * 拿容器。
+     *
+     * 为什么要在接口上开这一格：定位管道（`container.locationManager`）与共用弹层要的东西
+     * 只有容器里有，而 [AddressEditBlock] 手上只有这个接口。⛔ 全仓没有 `LocalAppContainer`
+     * 这样的 CompositionLocal（唯一的 Local 是 `ui/common/Hints.kt::LocalHints`），
+     * 所以"就地编辑"这一层要拿到容器，只能从这里过。
+     */
+    val appContainer: AppContainer
+
+    /**
+     * 要求把**地点库抽屉**打开（线路 / 我的地点 / 共享地点）。
+     *
+     * 弹层本体挂在**屏级**（与下单页、地址页**同一份** `ui/shipper/OrderCreateScreen.kt`
+     * 的 `AddressPickerSheet`）；这一层只负责"能要求把它打开"—— 与 [openLinePicker]
+     * 对选品弹层是同一条口径（那一份的注释把理由写全了：抽屉要盖住整页，坐进卡片里就成了
+     * "弹层里再弹一层"，而且详情页那个 LazyColumn 滚动时会把它连人带框一起回收）。
+     */
+    fun openAddressLibrary()
+
+    /** 要求把**地图选点**弹层打开（`ui/common/AmapPicker.kt::AmapPickerDialog`，全库同一份）。 */
+    fun openAddressMap()
+
+    /**
+     * 选好一个点：**坐标与地址一起**落进草稿（保存时才写库）。
+     *
+     * ⚠️ 落草稿而不是直接写库：这一块的规矩是"改完点保存才生效"（见 [saveEdit]）——
+     *    选点选到一半反悔，点「取消」就该什么都不留。
+     */
+    fun applyPickedCoord(lat: Double, lng: Double, address: String)
+
+    /**
+     * 一句"坐标会不会被误读"的话（null = 没什么要说的），画在坐标下面。
+     *
+     * 要盯的是**最难自查**的那一种：地址文字改了、坐标还是原来那个点 —— 界面上看起来"改好了"，
+     * 而司机照坐标走，去的还是**上一个地方**。话由 VM 说（它才同时握着"原来那一单"与草稿），
+     * 界面只负责画出来 —— 与 [editError] 同一条分工。
+     */
+    val addressCoordNotice: String?
+
 
     // ---- 改一件货（数量 / 单价 / 删掉）----
 
@@ -187,6 +252,16 @@ object OrderEditField {
      */
     const val CONTACT = "contact"
 
+
+    /**
+     * 收货地址的**坐标**（CHG-0133）。
+     *
+     * 键名照抄 `OrderUpdateRequest.addressLat / addressLng`（与上面那一串同一条规矩）。
+     * ⚠️ 它俩不是"地址的附属品"，而是**司机最终照着走的那个点**：只改文字、没落坐标，
+     *    司机手上的还是老坐标 —— 这也是为什么这一块要把它们摆在脸上（见 [AddressEditBlock]）。
+     */
+    const val ADDRESS_LAT = "addressLat"
+    const val ADDRESS_LNG = "addressLng"
     const val ADDRESS_DETAIL = "addressDetail"
     const val DONGJIA_NAME = "contactDongjiaName"
     const val DONGJIA_PHONE = "contactDongjiaPhone"
@@ -214,8 +289,109 @@ fun EditHint(onClick: () -> Unit, label: String = "改") {
     )
 }
 
-/** 收货地址：一个多行框（地址常常一行放不下）。 */
+
+/** [AddressEditBlock] 那颗「我就在这里」的兜底时限（CHG-0133）。 */
+private const val DETAIL_HERE_TIMEOUT_MS = 20_000L
+
+/**
+ * 收货地址：一个多行框 ＋ 三颗改地点的入口 ＋ 坐标那一行。
+ *
+ * ## 为什么这一块不再只是「一个多行框」（CHG-0133，2026-10-15 用户点名）
+ * 从前这里只能**手打文字**：派单员在电话里听到一个新地址就照念一遍 —— 而**司机是按坐标走的**。
+ * 文字换了、坐标没人动，司机照旧开去**上一个点**（详情页那张只读地图与司机端导航都是按坐标）。
+ * 用户要的形态：改地点**改走地点库**（线路 / 我的地点 / 共享地点）／**在地图上选一个点**／
+ * **「我就在这里」**；并且**订单要落坐标**。
+ *
+ * ## 与下单页是同一套零件、同一句话（⛔ 不要另起第二套）
+ * 三颗按钮的形状、图标与文案逐字照抄 `ui/shipper/OrderCreateScreen.kt:406-440`；两个弹层也是
+ * **共用件本体**（`ui/common/AmapPicker.kt::AmapPickerDialog` 与
+ * `ui/shipper/OrderCreateScreen.kt::AddressPickerSheet`）—— 它们由**屏级宿主**挂上去
+ * （见 [OrderEditHost.openAddressLibrary] / [OrderEditHost.openAddressMap]）：抽屉要盖住整页，
+ * 坐进这张卡里就成了"弹层里再弹一层"，而且详情页那个 LazyColumn 滚动时会把它连人带框一起回收。
+ *
+ * ## 坐标摆到脸上
+ * 后端 `PATCH /orders/{id}`（`backend/app/commands/order.py:405-410`）是"**不给就不改**"：
+ * 只改文字、坐标原样留在库里 —— 那就成了**错坐标**，比没坐标更糟（`orders_delivery.py` 里
+ * 同一句裁定）。所以这一块把坐标画出来："没坐标"当场说（橙），"文字改了、坐标没动"这种
+ * **最难自查**的情况由 [OrderEditHost.addressCoordNotice] 那句话点名。
+ *
+ * ## 定位回流只认**自己发起的那一次**
+ * 「地图选点」那个弹层**一打开就会自己发一次定位**（`ui/common/AmapPicker.kt`）。不设闸的话，
+ * 用户点开地图、还没点任何地方，地址就被悄悄改了 —— 两处都不报错。所以 collect 第一行就是
+ * `if (!locatingHere) return@collect`（与 `ui/shipper/AddressScreen.kt:203-212` 同一道闸）。
+ */
 @Composable
+    val container = edit.appContainer
+    val context = LocalContext.current
+    var locatingHere by remember { mutableStateOf(false) }
+    var locateHereError by remember { mutableStateOf<String?>(null) }
+
+    /**
+     * 发起一次单次定位。
+     *
+     * `requestSingle()` 返回 false = **连发起都没成功**（权限缺失 / SDK 起不来）—— 那种情况
+     * **一个回调都不会有**，必须当场收尾，否则按钮永远停在「正在定位…」
+     * （下单页那颗没接这个返回值，是它的已知形状；这与地址页那颗一样，不重复那个坑）。
+     */
+    fun requestHere() {
+        locatingHere = true
+        if (!container.locationManager.requestSingle()) {
+            locatingHere = false
+            locateHereError = "定位没启动起来：请检查定位权限，或改用「在地图上选点」。"
+        }
+    }
+
+    val herePermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.values.any { it }) {
+            requestHere()
+        } else {
+            locatingHere = false
+            locateHereError = "没有定位权限，拿不到当前位置。"
+        }
+    }
+
+    /** ⛔ 取点路径**全 App 只有一条**：`container.locationManager`；⛔ 不许退到 `DeviceLocation`（WGS84，国内偏几百米）。 */
+    fun locateHereNow() {
+        val perms = arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (!perms.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }) {
+            herePermLauncher.launch(perms)
+            return
+        }
+        requestHere()
+    }
+
+    LaunchedEffect(Unit) {
+        container.locationManager.locations.collect { pt ->
+            if (!locatingHere) return@collect
+            locatingHere = false
+            // ⛔ 高德**失败时照常回调**，给的是 `(0,0)` —— 那不是"就在几内亚湾"，是"没拿到"。
+            //    闸与话都在全仓唯一那份 `hereResultOf` 里（`ui/shipper/AddressViewModel.kt:105`，
+            //    内含 `SunLocation.isPlausible`）：界面**不重复判一遍**，也不许自己填一个假地址。
+            when (val r = hereResultOf(pt.lat, pt.lng, pt.address)) {
+                is HereResult.Fill -> {
+                    locateHereError = null
+                    edit.applyPickedCoord(r.lat, r.lng, r.address)
+                }
+                is HereResult.Say -> locateHereError = r.message
+            }
+        }
+    }
+
+    // 兜底：等不到任何回调就自己收尾 —— 「拿不到就如实说一句中文」**不包括**"永远停在正在定位…"。
+    LaunchedEffect(locatingHere) {
+        if (!locatingHere) return@LaunchedEffect
+        delay(DETAIL_HERE_TIMEOUT_MS)
+        if (locatingHere) {
+            locatingHere = false
+            locateHereError = "定位超时，没拿到当前位置：请重试，或改用「在地图上选点」。"
+        }
+    }
+
+    val latDraft = edit.draft(OrderEditField.ADDRESS_LAT).trim()
+    val lngDraft = edit.draft(OrderEditField.ADDRESS_LNG).trim()
+
 fun AddressEditBlock(edit: OrderEditHost, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth()) {
         EditBox(
@@ -224,6 +400,70 @@ fun AddressEditBlock(edit: OrderEditHost, modifier: Modifier = Modifier) {
             onValue = { edit.setDraft(OrderEditField.ADDRESS_DETAIL, it) },
             minLines = 2,
             singleLine = false,
+        // 下面三颗＝同一层的三个选择（手动选点 / 从库里挑 / 就在这儿），
+        // 与下单页那张「收货地址」卡逐字一致（`OrderCreateScreen.kt:406-440`）。
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(
+                onClick = { locateHereError = null; edit.openAddressMap() },
+                enabled = !edit.editBusy,
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("地图选点")
+            }
+            OutlinedButton(
+                onClick = { locateHereError = null; edit.openAddressLibrary() },
+                enabled = !edit.editBusy,
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("地址库")
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(
+            onClick = { locateHereError = null; locateHereNow() },
+            enabled = !locatingHere && !edit.editBusy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(if (locatingHere) "正在定位…" else "我就在这里")
+        }
+        locateHereError?.let { msg ->
+            Spacer(Modifier.height(6.dp))
+            Text(
+                msg,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        if (latDraft.isBlank() || lngDraft.isBlank()) {
+            // 与下单页同一句、同一个橙（"这里还缺一样东西"）。
+            Text(
+                "还没选坐标",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFFF59C00),
+            )
+        } else {
+            Text(
+                "坐标：$latDraft，$lngDraft",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        edit.addressCoordNotice?.let { msg ->
+            Spacer(Modifier.height(6.dp))
+            Text(
+                msg,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFFF59C00),
+            )
+        }
         )
         EditActions(
             error = edit.editError,
