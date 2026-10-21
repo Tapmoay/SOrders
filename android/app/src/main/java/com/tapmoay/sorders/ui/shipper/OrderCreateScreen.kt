@@ -50,6 +50,7 @@ import com.tapmoay.sorders.ui.theme.InventoryTeal
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.ShipperTeal
+import com.tapmoay.sorders.ui.theme.ThemeGreenDeep
 import coil.compose.AsyncImage
 import com.tapmoay.sorders.util.formatMoney
 import kotlinx.coroutines.launch
@@ -1847,8 +1848,12 @@ private fun DeliveryDateSheet(
                         iso == recommended -> "推荐"
                         else -> null
                     },
-                    // 「不保证准时」是**警告**（红胶囊）；「推荐」是中性提示（普通小字）。
-                    noteIsWarn = deliveryLeadDays(iso) == 0L,
+                    // 「不保证准时」＝红胶囊（要当心）；「推荐」＝深绿胶囊（按这个来）。
+                    noteAccent = when {
+                        deliveryLeadDays(iso) == 0L -> Color(DangerRed)
+                        iso == recommended -> Color(ThemeGreenDeep)
+                        else -> null
+                    },
                     onClick = { onPick(iso) },
                 )
             }
@@ -1865,16 +1870,17 @@ private fun DeliveryDateSheet(
 /**
  * 抽屉里的一行：左边的日子 + （可选的）小注 + 选中打勾。
  *
- * [noteIsWarn] = true 时那注是**深红胶囊**（用户 2026-10-22：「这个不保证准时……也同样用我们的
- * 胶囊背景色，用红色的深色胶囊给框起来啊，这样子美观一点」）；
- * 「推荐」那种中性注仍是普通小字 —— ⛔ 别把两件事都染红，红只留给"会晚到"这一条。
+ * [noteAccent] 非空时那注是一个**胶囊**（底色就是它、字是白的）：
+ * · 「不保证准时」＝ 深红（用户 2026-10-22：「也同样用我们的胶囊背景色，用红色的深色胶囊给框起来」）；
+ * · 「推荐」＝ 深绿（同一天追加：「那你给那个绿色的推荐搞一个绿色深绿色的底啊」）。
+ * ⛔ 两件事别用同一个颜色：红＝要当心，绿＝按这个来。
  */
 @Composable
 private fun DeliveryDateChoice(
     text: String,
     selected: Boolean,
     note: String?,
-    noteIsWarn: Boolean = false,
+    noteAccent: Color? = null,
     onClick: () -> Unit,
 ) {
     Surface(
@@ -1894,8 +1900,9 @@ private fun DeliveryDateChoice(
                 modifier = Modifier.weight(1f),
             )
             if (note != null) {
-                if (noteIsWarn) {
-                    Surface(color = Color(DangerRed), shape = CircleShape) {
+                val accent = noteAccent
+                if (accent != null) {
+                    Surface(color = accent, shape = CircleShape) {
                         Text(
                             note,
                             style = MaterialTheme.typography.bodySmall,

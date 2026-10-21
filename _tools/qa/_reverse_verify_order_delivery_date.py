@@ -190,7 +190,12 @@ def _finished_still_counts_down(s: str) -> str:
 
 def _warn_note_plain(s: str) -> str:
     """「不保证准时」退回普通小字（用户点名要红色深胶囊框起来）。"""
-    return s.replace("noteIsWarn = deliveryLeadDays(iso) == 0L", "noteIsWarn = false", 1)
+    return s.replace("deliveryLeadDays(iso) == 0L -> Color(DangerRed)", "deliveryLeadDays(iso) == 0L -> null", 1)
+
+
+def _recommend_not_green(s: str) -> str:
+    """「推荐」没有深绿底了（用户点名要给绿色推荐一个深绿底）。"""
+    return s.replace("iso == recommended -> Color(ThemeGreenDeep)", "iso == recommended -> null", 1)
 
 
 def _split_drops_date(s: str) -> str:
@@ -225,6 +230,7 @@ CASES = [
     ("⑯ 已送达/已撤销的单还在倒计时", RULES, _finished_still_counts_down, "终态订单不再显示倒计时"),
     ("⑰ 没选过送达日又变成整行/空字符串", RULES, _missing_date_hidden, "不许整行消失"),
     ("⑱ 「不保证准时」不再用深红胶囊", SCREEN, _warn_note_plain, "深红胶囊"),
+    ("⑲ 「推荐」没有深绿胶囊了", SCREEN, _recommend_not_green, "深绿胶囊"),
 ]
 
 # --------------------------------------------------------------- 脚手架

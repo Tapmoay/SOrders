@@ -234,15 +234,16 @@ def main() -> int:
         'placeholder = "请选择",' in screen,
     )
     _need(
-        "「不保证准时」也是**深红胶囊**（与红条同一个观感）",
-        "noteIsWarn = deliveryLeadDays(iso) == 0L" in screen
-        and re.search(r"if \(noteIsWarn\) \{[\s\S]{0,200}?Surface\(color = Color\(DangerRed\), shape = CircleShape\)", screen) is not None,
+        "「不保证准时」是**深红胶囊**（与红条同一个观感）",
+        "noteAccent = when {" in screen
+        and "deliveryLeadDays(iso) == 0L -> Color(DangerRed)" in screen
+        and re.search(r"val accent = noteAccent[\s\S]{0,160}?Surface\(color = accent, shape = CircleShape\)", screen) is not None,
         "用户 2026-10-22：「这个不保证准时……也同样用胶囊背景色，用红色的深色胶囊框起来，美观一点」",
     )
     _need(
-        "「推荐」那种中性注**不**染红（红只留给会晚到的那一类）",
-        "noteIsWarn = deliveryLeadDays(iso) == 0L" in screen,
-        "两件事都染红，红就不再表示要当心了",
+        "「推荐」是**深绿胶囊**（绿色那一条也要有底）",
+        "iso == recommended -> Color(ThemeGreenDeep)" in screen,
+        "用户 2026-10-22：「那你也给那个绿色的推荐搞一个绿色深绿色的底啊」",
     )
     _need(
         "抽屉里把「明天」标成**推荐**（还是让用户自己点，⛔ 不预选）",
