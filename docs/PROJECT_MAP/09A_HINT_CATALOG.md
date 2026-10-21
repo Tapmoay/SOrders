@@ -1,7 +1,7 @@
 # 界面提示与说明目录（**机器生成，不要手改**）
 
 > 生成命令：`python _tools/qa/_hint_inventory.py --md`
-> source_hash：`sha256:d451f99b9540ba68739bc29832e0b382f2115790ab8ee6e3dd533d301500fb70`
+> source_hash：`sha256:10aec904d899a80bc8f37d254f7264e5db3a13b3fb087c2863539c1b86513c61`
 > 这份文件是**产物**：改了源码就重跑，别在它上面手写（手写的内容下一次生成就没了）。
 
 ## 1. 口径
@@ -94,7 +94,7 @@
 | 72 | 货主 | 28 | `AddressScreen.kt:1306` | 建好后会自动选中它。顺序到地址库左栏的「管理分组」里排。 |
 | 73 | 派单员 | 27 | `CategoryRostersPanel.kt:490` | 建好后会自动选中它。顺序到左栏底部的「管理分类」里排。 |
 | 74 | 派单员 | 27 | `OrderTemplateFormScreen.kt:346` | 分类只影响这一页左边那一列怎么分组；不选就是「未分类」 |
-| 75 | 货主 | 27 | `OrderCreateScreen.kt:1836` | 提前一天下单，才排得进明天的车 —— 所以建议选明天。 |
+| 75 | 货主 | 27 | `OrderCreateScreen.kt:1837` | 提前一天下单，才排得进明天的车 —— 所以建议选明天。 |
 | 76 | 共用 | 26 | `AiChatScreen.kt:1153` | 里面可以填 API Key、开关工具、拉取模型列表。 |
 | 77 | 共用 | 26 | `AiSettingsScreen.kt:450` | 低/中/高：越往上越想得全，也越慢越贵。默认「中」。 |
 | 78 | 共用 | 26 | `CustomerEditorDialog.kt:81` | 档案先记这两样；地址、授信以后到「货主管理」那一页补 |
