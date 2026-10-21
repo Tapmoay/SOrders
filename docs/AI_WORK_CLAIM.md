@@ -31,6 +31,18 @@
 
 ## 进行中
 
+### [2026-10-22 05:2x → ⏳ 进行中] 会话：**FEAT-0029 「我的 → 更新日志」：每个版本改了什么，App 里直接查得到**（DSH 主会话，2026-10-22）
+
+`用户口径`（2026-10-22 语音）：「更新日志啊，就是每次办完更新了什么可以查看的……就在我们那个更新那个入口里有个更新日志，查看每个版本更新了什么」。
+
+**改哪些文件**：后端 `backend/app/main.py`（新增 `GET /api/v1/system/app-releases`，读 `uploads/app/releases.json`，缺文件退回 version.json 那一条）；发布脚本 `_tools/deploy/publish_apk.py`（追加 → 写回仓库 → 上传 `releases.json`）；新文件 `docs/releases.json`（历史，补了 0.2.19 / 0.2.20 两条真实记录）；App `data/remote/dto/Dtos.kt`（`AppReleaseDto` / `AppReleasesOut`）、`data/remote/api/Apis.kt`（`SystemApi.appReleases`）、`data/repo/AppRepository.kt`（`appReleases()`）、`ui/profile/ProfileViewModel.kt`（`openReleaseNotes` / 状态）、`ui/profile/ProfileScreen.kt`（「更新日志」一行 + `ReleaseNotesDialog`）；判据 `_tools/qa/_check_release_notes.py`（新，18 项）；文书 `docs/changes/FEAT-0029.md`（新）+ 登记行 + 本页。
+
+**明确不碰**：⛔ `version.json` 的字段与语义、⛔ 「检查更新」的判定（versionCode 优先那条）、⛔ 任何业务表 / 钱 / 状态机 / 权限 / 通知、⛔ 历史记录只追加不改写。
+
+**核心改动**：不适用（没有碰 `_tools/qa/_core_files.txt` 里任何文件）。
+
+**证据**：判据 `_check_release_notes.py` **18/18**；dev 后端 `GET /api/v1/system/app-releases` 回两条（0.2.20 / 0.2.19，新的在前）；模拟器 `SOrdersD`（5554）两张截图 `_tmp/f29_02_profile.png`（入口）/ `f29_03_dialog.png`（弹层）；全量静检见收尾那一次。
+
 ### [2026-10-22 00:2x → ⏳ 进行中] 会话：**CHG-0134 送达日期第二轮：只有「提前一天」三个字是深红胶囊；卡片与详情都能看到「还有几天」；没选过明说；日期格默认空着**（DSH 主会话，2026-10-22）
 
 `用户口径`（2026-10-22 语音，要点转述）：「订单[详情]也是可以看到它时间信息」「重点是**提前一天**……像个**胶囊**……四周倒角……变深一点」，第三轮校正「真正需要搞的信息就是 **3 个字：提前一天**……其他的没必要搞」「**司机**可以知道他这个订单大概是多少天……**派单员**也能知道，就能提前做好规划」「如果他没选择的话，订单里**就有一条信息**说他没有选择送达日期」「这个**默认是空的**是不填的，**不是默认就填明天**」「**不保证准时**……也同样用胶囊背景色，用红色的深色胶囊给框起来」「那你也给那个**绿色的推荐**搞一个**绿色深绿色的底**啊」「把这个提示用**黄橙色**的警示底色……与下面那个红色做个区分」，最后收口成「呃算了，那个颜色就搞黄色吧，就是我们**常用的警示黄色**」。
