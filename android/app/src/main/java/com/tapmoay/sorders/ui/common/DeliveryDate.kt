@@ -1,12 +1,11 @@
-package com.tapmoay.sorders.ui.shipper
+package com.tapmoay.sorders.ui.common
 
 import com.tapmoay.sorders.ui.dispatcher.isoDateOfMillis
-import com.tapmoay.sorders.ui.dispatcher.isoDateToMillis
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
 /**
- * 下单页「送达日期」这一格的全部规则 —— **唯一实现**（界面里一个字都不许再碰 `java.time`）。
+ * 「送达日期」这一格的全部规则 —— **唯一实现**（界面里一个字都不许再碰 `java.time`）。
  *
  * ## 用户口径（2026-10-21 原话）
  *
@@ -21,12 +20,22 @@ import java.time.temporal.ChronoUnit
  * 3. **显示成"明天 · 10-22"**（[deliveryDateLabel]）—— 只印 `2026-10-22` 的话，用户得自己在
  *    脑子里换算"那是周几、还剩几天"，而这一格要回答的正是"还有多久到"。
  *
+ * ## 为什么住在 `ui/common`（CHG-0134，2026-10-22 挪进来的）
+ *
+ * 下单页要"选"，而**订单卡片**（`ui/common/OrderCard.kt`，货主 / 派单员 / 司机三端共用）与
+ * **订单详情**（`ui/order/OrderDetailScreen.kt`）要"看" —— 用户 2026-10-22 逐字：
+ * 「我们的订单[详情]……也是可以看到它时间信息」「**司机**可以知道他这个订单大概是多少天……
+ * **派单员**也能知道，就能提前做好规划」。
+ * 三个页面都要用，规则就不能住在某一个角色页（`ui/shipper`）里：那会让 `ui/common` 反过来
+ * 依赖 `ui/shipper`。⛔ 也别为了省事在卡片里再写一遍"还有几天"——同一句话两个算法，
+ * 迟早一处改了另一处没改。
+ *
  * ## ⚠️ 选日期用的毫秒是 **UTC 零点**（复用全 App 那一份换算，不在这里再抄一遍）
  *
  * Material3 的 `DatePicker` 约定：`initialSelectedDateMillis` / `selectedDateMillis` 都是
- * "那一天的 **UTC 00:00**"的毫秒。换算住在 [com.tapmoay.sorders.ui.dispatcher.isoDateOfMillis] /
- * [com.tapmoay.sorders.ui.dispatcher.isoDateToMillis]（`ui/dispatcher/VehicleInspection.kt`）——
- * **全 App 只有那一份**，车辆年检页与这里共用（判据 `_check_vehicle_inspection_ui.py:158` 盯着"只有一处"）。
+ * "那一天的 **UTC 00:00**"的毫秒。换算住在 [com.tapmoay.sorders.ui.dispatcher.isoDateOfMillis]
+ * （`ui/dispatcher/VehicleInspection.kt`）—— **全 App 只有那一份**，车辆年检页与这里共用
+ * （判据 `_check_vehicle_inspection_ui.py:158` 盯着"只有一处"）。
  *
  * ⛔ 别在下面再写一对：按设备时区换算（`atStartOfDay(ZoneId.systemDefault())`）在东八区会
  * **整体差一天** —— 打开时停在昨天、确认时又写回昨天，界面上完全看不出来（用户只会说
@@ -114,6 +123,50 @@ fun deliveryDateChoices(today: LocalDate = LocalDate.now()): List<Pair<String, S
         val iso = today.plusDays(d).toString()
         iso to deliveryDayWord(iso, today)
     }
+
+/**
+ * 卡片 / 详情上的**倒计时**：「今天送到」「还有 N 天」「已过 N 天」；没选过 = null。
+ *
+ * 用户 2026-10-22 逐字：「**司机**可以知道他这个订单大概是多少天的时候，大概什么多少天，
+ * **派单员**也能知道，就能提前做好规划」——所以这一格回答的是**还剩几天**，不是"几号"。
+ */
+fun deliveryCountdown(raw: String?, today: LocalDate = LocalDate.now()): String? {
+    val d = parseDeliveryDate(raw) ?: return null
+    val n = ChronoUnit.DAYS.between(today, d)
+    return when {
+        n == 0L -> "今天送到"
+        n > 0L -> "还有 " + n + " 天"
+        else -> "已过 " + (-n) + " 天"
+    }
+}
+
+/** 终态订单：日子已经是历史，⛔ 不再给"还有几天"（那会读成"还没到"）。 */
+private val FINISHED_STATUS = setOf("DELIVERED", "CANCELLED", "RETURNED")
+
+/**
+ * 订单卡片 / 订单详情那一行要显示的整句：`10-23 · 还有 1 天`；终态只印 `10-23`。
+ *
+ * 返回 null = **这一单没选过送达日**（存量单 / 老客户端 / AI 下单）→ 调用方整行不画。
+ * ⛔ 别在界面里自己拼"还有几天"：倒计时只有 [deliveryCountdown] 那一个算法。
+ */
+fun deliveryDateText(raw: String?, status: String, today: LocalDate = LocalDate.now()): String? {
+    val d = parseDeliveryDate(raw) ?: return null
+    val md = "%02d-%02d".format(d.monthValue, d.dayOfMonth)
+    if (status.uppercase() in FINISHED_STATUS) return md
+    return md + " · " + (deliveryCountdown(raw, today) ?: md)
+}
+
+/**
+ * 卡片 / 详情上**一定画得出来**的那一句（[deliveryDateText] 的兜底版）。
+ *
+ * 用户 2026-10-22 纠正过一次：没选过的单**不许整行消失** ——
+ * 「如果他没选择的话，订单的就会有一个信息，就是用户或者说货主他并没有选择送达日期」。
+ * 也就是说：**"没选"本身是一条要写出来的事实**，不能让司机/派单员自己猜"这条为什么没有日期"。
+ *
+ * ⛔ 所以界面只许调这一个（别再用可空的 [deliveryDateText] 自己写 if/else）。
+ */
+fun deliveryDateDisplay(raw: String?, status: String, today: LocalDate = LocalDate.now()): String =
+    deliveryDateText(raw, status, today) ?: "未选择送达日期"
 
 /** `selectableDates` 要的形态：给毫秒判断能不能选（"不早于今天"）。 */
 internal fun deliveryDateSelectable(utcTimeMillis: Long): Boolean =

@@ -73,6 +73,39 @@ internal fun ordererIsShipper(bossName: String?, shipperName: String?): Boolean 
     return b.isNotEmpty() && b == s
 }
 
+/**
+ * 人员行图标的「分量」阶梯（甲）：**同一个颜色，越往下越淡**。
+ *
+ * 为什么是这样（用户 2026-10-15 定的）：
+ *  · 问题：「收货人 / 下单人 / 货主」三行的小图标与色调原来**一模一样**，用户看不出主次
+ *    （谁先谁重），要求「渐进深浅」。
+ *  · 按**显示顺序**递减：rank = 卡片上的显示顺序（0 = 第一行 = 最重要）。
+ *  · 用户 2026-10-15 在真机（模拟器 5560）上看过三版（甲 / 乙 / 丙）之后挑了甲，原话：
+ *    「这样子区别又比较大又不是非常的抓眼球，可以就这样子」
+ *    ⇒ 只有**浓淡**这一个维度：⛔ 颜色不变（仍是 MaterialTheme.colorScheme.tertiary），
+ *    尺寸也不变（三行都是 14dp 图标 + 26dp 圆底）。乙（按行缩尺寸）、丙（按角色换颜色）
+ *    这两套已经删掉，不要再搬回来。
+ *
+ * ⚠️ 定稿的是「甲」：这里不许再出现方案开关（演示期那个 variant 常量那类）。
+ */
+internal val PERSON_TONE_ALPHAS: List<Float> = listOf(1.00f, 0.70f, 0.52f, 0.36f)
+
+/**
+ * 第 [rank] 行的浓淡。rank 越界按两端夹住（-1 → 第一档，9 → 最后一档），不抛异常。
+ *
+ * 刻意做成**不依赖 Compose 运行时**的纯函数：浓淡阶梯是这一单唯一的规则，
+ * 它必须能被 JVM 单测直接钉住（见 PersonToneTest.kt），不必起模拟器比截图。
+ */
+internal fun personToneAlpha(rank: Int): Float =
+    PERSON_TONE_ALPHAS[rank.coerceIn(0, PERSON_TONE_ALPHAS.lastIndex)]
+
+/** 人员行图标的「分量」：rank = 卡片上的显示顺序（0 = 第一行 = 最重要）。 */
+private data class PersonTone(val tint: Color, val icon: Dp, val box: Dp)
+
+@Composable
+private fun personTone(rank: Int): PersonTone =
+    PersonTone(MaterialTheme.colorScheme.tertiary.copy(alpha = personToneAlpha(rank)), 14.dp, 26.dp)
+
 /** tinted 圆底图标（iOS 风格：12% 语义色圆底 + 同色图标，精致不裸奔） */
 @Composable
 fun TintedIcon(
@@ -196,17 +229,38 @@ fun OrderCard(
                 }
             }
 
+            // 送达日期 + 倒计时（CHG-0134，2026-10-22）
+            //
+            // 用户原话：「**司机**可以知道他这个订单大概是多少天的时候……**派单员**也能知道，
+            // 就能提前做好规划」——所以这一行给的是**还剩几天**，不是"几号"。
+            // ⚠️ 三端共用这一张卡（货主 / 派单员 / 司机）⇒ 一处改完三端都有；⛔ 别在某个列表页
+            //    再画一遍（同一件事两个位置，迟早长歪）。
+            // ⚠️ 没选过送达日的单（存量 / AI / 老客户端）**照样画这一行**，写「未选择送达日期」——
+            //    用户 2026-10-22 纠正：「不要整行消失……要有一条信息说他没有选择送达日期」。
+            //    "没选"本身就是要写出来的一条事实，不能让司机/派单员自己猜。
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TintedIcon(Icons.Default.Event, Color(ThemeGreen), size = 13.dp, container = 22.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    deliveryDateDisplay(order.deliveryDate, order.status),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             // 收货人与下单人（2026-09-20 用户要求：「卡片的信息要显示一个是收货人是谁、
             // 一个是下单人是谁，电话号码都显示出来」）。与下面「司机」「货主」两行同一形状，
             // 靠**标签**区分是谁；两者都没有的那一行不画（老单没记过名字）。
             listOf(
                 "收货人" to contactWho(order.contactDongjiaName, order.contactDongjiaPhone),
                 "下单人" to contactWho(order.contactBossName, order.contactBossPhone),
-            ).forEach { (label, who) ->
+            ).forEachIndexed { i, (label, who) ->
                 if (who != null) {
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        TintedIcon(Icons.Default.Person, MaterialTheme.colorScheme.tertiary, size = 14.dp, container = 26.dp)
+                        val tone = personTone(i)
+                        TintedIcon(Icons.Default.Person, tone.tint, size = tone.icon, container = tone.box)
                         Spacer(Modifier.width(8.dp))
                         Text(
                             label + "：" + who,
@@ -220,7 +274,8 @@ fun OrderCard(
             if (showDriver && !order.driverName.isNullOrBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TintedIcon(Icons.Default.Person, MaterialTheme.colorScheme.tertiary, size = 14.dp, container = 26.dp)
+                    val tone = personTone(2)
+                    TintedIcon(Icons.Default.Person, tone.tint, size = tone.icon, container = tone.box)
                     Spacer(Modifier.width(8.dp))
                     Text(
                         "司机：" + order.driverName + (order.driverPhone?.let { "（" + it + "）" } ?: ""),
@@ -234,7 +289,8 @@ fun OrderCard(
                 if (!who.isNullOrBlank()) {
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        TintedIcon(Icons.Default.Person, MaterialTheme.colorScheme.tertiary, size = 14.dp, container = 26.dp)
+                        val tone = personTone(3)
+                        TintedIcon(Icons.Default.Person, tone.tint, size = tone.icon, container = tone.box)
                         Spacer(Modifier.width(8.dp))
                         Text("货主：" + who, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

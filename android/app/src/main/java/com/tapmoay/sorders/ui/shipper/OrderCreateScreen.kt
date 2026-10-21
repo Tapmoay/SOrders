@@ -585,7 +585,10 @@ fun OrderCreateScreen(
                     DeliveryLeadNotice()
                     FormPickRow(
                         label = "哪天送到",
-                        value = deliveryDateLabel(vm.deliveryDate),
+                        // 初值是空的（用户 2026-10-22：「默认是空的是不填的」）⇒ 那一行显示占位「请选择」，
+                        // 提交时由 VM 拦住（⛔ 不替用户预填明天）。
+                        value = if (vm.deliveryDate.isBlank()) "" else deliveryDateLabel(vm.deliveryDate),
+                        placeholder = "请选择",
                         onClick = { showDeliverySheet = true },
                         icon = Icons.Default.CalendarMonth,
                         iconTint = Color(ShipperTeal),
@@ -1766,11 +1769,43 @@ private fun DeliveryLeadNotice() {
                 modifier = Modifier.size(16.dp),
             )
             Spacer(Modifier.width(8.dp))
-            Text(
-                "订单必须提前一天下达；当天下的单，不一定能准时送达。",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(DangerRed),
-            )
+            Column {
+                // **只有「提前一天」这三个字**做深红胶囊（CHG-0134，用户 2026-10-22 逐字校正：
+                // 「我们真正需要搞的信息就是 3 个字：**提前一天**。把这个"提前一天"3 个字给搞红就可以了，
+                // 其他的没必要搞」）。
+                // ⚠️ 所以别把整句塞进胶囊：整句染深既刺眼、又让"哪三个字是重点"看不出来。
+                // ⚠️ 措辞是「提前一天**下单**」（用户同句纠正：不是"下达"）。
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "订单必须",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(DangerRed),
+                    )
+                    Surface(
+                        color = Color(DangerRed),
+                        shape = CircleShape,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    ) {
+                        Text(
+                            "提前一天",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                    }
+                    Text(
+                        "下单",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(DangerRed),
+                    )
+                }
+                Text(
+                    "当天下的单，不一定能准时送达。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(DangerRed),
+                )
+            }
         }
     }
 }
@@ -1797,15 +1832,23 @@ private fun DeliveryDateSheet(
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
             Text("选择送达日期", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(6.dp))
-            // 解释句（"为什么默认是明天"）→ 走 Hint：总开关关掉时它跟着消失，日期本身不受影响。
-            Hint("提前一天下单，才排得进明天的车 —— 所以默认填的是明天。")
+            // 解释句（"为什么要提前一天"）→ 走 Hint：总开关关掉时它跟着消失，日期本身不受影响。
+            Hint("提前一天下单，才排得进明天的车 —— 所以建议选明天。")
             Spacer(Modifier.height(12.dp))
+            // 「推荐」那一天来自规则文件（defaultDeliveryDate），⛔ 不在这里再写一个"明天就是今天+1"。
+            val recommended = defaultDeliveryDate()
             deliveryDateChoices().forEach { (iso, word) ->
                 DeliveryDateChoice(
                     text = word,
                     selected = iso == current,
-                    // 选"今天"是可以的，只是不能装作它也一样准时 —— 这一行自己说清楚。
-                    note = if (deliveryLeadDays(iso) == 0L) "不保证准时" else null,
+                    // 选"今天"是可以的，只是不能装作它也一样准时；明天那一行标"推荐"（但**不预选**）。
+                    note = when {
+                        deliveryLeadDays(iso) == 0L -> "不保证准时"
+                        iso == recommended -> "推荐"
+                        else -> null
+                    },
+                    // 「不保证准时」是**警告**（红胶囊）；「推荐」是中性提示（普通小字）。
+                    noteIsWarn = deliveryLeadDays(iso) == 0L,
                     onClick = { onPick(iso) },
                 )
             }
@@ -1819,12 +1862,19 @@ private fun DeliveryDateSheet(
     }
 }
 
-/** 抽屉里的一行：左边的日子 + （可选的）红字小注 + 选中打勾。 */
+/**
+ * 抽屉里的一行：左边的日子 + （可选的）小注 + 选中打勾。
+ *
+ * [noteIsWarn] = true 时那注是**深红胶囊**（用户 2026-10-22：「这个不保证准时……也同样用我们的
+ * 胶囊背景色，用红色的深色胶囊给框起来啊，这样子美观一点」）；
+ * 「推荐」那种中性注仍是普通小字 —— ⛔ 别把两件事都染红，红只留给"会晚到"这一条。
+ */
 @Composable
 private fun DeliveryDateChoice(
     text: String,
     selected: Boolean,
     note: String?,
+    noteIsWarn: Boolean = false,
     onClick: () -> Unit,
 ) {
     Surface(
@@ -1844,7 +1894,19 @@ private fun DeliveryDateChoice(
                 modifier = Modifier.weight(1f),
             )
             if (note != null) {
-                Text(note, style = MaterialTheme.typography.bodySmall, color = Color(DangerRed))
+                if (noteIsWarn) {
+                    Surface(color = Color(DangerRed), shape = CircleShape) {
+                        Text(
+                            note,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                    }
+                } else {
+                    Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 Spacer(Modifier.width(8.dp))
             }
             if (selected) {

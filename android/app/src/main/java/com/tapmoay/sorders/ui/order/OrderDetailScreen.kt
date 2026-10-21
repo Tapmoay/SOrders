@@ -47,8 +47,8 @@ import com.tapmoay.sorders.ui.dispatcher.DispatcherPoolViewModel
 import com.tapmoay.sorders.ui.dispatcher.centsToMoney
 import com.tapmoay.sorders.ui.dispatcher.lineReceivableCents
 import com.tapmoay.sorders.ui.dispatcher.orderReceivableCents
-import com.tapmoay.sorders.ui.shipper.AddressPickerSheet
 import com.tapmoay.sorders.ui.nav.Role
+import com.tapmoay.sorders.ui.shipper.AddressPickerSheet
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.ProductPurple
@@ -633,6 +633,7 @@ fun OrderDetailScreen(
     //   而是「已经拍了几张」（`vm.capturedPhotos`）。
 
     // 照片大图（翻页 / 双指缩放 / 保存到相册）—— 实现在 ui/common/ImagePreview.kt，
+    // 全库只此一份：地址页、下单页、订单详情页点开的都是它。
     // 改「地点信息」的两个弹层（CHG-0133）：地点库抽屉与地图选点。
     // ⚠️ 零件与下单页**是同一批**（ui/shipper/OrderCreateScreen.kt 里的 AddressPickerSheet、
     //    ui/common/AmapPicker.kt 里的 AmapPickerDialog）—— 这里只喂这一单的草稿态，
@@ -674,7 +675,6 @@ fun OrderDetailScreen(
         )
     }
 
-    // 全库只此一份：地址页、下单页、订单详情页点开的都是它。
     preview.Show()
 }
 
@@ -1008,6 +1008,9 @@ private fun DetailBody(
                             Modifier.clickable { showPlaceMap = true }
                         } else Modifier,
                     ) {
+                        // 行首那条细竖杠（CHG-0125）：把「这一行改得动」画在行首图标前面。
+                        // ⛔ 竖杠自己不带 onClick（只显示）；这一行的热区仍是整行，没有新增可点区域。
+                        if (canEditInfo) EditRail()
                         Icon(
                             Icons.Default.Place,
                             contentDescription = "地址",
@@ -1090,6 +1093,8 @@ private fun DetailBody(
                             }
                             .padding(vertical = 6.dp),
                     ) {
+                        // 行首细竖杠（CHG-0125）：能改才有。⛔ 只显示，拨号热区照旧（整行）。
+                        if (canEditInfo) EditRail()
                         Icon(
                             Icons.Default.Call,
                             contentDescription = null,
@@ -1126,6 +1131,8 @@ private fun DetailBody(
                             .clickable(enabled = order.contactBossPhone.isNotBlank()) { confirmCallBoss = true }
                             .padding(vertical = 6.dp),
                     ) {
+                        // 行首细竖杠（CHG-0125）：能改才有。⛔ 只显示，拨号热区照旧（整行）。
+                        if (canEditInfo) EditRail()
                         Icon(
                             Icons.Default.Person,
                             contentDescription = null,
@@ -1180,11 +1187,19 @@ private fun DetailBody(
                 if (edit.editingField == OrderEditField.CONTACT) {
                     ContactFillPanel(edit)
                 }
+                // 送达日期（CHG-0134，2026-10-22）：详情页也要能看到"约的哪天、还剩几天" ——
+                // 用户原话：「我们的订单[详情]……也是可以看到它时间信息」「司机……派单员也能知道」。
+                // ⚠️ 只读：它**不是**可以就地改的那几格之一（改单改日期另起一单）。
+                // ⚠️ 没选过送达日的老单**也要画这一行**，写「未选择送达日期」——
+                //    用户 2026-10-22：「如果他没选择的话，订单里就有一条信息说他没有选择送达日期」。
+                InfoRow("送达日期", deliveryDateDisplay(order.deliveryDate, order.status))
                 if (edit.editingField == OrderEditField.REMARK) {
                     RemarkEditBlock(edit)
                 } else if (order.remark.isNotBlank() || canEditInfo) {
                     // 备注空着时也画一行（只要改得动）：那是"写一句给司机的话"的入口。
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // 行首细竖杠（CHG-0125）：这一行改得动（备注空着也给入口）。⛔ 只显示、不可点。
+                        if (canEditInfo) EditRail()
                         Box(Modifier.weight(1f)) { InfoRow("备注", order.remark.ifBlank { "未填写" }) }
                         if (canEditInfo) EditHint(onClick = { edit.startEdit(OrderEditField.REMARK) })
                     }
@@ -1299,6 +1314,8 @@ private fun DetailBody(
                             .padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        // 行首细竖杠（CHG-0125）：商品行能改（canEditLines）才有。⛔ 只显示，热区仍是整行。
+                        if (canEditLines) EditRail()
                         Text(
                             line.productNameSnapshot,
                             style = MaterialTheme.typography.bodyLarge,

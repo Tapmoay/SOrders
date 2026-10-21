@@ -1,4 +1,4 @@
-package com.tapmoay.sorders.ui.shipper
+package com.tapmoay.sorders.ui.common
 
 import com.tapmoay.sorders.ui.dispatcher.isoDateOfMillis
 import com.tapmoay.sorders.ui.dispatcher.isoDateToMillis
@@ -24,7 +24,9 @@ class DeliveryDateTest {
     private val today = LocalDate.of(2026, 10, 21)
 
     @Test
-    fun `默认是明天`() {
+    fun `推荐的那一天是明天（不是预选，只是标一个推荐）`() {
+        // 用户 2026-10-22：「这个默认是空的是不填的，不是默认就填明天」
+        // ⇒ 下单页初值空着（VM 那一行由判据盯），这里只是"推荐哪天"的那一个算法。
         assertEquals("2026-10-22", defaultDeliveryDate(today))
     }
 
@@ -74,6 +76,41 @@ class DeliveryDateTest {
         // 往返：选出来再读回去，必须是同一天（差一天的那个缺陷就死在这条上）
         assertEquals("2026-10-22", isoDateOfMillis(millis!!))
         assertNull(isoDateToMillis("坏日期"))
+    }
+
+    @Test
+    fun `倒计时说的是还剩几天`() {
+        assertEquals("还有 1 天", deliveryCountdown("2026-10-22", today))
+        assertEquals("还有 3 天", deliveryCountdown("2026-10-24", today))
+        assertEquals("今天送到", deliveryCountdown("2026-10-21", today))
+        assertEquals("已过 2 天", deliveryCountdown("2026-10-19", today))
+        assertNull(deliveryCountdown(null, today))
+        assertNull(deliveryCountdown("坏日期", today))
+    }
+
+    @Test
+    fun `卡片与详情那一行：日期加倒计时，终态只印日期`() {
+        assertEquals("10-22 · 还有 1 天", deliveryDateText("2026-10-22", "PENDING_DISPATCH", today))
+        assertEquals("10-22 · 还有 1 天", deliveryDateText("2026-10-22", "DISPATCHED", today))
+        assertEquals("10-22 · 还有 1 天", deliveryDateText("2026-10-22", "ACCEPTED", today))
+        // 终态：日子已经是历史，再说"还有 1 天"会读成"还没到"
+        assertEquals("10-22", deliveryDateText("2026-10-22", "DELIVERED", today))
+        assertEquals("10-22", deliveryDateText("2026-10-22", "CANCELLED", today))
+        assertEquals("10-22", deliveryDateText("2026-10-22", "RETURNED", today))
+        // 没选过 → 可空的那一版返回 null（调用方不该拿它直接画）
+        assertNull(deliveryDateText(null, "PENDING_DISPATCH", today))
+        assertNull(deliveryDateText("", "PENDING_DISPATCH", today))
+    }
+
+    @Test
+    fun `没选过要明说未选择送达日期，不许整行消失`() {
+        // 用户 2026-10-22：「如果他没选择的话，订单里就有一条信息说他没有选择送达日期」
+        assertEquals("未选择送达日期", deliveryDateDisplay(null, "PENDING_DISPATCH", today))
+        assertEquals("未选择送达日期", deliveryDateDisplay("", "DISPATCHED", today))
+        assertEquals("未选择送达日期", deliveryDateDisplay("坏日期", "ACCEPTED", today))
+        // 选了就照旧：日期 + 倒计时；终态只印日期
+        assertEquals("10-22 · 还有 1 天", deliveryDateDisplay("2026-10-22", "DISPATCHED", today))
+        assertEquals("10-22", deliveryDateDisplay("2026-10-22", "DELIVERED", today))
     }
 
     @Test

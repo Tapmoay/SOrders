@@ -15,6 +15,8 @@ import com.tapmoay.sorders.ui.common.PickedLine
 import com.tapmoay.sorders.ui.common.ReceiverContact
 import com.tapmoay.sorders.ui.common.SelfContact
 import com.tapmoay.sorders.ui.common.contactInfoMissing
+import com.tapmoay.sorders.ui.common.defaultDeliveryDate
+import com.tapmoay.sorders.ui.common.deliveryDateAllowed
 import com.tapmoay.sorders.ui.common.fillReceiver
 import com.tapmoay.sorders.ui.common.receiverSwapNotice
 import kotlinx.coroutines.Job
@@ -198,15 +200,17 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
     var bossName by mutableStateOf("")
     var remark by mutableStateOf("")
     /**
-     * **送达日期**（FEAT-0028，`YYYY-MM-DD`）：下单时选的那一天，默认**明天**。
+     * **送达日期**（FEAT-0028，`YYYY-MM-DD`）：下单时**由用户自己选**的那一天。
      *
-     * 用户口径（2026-10-21）：「订单必须提前一天下达，当天下的单不一定能准时送达」——
-     * 所以默认值就是明天：不动它 = 按规矩下；要今天送也能选，只是页面上那条红字会先说明白。
+     * ⛔ **初值是空串**（用户 2026-10-22 看过截图后逐字纠正：「这个默认是空的是不填的，
+     * 不是默认就填明天」）——替用户预填一个日子 = 替他做了一个他没做过的决定，
+     * 而这一格恰恰是"哪天送到"这种要让派单员/司机去履约的承诺。
+     * 空着就不许提交（[submit] 里那道闸），所以也不会出现"没选就下出去了"的单。
      *
-     * ⚠️ 规则只住一处：`ui/shipper/DeliveryDate.kt`（默认值 / 能不能选 / 怎么显示）。
+     * ⚠️ 规则只住一处：`ui/common/DeliveryDate.kt`（能不能选 / 怎么显示 / 推荐哪一天）。
      * ⛔ 界面里不许自己 `LocalDate.now()` 判"是不是昨天"——那种第二份判据迟早跟这里对不上。
      */
-    var deliveryDate by mutableStateOf(defaultDeliveryDate())
+    var deliveryDate by mutableStateOf("")
     // 代理下单（派单员代下单）：shipperId=已注册货主；tempShipperName=临时货主（互斥）
     var shipperId by mutableStateOf<Long?>(null)
     var tempShipperName by mutableStateOf<String?>(null)
@@ -1205,6 +1209,9 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
             //    立刻说清为什么；灰掉一个按钮却不说原因，用户只会以为 App 坏了。
             contactInfoMissing(dongjiaName, dongjiaPhone, bossName, bossPhone) ->
                 error = CONTACT_REQUIRED_MESSAGE
+            // 送达日期**必须自己选**（初值空着，用户 2026-10-22 定的）：空着就当场说清，
+            // ⛔ 不替用户默认成明天、也不许空着下出去。
+            deliveryDate.isBlank() -> error = "请先选送达日期（订单要提前一天下达）"
             deliveryDateBad -> error = "送达日期已经过去了，请重新选一个（最早今天）"
             else -> {
                 submitting = true
