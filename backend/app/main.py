@@ -546,6 +546,58 @@ def create_fastapi_app() -> FastAPI:
         except Exception:
             return {"version": None, "url": None, "note": ""}
 
+    @application.get("/api/v1/system/app-releases")
+    def app_releases() -> dict[str, Any]:
+        """App「更新日志」：每版改了什么（FEAT-0029）。
+
+        数据来源 = 发布脚本随包一起写上去的 `uploads/app/releases.json`（仓库里那份在
+        `docs/releases.json`）：**每次发布追加一条**，⛔ 不是从 version.json 倒推 ——
+        后者每次发布都被覆盖，只留得住最新一版（"更新日志"要的恰恰是历史）。
+
+        兜底：文件还没有（老部署 / 第一次发布之前）⇒ 用 version.json 那一条当唯一一条，
+        让人看到"当前这一版改了什么"，而不是一个空列表（空列表在界面上等于"这功能坏了"）。
+        """
+        import json as _json
+
+        def _one_from_version_json() -> list[dict[str, Any]]:
+            info = app_version()
+            if not info.get("version"):
+                return []
+            return [
+                {
+                    "version": info.get("version"),
+                    "version_code": info.get("versionCode") or 0,
+                    "date": "",
+                    "note": info.get("note") or "",
+                }
+            ]
+
+        p = uploads_root() / "app" / "releases.json"
+        if not p.is_file():
+            return {"items": _one_from_version_json()}
+        try:
+            raw = _json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return {"items": _one_from_version_json()}
+        items = raw.get("items") if isinstance(raw, dict) else raw
+        if not isinstance(items, list):
+            return {"items": _one_from_version_json()}
+        clean: list[dict[str, Any]] = []
+        for it in items:
+            if not isinstance(it, dict) or not it.get("version"):
+                continue
+            clean.append(
+                {
+                    "version": str(it.get("version")),
+                    "version_code": int(it.get("version_code") or 0),
+                    "date": str(it.get("date") or ""),
+                    "note": str(it.get("note") or ""),
+                }
+            )
+        # 新的在前：构建号大的优先；都没有构建号时保持文件里的顺序（发布脚本按时间追加）。
+        clean.sort(key=lambda x: x["version_code"], reverse=True)
+        return {"items": clean[:50]}
+
     # ---- 扩展装配（R4-03）----
     # 这里是**唯一**允许 import app.extensions 的地方（指南 §13 的那一条边：Core -> 契约）。
     # 其余任何核心文件 import 具体扩展 = 核心反向依赖扩展，判据 _check_extension_dependencies.py 第 1 组报红。

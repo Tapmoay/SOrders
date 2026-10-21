@@ -360,6 +360,37 @@ def main() -> int:
     payload = json.dumps(ver, ensure_ascii=False)
     ssh(f"cat > {REMOTE_DIR}/version.json.tmp <<'JSONEOF'\n{payload}\nJSONEOF")
     ssh(f"mv {REMOTE_DIR}/version.json.tmp {REMOTE_DIR}/version.json")
+
+    # ---- 更新日志（FEAT-0029）----
+    # 用户 2026-10-22：「更新日志……可以查看每个版本更新了什么」。
+    # 数据源是**仓库里**的 docs/releases.json：这里追加一条、写回仓库、再上传一份到服务器。
+    # ⛔ 为什么要落仓库：version.json 每发一次就被覆盖（只留最新一版），历史只能存在别处；
+    #    落仓库还顺带让"每一版改了什么"进 git 历史、可复核。
+    # ⚠️ 同版本重发（同一个 versionCode）时不重复追加，只把那条的 note 更新成这次的。
+    rel_path = ROOT / "docs" / "releases.json"
+    try:
+        doc = json.loads(rel_path.read_text(encoding="utf-8")) if rel_path.is_file() else {}
+    except Exception:
+        doc = {}
+    items = doc.get("items") if isinstance(doc, dict) else None
+    if not isinstance(items, list):
+        items = []
+        doc = {"items": items}
+    entry = {
+        "version": name,
+        "version_code": code,
+        "date": datetime.now().date().isoformat(),
+        "note": args.note or "",
+    }
+    items[:] = [it for it in items if int(it.get("version_code") or 0) != code]
+    items.append(entry)
+    items.sort(key=lambda it: int(it.get("version_code") or 0), reverse=True)
+    rel_path.parent.mkdir(parents=True, exist_ok=True)
+    rel_path.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    rel_payload = json.dumps({"items": items}, ensure_ascii=False)
+    ssh(f"cat > {REMOTE_DIR}/releases.json.tmp <<'JSONEOF'\n{rel_payload}\nJSONEOF")
+    ssh(f"mv {REMOTE_DIR}/releases.json.tmp {REMOTE_DIR}/releases.json")
+    print(f"已写入 : releases.json（{len(items)} 条，最新 {items[0]['version']}）")
     # 顺手清历史包，别把 40G 的盘塞满（`sorders-latest.apk` 不匹配 `sorders-<版本>.apk` 的清理口径？
     # 它匹配 `sorders-*.apk` —— 所以**必须显式排除**，否则"最新包"会被当成最旧的那个删掉）
     ssh(f"ls -1t {REMOTE_DIR}/sorders-*.apk | grep -v 'sorders-latest.apk$' | tail -n +{args.keep + 1} | xargs -r rm -f")

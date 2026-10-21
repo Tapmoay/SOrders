@@ -9,6 +9,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.NotificationsActive
@@ -30,6 +31,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.BuildConfig
 import com.tapmoay.sorders.core.NewOrderAlert
 import com.tapmoay.sorders.ui.common.DangerConfirmDialog
 import com.tapmoay.sorders.ui.common.ErrorView
@@ -415,6 +417,27 @@ fun ProfileScreen(
                         )
                     }
 
+                    // ---- 更新日志（FEAT-0029）----
+                    // 用户 2026-10-22：「更新那个入口里有个更新日志，可以查看每个版本更新了什么」。
+                    // ⚠️ 它是「关于与更新」那一行的**邻居**而不是它的分支：查更新是"有没有新版"、
+                    //    这一行是"以前每一版改了什么"——两件事，别塞进同一个动作里（那样点一下
+                    //    就得先下载/弹更新框，用户只是想看看历史）。
+                    RowMotion(6, jelly) {
+                        ProfileRow(
+                            icon = Icons.Default.Description,
+                            tint = Color(0xFF00AC6E),
+                            title = "更新日志",
+                            subtitle = {
+                                Text(
+                                    "每个版本改了什么",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            onClick = { vm.openReleaseNotes() },
+                        )
+                    }
+
                     Spacer(Modifier.height(10.dp))
                     // ---- 退出登录：与上面几行**同一种形态**（语义色圆底图标 + 文字），
                     // 点一下**先弹确认框**（防误碰），确认了才真退。
@@ -452,6 +475,11 @@ fun ProfileScreen(
             },
             onDismiss = { confirmLogout = false },
         )
+    }
+
+    // 更新日志（FEAT-0029）：一版一行，新的在前；拉失败如实说、给重试
+    if (vm.showReleaseNotes) {
+        ReleaseNotesDialog(vm)
     }
 
     // 有新版 → 确认弹窗
@@ -532,6 +560,100 @@ fun ProfileScreen(
  * 而这一项直接决定"派单来了会不会响"。写成一句话，用户不用进去看就知道现在是什么状态；
  * 判定（含"按角色说不同的话"）在纯函数 [NewOrderAlert.summary] 里，有单测。
  */
+/**
+ * 「更新日志」弹层（FEAT-0029）：一版一条，新的在前。
+ *
+ * 用户 2026-10-22：「更新日志……可以查看每个版本更新了什么」。
+ *
+ * ⚠️ 三条界面约定：
+ * 1. **拉失败不装没事**：说清是哪一步没成、给「重试」，⛔ 不给一个空列表（空列表 = "从没更新过"）；
+ * 2. **当前版本单独标出来**：列表里那条与 BuildConfig.VERSION_CODE 相同的就是"你现在装的那版"
+ *    —— 不然用户得自己拿「关于与更新」那行的号来对；
+ * 3. 日期/构建号**有空就不印**：老数据可能只有版本名（⛔ 不印一个空括号）。
+ */
+@Composable
+private fun ReleaseNotesDialog(vm: ProfileViewModel) {
+    CardAlertDialog(
+        onDismissRequest = { vm.closeReleaseNotes() },
+        title = { Text("更新日志") },
+        text = {
+            Column(
+                Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                when {
+                    vm.releaseNotesLoading && vm.releaseNotes.isEmpty() -> {
+                        Text(
+                            "正在读取…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    vm.releaseNotes.isEmpty() && vm.releaseNotesError != null -> {
+                        Text(
+                            "没拉到更新日志：" + vm.releaseNotesError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        TextButton(onClick = { vm.openReleaseNotes() }) { Text("重试") }
+                    }
+                    vm.releaseNotes.isEmpty() -> {
+                        Text(
+                            "还没有记录 —— 等下一次发版就会出现在这里。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    else -> {
+                        vm.releaseNotes.forEachIndexed { i, r ->
+                            if (i > 0) Spacer(Modifier.height(12.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "v" + r.version,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                )
+                                if (r.versionCode == BuildConfig.VERSION_CODE) {
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        "当前版本",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(ThemeGreen),
+                                    )
+                                }
+                                Spacer(Modifier.weight(1f))
+                                if (r.date.isNotBlank()) {
+                                    Text(
+                                        r.date,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            if (r.note.isNotBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(r.note, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+                if (vm.releaseNotesLoading && vm.releaseNotes.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "正在刷新…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { vm.closeReleaseNotes() }) { Text("知道了") }
+        },
+    )
+}
+
 private fun alertSummary(container: AppContainer): String {
     val prefs = container.alertPrefs
     val role = Role.fromKey(container.tokenStore.cachedRole() ?: "")

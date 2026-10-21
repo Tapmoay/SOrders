@@ -1592,6 +1592,24 @@ data class InventorySummaryItemDto(
 @Serializable
 data class ApiErrorResponse(val detail: String = "")
 
+/**
+ * 「更新日志」里的一条（FEAT-0029）：某一版改了什么。
+ *
+ * ⚠️ 与 [AppVersionDto] 是**两件事**：后者是"最新一版 + 下载地址"（每次发布覆盖），
+ * 这一份是**历史**（每次发布追加一条）。⛔ 别拿 version.json 倒推历史 —— 它只剩最后一版。
+ */
+@Serializable
+data class AppReleaseDto(
+    val version: String = "",
+    @SerialName("version_code") val versionCode: Int = 0,
+    /** 发布日期（YYYY-MM-DD；老数据可能为空 → 界面就不印日期） */
+    val date: String = "",
+    val note: String = "",
+)
+
+@Serializable
+data class AppReleasesOut(val items: List<AppReleaseDto> = emptyList())
+
 @Serializable
 data class AppVersionDto(
     val version: String? = null,

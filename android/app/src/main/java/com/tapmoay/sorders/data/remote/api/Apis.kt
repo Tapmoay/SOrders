@@ -1937,8 +1937,17 @@ interface AiOperationsApi {
     ): Response<List<AiOperationDto>>
 }
 
-/** 系统：版本更新检测 + 测试账号的默认 AI 配置 */
+/** 系统：版本更新检测 + 更新日志 + 测试账号的默认 AI 配置 */
 interface SystemApi {
+    /**
+     * 「更新日志」：每版改了什么（FEAT-0029）。
+     *
+     * ⚠️ 服务端读的是**发布时写上去的 releases.json**（每次发布追加一条）；文件还没有时
+     *    会退回**只给最新那一版**，不会给空列表 —— 空列表在界面上等于"这功能坏了"。
+     */
+    @GET("system/app-releases")
+    suspend fun appReleases(): AppReleasesOut
+
     @GET("system/app-version")
     suspend fun appVersion(): AppVersionDto
     /**

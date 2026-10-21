@@ -14,6 +14,7 @@ import androidx.lifecycle.viewModelScope
 import com.tapmoay.sorders.BuildConfig
 import com.tapmoay.sorders.core.ApiClient
 import com.tapmoay.sorders.core.AppContainer
+import com.tapmoay.sorders.data.remote.dto.AppReleaseDto
 import com.tapmoay.sorders.data.remote.dto.AppVersionDto
 import com.tapmoay.sorders.data.remote.dto.UserDto
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +56,45 @@ class ProfileViewModel(private val container: AppContainer) : ViewModel() {
 
     /** 下载中的第二行字：速度 / 已下多少 / 还剩多久（见 UpdateProgress）。 */
     var downloadDetail by mutableStateOf("")
+
+    // ---- 更新日志（FEAT-0029）----
+    // 「更新那个入口里有个更新日志，可以查看每个版本更新了什么」（用户 2026-10-22）。
+    /** 每版一条（新的在前）。空 + 没在拉 = 还没打开过。 */
+    var releaseNotes by mutableStateOf<List<AppReleaseDto>>(emptyList())
+        private set
+    var releaseNotesLoading by mutableStateOf(false)
+        private set
+    var releaseNotesError by mutableStateOf<String?>(null)
+        private set
+    /** 弹层开关（列表进弹层，不占「我的」这一页的高度）。 */
+    var showReleaseNotes by mutableStateOf(false)
+        private set
+
+    /**
+     * 打开「更新日志」：每次都重新拉一遍（版本可能刚发过；这一页是 App 级缓存的 VM）。
+     *
+     * ⚠️ 拉失败**不关弹层**：界面上要如实说"没拉到 + 重试"，而不是悄悄给一个空列表
+     *    （空列表看起来像"这个软件从来没更新过"）。旧数据保留着，下次打开先看到旧的再刷新。
+     */
+    fun openReleaseNotes() {
+        showReleaseNotes = true
+        if (releaseNotesLoading) return
+        releaseNotesLoading = true
+        releaseNotesError = null
+        viewModelScope.launch {
+            try {
+                releaseNotes = container.repo.appReleases().items
+            } catch (e: Exception) {
+                releaseNotesError = humanError(e)
+            } finally {
+                releaseNotesLoading = false
+            }
+        }
+    }
+
+    fun closeReleaseNotes() {
+        showReleaseNotes = false
+    }
     /**
      * 「关于与更新」那一行显示的版本：**产品版本 · 构建号**（如 `0.2.0 · 2026092102`）。
      *

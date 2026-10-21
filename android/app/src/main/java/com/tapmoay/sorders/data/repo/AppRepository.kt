@@ -1401,6 +1401,15 @@ class AppRepository(private val api: ApiBundle) {
     suspend fun checkUpdate() = api.systemApi.appVersion()
 
     /**
+     * 「更新日志」：每版改了什么（FEAT-0029）。
+     *
+     * ⚠️ 与 [checkUpdate] 是两条路：那条问的是"有没有新版 + 去哪下"，这条问的是"以前每一版改了什么"。
+     *    服务端那份列表在发布脚本里追加（`docs/releases.json` → 服务器 `releases.json`），
+     *    ⛔ 不要用 checkUpdate 的 note 去拼历史（version.json 每次发布都被覆盖，只剩最新一版）。
+     */
+    suspend fun appReleases() = api.systemApi.appReleases()
+
+    /**
      * 清空**我自己**的常用计数（「我的 → 基础设置 → 重置计数」），返回清掉的行数。
      *
      * 为什么把行数带回来：界面要如实说"清掉了 N 条"。只说"重置成功"的话，
