@@ -42,7 +42,10 @@ import com.tapmoay.sorders.data.remote.dto.PlaceCategoryDto
 import com.tapmoay.sorders.data.remote.dto.PlaceDto
 import com.tapmoay.sorders.ui.dispatcher.PlaceCategoriesPanel
 import com.tapmoay.sorders.ui.dispatcher.PlaceCategoriesViewModel
+import com.tapmoay.sorders.ui.dispatcher.isoDateOfMillis
+import com.tapmoay.sorders.ui.dispatcher.isoDateToMillis
 import com.tapmoay.sorders.ui.common.*
+import com.tapmoay.sorders.ui.theme.DangerRed
 import com.tapmoay.sorders.ui.theme.InventoryTeal
 import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
@@ -83,6 +86,9 @@ fun OrderCreateScreen(
     LaunchedEffect(Unit) { UnitConv.ensure(container.repo, container.tokenStore.cachedRole()) }
     var showShipperPicker by remember { mutableStateOf(false) }
     var showImageSheet by remember { mutableStateOf(false) }
+    // 送达日期（FEAT-0028）：一层抽屉给"今天/明天/后天/大后天"，再往后的日子翻日历。
+    var showDeliverySheet by remember { mutableStateOf(false) }
+    var showDeliveryCalendar by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -565,6 +571,28 @@ fun OrderCreateScreen(
                 }
             }
 
+            // 送达日期（FEAT-0028，用户 2026-10-21）
+            //
+            // 用户原话：「货主和批发商以及派单员，他们在下单的时候……**可以选择送到的日期**；
+            // 然后我们还要加一个警示……告诉他们**订单必须提前一天下达，当天下的单不一定能准时送达**」。
+            //
+            // ⚠️ 红条**在日期那一行上面**（用户点名："在日期选择前面"）：它说的是"这一格该怎么选"，
+            //    读完紧接着就是那一格，才连得上。塞在页面顶部或卡片末尾都读不出这层关系。
+            // ⚠️ 它是**警告**（不是解释句）→ 走 `Text`、⛔ 不走 `Hint`：提示总开关关掉之后，
+            //    "必须提前一天"这句是用户仍然必须看见的话（Hints.kt 那张表第一类）。
+            item {
+                FormGroup(icon = Icons.Default.Event, title = "送达日期", tint = Color(ShipperTeal)) {
+                    DeliveryLeadNotice()
+                    FormPickRow(
+                        label = "哪天送到",
+                        value = deliveryDateLabel(vm.deliveryDate),
+                        onClick = { showDeliverySheet = true },
+                        icon = Icons.Default.CalendarMonth,
+                        iconTint = Color(ShipperTeal),
+                    )
+                }
+            }
+
             // 联系与备注（2026-09-22：改成**共用表单行**，白卡里不画边框、值本身就是占位符）
             item {
                 FormGroup(icon = Icons.Default.Contacts, title = "联系信息", tint = Color(MgrGreen)) {
@@ -795,6 +823,23 @@ fun OrderCreateScreen(
             confirmButton = {
                 TextButton(onClick = { showImageSheet = false }) { Text("取消") }
             },
+        )
+    }
+
+    // 送达日期：先开"最近四天"的抽屉，再往里才是日历（见 DeliveryDate.kt 的规则）
+    if (showDeliverySheet) {
+        DeliveryDateSheet(
+            current = vm.deliveryDate,
+            onPick = { iso -> vm.deliveryDate = iso; showDeliverySheet = false },
+            onPickOther = { showDeliverySheet = false; showDeliveryCalendar = true },
+            onDismiss = { showDeliverySheet = false },
+        )
+    }
+    if (showDeliveryCalendar) {
+        DeliveryDatePickerDialog(
+            current = vm.deliveryDate,
+            onPick = { iso -> vm.deliveryDate = iso },
+            onDismiss = { showDeliveryCalendar = false },
         )
     }
 
@@ -1687,3 +1732,166 @@ fun LineEditDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
+
+// ============================================================================
+// 送达日期（FEAT-0028）—— 红条 + 抽屉 + 日历
+//
+// 规则（默认明天 / 不早于今天 / 怎么显示）全部住在 `ui/shipper/DeliveryDate.kt`，
+// 这里只管画。⛔ 界面里不出现 `LocalDate.now()`、不自己做"是不是昨天"的判断。
+// ============================================================================
+
+/**
+ * 日期那一行**上面**那条红字（用户 2026-10-21：「在日期选择前面加一个红色的警示」）。
+ *
+ * 三件事一起做才叫"警示"：**红**（`errorContainer` 浅红底 + `DangerRed` 的图标与字）、
+ * **有图标**（扫视时先看到它）、**一句话说清规矩**（"必须提前一天"＋"当天的不一定准时"）。
+ *
+ * ⚠️ 用 `Text` 而不是 `Hint`：提示总开关关掉之后这句仍然必须看得见（它是**警告**）。
+ */
+@Composable
+private fun DeliveryLeadNotice() {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Icon(
+                Icons.Default.Warning,
+                contentDescription = null,
+                tint = Color(DangerRed),
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "订单必须提前一天下达；当天下的单，不一定能准时送达。",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(DangerRed),
+            )
+        }
+    }
+}
+
+/**
+ * 「送达日期」抽屉：今天 / 明天 / 后天 / 大后天 + 一行「选其他日期…」。
+ *
+ * 为什么不是一上来就翻日历：这一格的答案 99% 是**明天**（"必须提前一天"就是它），
+ * 一次点选比"打开日历 → 找到明天 → 确定"少两步；再远的日子才进日历（见 [onPickOther]）。
+ * 容器与同一页另外四个选择器（地址库 / 联系人 / 选商品 / 选货主）一致：都是底部抽屉。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DeliveryDateSheet(
+    current: String,
+    onPick: (String) -> Unit,
+    onPickOther: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+            Text("选择送达日期", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(6.dp))
+            // 解释句（"为什么默认是明天"）→ 走 Hint：总开关关掉时它跟着消失，日期本身不受影响。
+            Hint("提前一天下单，才排得进明天的车 —— 所以默认填的是明天。")
+            Spacer(Modifier.height(12.dp))
+            deliveryDateChoices().forEach { (iso, word) ->
+                DeliveryDateChoice(
+                    text = word,
+                    selected = iso == current,
+                    // 选"今天"是可以的，只是不能装作它也一样准时 —— 这一行自己说清楚。
+                    note = if (deliveryLeadDays(iso) == 0L) "不保证准时" else null,
+                    onClick = { onPick(iso) },
+                )
+            }
+            DeliveryDateChoice(
+                text = "选其他日期…",
+                selected = false,
+                note = null,
+                onClick = onPickOther,
+            )
+        }
+    }
+}
+
+/** 抽屉里的一行：左边的日子 + （可选的）红字小注 + 选中打勾。 */
+@Composable
+private fun DeliveryDateChoice(
+    text: String,
+    selected: Boolean,
+    note: String?,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                modifier = Modifier.weight(1f),
+            )
+            if (note != null) {
+                Text(note, style = MaterialTheme.typography.bodySmall, color = Color(DangerRed))
+                Spacer(Modifier.width(8.dp))
+            }
+            if (selected) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = "已选",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 日历（"选其他日期…"之后那一层）：**过去的日子点不动**（`selectableDates`）。
+ *
+ * ⛔ 为什么这道门必须在选择层：后端只拒"早于今天"（`commands/order.py::create_order`），
+ * 让用户先选出一个注定被拒的日子、再在提交时报错，是同一个错误要说两遍。
+ * ⚠️ 毫秒 ↔ ISO 的换算走 `DeliveryDate.kt`（那里写着为什么必须是 **UTC 零点**，按设备时区会差一天）。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DeliveryDatePickerDialog(
+    current: String,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val dpState = rememberDatePickerState(
+        initialSelectedDateMillis = isoDateToMillis(current),
+        selectableDates = object : SelectableDates {
+            override fun isSelectableDate(utcTimeMillis: Long): Boolean = deliveryDateSelectable(utcTimeMillis)
+        },
+    )
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = {
+                val picked = dpState.selectedDateMillis
+                // 兜底：草稿里本来就有一个过期日子时，它是选中态、选择层拦不住 —— 那种值不许写回。
+                if (picked != null && deliveryDateSelectable(picked)) onPick(isoDateOfMillis(picked))
+                onDismiss()
+            }) { Text("就用这天") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    ) {
+        DatePicker(state = dpState)
+    }
+}
+

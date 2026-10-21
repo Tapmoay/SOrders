@@ -197,6 +197,16 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         private set
     var bossName by mutableStateOf("")
     var remark by mutableStateOf("")
+    /**
+     * **送达日期**（FEAT-0028，`YYYY-MM-DD`）：下单时选的那一天，默认**明天**。
+     *
+     * 用户口径（2026-10-21）：「订单必须提前一天下达，当天下的单不一定能准时送达」——
+     * 所以默认值就是明天：不动它 = 按规矩下；要今天送也能选，只是页面上那条红字会先说明白。
+     *
+     * ⚠️ 规则只住一处：`ui/shipper/DeliveryDate.kt`（默认值 / 能不能选 / 怎么显示）。
+     * ⛔ 界面里不许自己 `LocalDate.now()` 判"是不是昨天"——那种第二份判据迟早跟这里对不上。
+     */
+    var deliveryDate by mutableStateOf(defaultDeliveryDate())
     // 代理下单（派单员代下单）：shipperId=已注册货主；tempShipperName=临时货主（互斥）
     var shipperId by mutableStateOf<Long?>(null)
     var tempShipperName by mutableStateOf<String?>(null)
@@ -1171,6 +1181,10 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
         // ⚠️ 两个电话都是**可选**的（不要顺手把它们改成必填 —— 那是产品决定，不是修 bug）。
         val phoneError = InputRules.phoneError(dongjiaPhone.trim())
             ?: InputRules.phoneError(bossPhone.trim())
+        // 送达日期（FEAT-0028）：页面开着过了一夜时，"明天"已经变成"今天"、甚至成了"昨天"——
+        // 点提交那一刻按**今天的日期**再判一次（规则唯一实现见 ui/shipper/DeliveryDate.kt）。
+        // ⛔ 服务端也有同一道闸（`commands/order.py::create_order`），这里只是把话说在前面。
+        val deliveryDateBad = !deliveryDateAllowed(deliveryDate)
         when {
             // 代理下单的第一步是**选货主**（页面最上面就是「请选择货主」）—— 把它提到同步这一道闸里，
             // 点下去立刻就能看到这句话。原来它躲在下面的协程里，要等一圈网络往返才说。
@@ -1191,6 +1205,7 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
             //    立刻说清为什么；灰掉一个按钮却不说原因，用户只会以为 App 坏了。
             contactInfoMissing(dongjiaName, dongjiaPhone, bossName, bossPhone) ->
                 error = CONTACT_REQUIRED_MESSAGE
+            deliveryDateBad -> error = "送达日期已经过去了，请重新选一个（最早今天）"
             else -> {
                 submitting = true
                 error = null
@@ -1233,6 +1248,9 @@ class OrderCreateViewModel(private val container: AppContainer) : ViewModel() {
                             contactDongjiaName = dongjiaName.trim(),
                             contactBossName = bossName.trim(),
                             remark = remark.trim(),
+                            // 送达日期（FEAT-0028）：这一格**永远带值**（默认明天），
+                            // 不是"可选填"—— 界面上它就是一行"选好的日子"，没有清空动作。
+                            deliveryDate = deliveryDate,
                             shipperId = shipperId,
                             tempShipperName = tempShipperName,
                             // 「这一单用的是库里哪一条」→ 后端据此记常用度（列表排序用）

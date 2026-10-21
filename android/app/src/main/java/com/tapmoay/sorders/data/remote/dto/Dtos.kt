@@ -177,6 +177,13 @@ data class OrderDto(
     @SerialName("temp_shipper_name") val tempShipperName: String? = null,
     @SerialName("driver_id") val driverId: Long? = null,
     @SerialName("order_date") val orderDate: String = "",
+    /**
+     * **期望送达日**（FEAT-0028，`YYYY-MM-DD`）；null/空 = 这一单没选过（存量单 / 老客户端）。
+     *
+     * ⚠️ 与 [orderDate]（哪天下的单）是两件事；与 [expectedDeliverBefore]（约定送达**截止时刻**，
+     * 准时率按它判）也是两件事。⛔ 显示时不要拿它去算"超时"——那是另一个字段的口径。
+     */
+    @SerialName("delivery_date") val deliveryDate: String? = null,
     @SerialName("delivery_description") val deliveryDescription: String = "",
     @SerialName("address_detail") val addressDetail: String = "",
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("address_lat")
@@ -524,6 +531,14 @@ data class AiCallReportResultDto(
 data class OrderCreateRequest(
     val lines: List<OrderProductLine>,
     @SerialName("order_date") val orderDate: String? = null,
+    /**
+     * **期望送达日**（FEAT-0028）：下单页「送达日期」那一格选的那天。
+     *
+     * ⚠️ 可空是给**别的调用方**留的（AI 下单 / 老版本 / 以后的服务端入口）：那种单
+     * 后端照收、这一格留 NULL。下单页自己**永远带一个值**（默认明天，见
+     * `ui/shipper/DeliveryDate.kt`）——界面上那一格不是一个"可选填"的输入框。
+     */
+    @SerialName("delivery_date") val deliveryDate: String? = null,
     @SerialName("delivery_description") val deliveryDescription: String = "",
     @SerialName("address_detail") val addressDetail: String = "",
     @Serializable(with = FlexibleStringSerializer::class) @SerialName("address_lat")

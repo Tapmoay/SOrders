@@ -3,7 +3,7 @@ package com.tapmoay.sorders.ui.dispatcher
 import com.tapmoay.sorders.ui.messages.MessageRisk
 import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.format.DateTimeParseException
 import java.time.temporal.ChronoUnit
 
@@ -145,13 +145,26 @@ internal fun inspectionBadgeOf(
 // 日期选择器 ↔ ISO 串（界面里一个字都不许碰 java.time）
 // ---------------------------------------------------------------------------
 
-/** 日期选择器给的 UTC 零点毫秒 → 本机那一天的 ISO 串（与 `InvoiceFormScreen` 同一套换算）。 */
+/**
+ * 日期选择器给的 **UTC 零点**毫秒 → 那一天的 ISO 串（`YYYY-MM-DD`）。
+ *
+ * ## ⚠️ 这里修过一个"差一天"的静默缺陷（FEAT-0028，2026-10-21）
+ *
+ * Material3 的 `DatePicker` 约定：`initialSelectedDateMillis` / `selectedDateMillis` 都是
+ * "那一天的 **UTC 00:00**"的毫秒。原来这两行按**设备时区**换算（`ZoneId.systemDefault()`），
+ * 在东八区就整体差一天：打开时停在**前一天**、确认时又写回**前一天**，而界面上完全看不出
+ * 是换算错了 —— 用户只会说"我明明选的明天"。（模拟器时区恰好是 UTC，所以开发期从来撞不到。）
+ * 现在两端都走 [ZoneOffset.UTC]，与 `ui/common/Components.kt::DateRangeDialog` 那一份同一个口径。
+ *
+ * ⛔ 全 App **只有这一份**：下单页「送达日期」也用它（判据 `_check_vehicle_inspection_ui.py:158`
+ * 与 `_check_order_delivery_date.py` 都盯着"只有一处"）。
+ */
 internal fun isoDateOfMillis(millis: Long): String =
-    Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate().toString()
+    Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate().toString()
 
-/** ISO 串 → 日期选择器要的毫秒（用来"打开时先停在已填的那天"）；空/解析不了 = null。 */
+/** ISO 串 → 日期选择器要的 **UTC 零点**毫秒（用来"打开时先停在已填的那天"）；空/解析不了 = null。 */
 internal fun isoDateToMillis(raw: String?): Long? =
-    parseIsoDate(raw)?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
+    parseIsoDate(raw)?.atStartOfDay(ZoneOffset.UTC)?.toInstant()?.toEpochMilli()
 
 // ---------------------------------------------------------------------------
 // 未来日期不可选（后端不做日期范围校验）
