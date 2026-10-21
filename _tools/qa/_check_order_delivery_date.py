@@ -49,7 +49,9 @@ BOOTSTRAP = ROOT / "backend/app/core/schema_bootstrap.py"
 DTOS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/data/remote/dto/Dtos.kt"
 VM = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateViewModel.kt"
 SCREEN = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateScreen.kt"
-RULES = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/DeliveryDate.kt"
+RULES = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/common/DeliveryDate.kt"
+CARD = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/common/OrderCard.kt"
+DETAIL = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailScreen.kt"
 #: 毫秒换算的**唯一**那一份（车辆年检页与下单页共用；FEAT-0028 顺带把它从设备时区改成 UTC 零点）。
 SHARED_MILLIS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleInspection.kt"
 
@@ -105,6 +107,8 @@ def main() -> int:
     screen = _code_only(_read(SCREEN))
     rules = _code_only(_read(RULES))
     shared_millis = _code_only(_read(SHARED_MILLIS))
+    card = _code_only(_read(CARD))
+    detail = _code_only(_read(DETAIL))
 
     print("1. 后端：这一列与这一道闸")
     _need(
@@ -171,9 +175,13 @@ def main() -> int:
         dtos.count('@SerialName("delivery_date")') >= 2,
     )
     _need(
-        "VM 的初值是「默认明天」（走 DeliveryDate.kt 那一处规则）",
-        "var deliveryDate by mutableStateOf(defaultDeliveryDate())" in vm,
-        "初值写死成日期串，等于把业务口径抄进界面状态",
+        "VM 的初值是**空串**（⛔ 不替用户预选明天 —— 用户 2026-10-22 逐字纠正过）",
+        'var deliveryDate by mutableStateOf("")' in vm and "defaultDeliveryDate()" not in vm,
+        "预填一个日子 = 替他做了一个他没做过的决定，而这一格是给司机/派单员去履约的承诺",
+    )
+    _need(
+        "空着提交会被拦住（说清是去选日期，不是让服务端猜）",
+        "deliveryDate.isBlank() -> error =" in vm and "请先选送达日期" in vm,
     )
     _need(
         "VM 提交前再判一次（页面开着过夜也不能发出去）",
@@ -204,8 +212,9 @@ def main() -> int:
         "用户点名要做成红色",
     )
     _need(
-        "警告逐字写着「提前一天」与「当天…不一定能准时送达」",
-        "订单必须提前一天下达" in screen and "不一定能准时送达" in screen,
+        "警告逐字写着「提前一天」＋「下单」＋「当天…不一定能准时送达」",
+        "提前一天" in screen and '"下单"' in screen and "不一定能准时送达" in screen,
+        "用户 2026-10-22 纠正过措辞：是「提前一天**下单**」，不是「下达」",
     )
     # ⚠️ 这一条**必须切出函数体**再判：只在整页里搜 "Text(" 的话，页面其它地方到处都是 Text，
     #    把这条红字改成 Hint 也不会红 —— 那就是一条永远绿的断言。
@@ -219,6 +228,25 @@ def main() -> int:
     _need(
         "抽屉给「今天 / 明天 / 后天 / 大后天」四档 + 「选其他日期」",
         "deliveryDateChoices().forEach" in screen and "选其他日期…" in screen,
+    )
+    _need(
+        "那一行空着时显示占位「请选择」（不是空荡荡一行）",
+        'placeholder = "请选择",' in screen,
+    )
+    _need(
+        "「不保证准时」也是**深红胶囊**（与红条同一个观感）",
+        "noteIsWarn = deliveryLeadDays(iso) == 0L" in screen
+        and re.search(r"if \(noteIsWarn\) \{[\s\S]{0,200}?Surface\(color = Color\(DangerRed\), shape = CircleShape\)", screen) is not None,
+        "用户 2026-10-22：「这个不保证准时……也同样用胶囊背景色，用红色的深色胶囊框起来，美观一点」",
+    )
+    _need(
+        "「推荐」那种中性注**不**染红（红只留给会晚到的那一类）",
+        "noteIsWarn = deliveryLeadDays(iso) == 0L" in screen,
+        "两件事都染红，红就不再表示要当心了",
+    )
+    _need(
+        "抽屉里把「明天」标成**推荐**（还是让用户自己点，⛔ 不预选）",
+        'val recommended = defaultDeliveryDate()' in screen and '"推荐"' in screen,
     )
     _need(
         "今天那一行如实标「不保证准时」",
@@ -267,6 +295,56 @@ def main() -> int:
     _need(
         "⛔ 规则文件里没有 systemDefault 换算",
         "ZoneId.systemDefault()" not in rules,
+    )
+
+    print("5. 「提前一天」更显眼（深红胶囊）＋ 卡片与详情都能看到（CHG-0134）")
+    _notice2 = re.search(r"private fun DeliveryLeadNotice\(\)[\s\S]*?\n\}", screen)
+    _notice2_body = _notice2.group(0) if _notice2 else ""
+    _need(
+        "**只有「提前一天」三个字**是深红胶囊（Surface + Color(DangerRed) + CircleShape）",
+        "color = Color(DangerRed)" in _notice2_body
+        and "shape = CircleShape" in _notice2_body
+        and '"提前一天"' in _notice2_body,
+        "用户 2026-10-22 逐字校正：「真正需要搞的信息就是 3 个字，提前一天……其他的没必要搞」",
+    )
+    _need(
+        "⛔ 整句没有塞进胶囊（只有那三个字）",
+        "订单必须提前一天下单" not in _notice2_body,
+        "整句染深既刺眼、又看不出哪三个字是重点",
+    )
+    _need(
+        "下半句仍是红字（只染「提前一天」三个字，⛔ 整条染深就刺眼）",
+        "当天下的单，不一定能准时送达。" in _notice2_body,
+    )
+    _need(
+        "订单卡片上有一行送达日期（三端共用那一张卡）",
+        re.search(r"deliveryDateDisplay\(order\.deliveryDate, order\.status\)", card) is not None,
+        "司机与派单员都是在这张卡上看单的 —— 卡片没有，就等于只有下单的人知道",
+    )
+    _need(
+        "订单详情有一行「送达日期」",
+        re.search(r"InfoRow\(\"" + u"\u9001\u8fbe\u65e5\u671f" + r"\"", detail) is not None,
+        "详情页是三方都要看的那一页（货主 / 派单员 / 司机）",
+    )
+    _need(
+        "没选过的单**明说**「未选择送达日期」，不许整行消失",
+        '"未选择送达日期"' in rules
+        and re.search(r"deliveryDateDisplay\(order\.deliveryDate, order\.status\)", card) is not None
+        and re.search(r"InfoRow\(\"送达日期\", deliveryDateDisplay\(", detail) is not None,
+        "用户 2026-10-22：「如果他没选择的话，订单里就有一条信息说他没有选择送达日期」",
+    )
+    _need(
+        "倒计时只有一处算法（界面不自己拼「还有 N 天」）",
+        len(re.findall(r"fun deliveryCountdown\(", rules)) == 1
+        and "还有 " not in card
+        and "还有 " not in detail,
+        "同一句话两个算法，迟早一处改了另一处没改",
+    )
+    _need(
+        "终态订单不再显示倒计时（DELIVERED / CANCELLED / RETURNED 只印日期）",
+        "if (status.uppercase() in FINISHED_STATUS) return md" in rules
+        and '"DELIVERED"' in rules and '"CANCELLED"' in rules and '"RETURNED"' in rules,
+        "已送达的单上写「还有 1 天」会被读成「还没到」",
     )
 
     print()

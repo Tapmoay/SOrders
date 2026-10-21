@@ -38,7 +38,9 @@ COMMAND = "backend/app/commands/order.py"
 FLOW = "backend/app/services/order_flow.py"
 MIGRATION = "backend/app/migrations/036_order_delivery_date.py"
 SCREEN = "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateScreen.kt"
-RULES = "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/DeliveryDate.kt"
+RULES = "android/app/src/main/java/com/tapmoay/sorders/ui/common/DeliveryDate.kt"
+CARD = "android/app/src/main/java/com/tapmoay/sorders/ui/common/OrderCard.kt"
+DETAIL = "android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailScreen.kt"
 INSPECTION = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleInspection.kt"
 VM = "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateViewModel.kt"
 
@@ -51,7 +53,7 @@ NOTICE_LINE = "                    DeliveryLeadNotice()" + NL
 ROW_END = "                        iconTint = Color(ShipperTeal)," + NL + "                    )" + NL
 
 #: 红条那句逐字文案（注入 ⑥ 把它改成软话）。
-NOTICE_TEXT = "订单必须提前一天下达；当天下的单，不一定能准时送达。"
+NOTICE_TEXT = "当天下的单，不一定能准时送达。"
 
 
 # --------------------------------------------------------------- 12 条注入
@@ -134,11 +136,11 @@ def _screen_computes_today(s: str) -> str:
     )
 
 
-def _default_hardcoded(s: str) -> str:
-    """默认值写死成某个日期（"提前一天"这条业务口径被抄进界面状态）。"""
+def _default_prefilled(s: str) -> str:
+    """又替用户预填了明天（用户 2026-10-22 逐字否过：「默认是空的是不填的，不是默认就填明天」）。"""
     return s.replace(
+        'var deliveryDate by mutableStateOf("")',
         "var deliveryDate by mutableStateOf(defaultDeliveryDate())",
-        "var deliveryDate by mutableStateOf(" + Q + "2026-10-22" + Q + ")",
         1,
     )
 
@@ -146,6 +148,49 @@ def _default_hardcoded(s: str) -> str:
 def _request_omits_date(s: str) -> str:
     """请求体里不发送达日（后端收到的永远是 NULL）。"""
     return s.replace("                            deliveryDate = deliveryDate," + NL, "", 1)
+
+
+def _pill_removed(s: str) -> str:
+    """「提前一天」的深红胶囊被拆回普通文字（重点又看不见了）。"""
+    return s.replace("shape = CircleShape,", "shape = RoundedCornerShape(0.dp),", 1)
+
+
+def _missing_date_hidden(s: str) -> str:
+    """没选过送达日时又变成"整行不画"（用户明确否过：要写一条"他没有选择"）。"""
+    return s.replace('deliveryDateText(raw, status, today) ?: "未选择送达日期"',
+                     'deliveryDateText(raw, status, today) ?: ""', 1)
+
+
+def _card_hides_date(s: str) -> str:
+    """订单卡片不画送达日期（司机与派单员都看不到"还剩几天"）。"""
+    return s.replace(
+        "deliveryDateDisplay(order.deliveryDate, order.status),",
+        '"",',
+        1,
+    )
+
+
+def _detail_hides_date(s: str) -> str:
+    """订单详情不画送达日期。"""
+    return s.replace(
+        'InfoRow("送达日期", deliveryDateDisplay(order.deliveryDate, order.status))',
+        'InfoRow("下单日期", deliveryDateDisplay(order.deliveryDate, order.status))',
+        1,
+    )
+
+
+def _finished_still_counts_down(s: str) -> str:
+    """已送达/已撤销的单还在倒计时（读起来像"还没到"）。"""
+    return s.replace(
+        "if (status.uppercase() in FINISHED_STATUS) return md",
+        "if (false) return md",
+        1,
+    )
+
+
+def _warn_note_plain(s: str) -> str:
+    """「不保证准时」退回普通小字（用户点名要红色深胶囊框起来）。"""
+    return s.replace("noteIsWarn = deliveryLeadDays(iso) == 0L", "noteIsWarn = false", 1)
 
 
 def _split_drops_date(s: str) -> str:
@@ -171,9 +216,15 @@ CASES = [
     ("⑧b 规则文件自己又抄一份毫秒换算", RULES, _rules_copy_their_own_millis,
      "⛔ 规则文件不自己再抄一份毫秒换算"),
     ("⑨ 下单页自己算「今天」", SCREEN, _screen_computes_today, "下单页自己不碰 java.time"),
-    ("⑩ 默认值写死成固定日期", VM, _default_hardcoded, "VM 的初值是"),
+    ("⑩ 又替用户预填明天", VM, _default_prefilled, "VM 的初值是**空串**"),
     ("⑪ 请求体里不发送达日", VM, _request_omits_date, "VM 把值放进请求体"),
     ("⑫ 拆分单不继承送达日", FLOW, _split_drops_date, "拆分单继承送达日"),
+    ("⑬ 「提前一天」的深红胶囊被拆掉", SCREEN, _pill_removed, "深红胶囊"),
+    ("⑭ 订单卡片不画送达日期", CARD, _card_hides_date, "卡片上有一行送达日期"),
+    ("⑮ 订单详情不画送达日期", DETAIL, _detail_hides_date, "详情有一行「送达日期」"),
+    ("⑯ 已送达/已撤销的单还在倒计时", RULES, _finished_still_counts_down, "终态订单不再显示倒计时"),
+    ("⑰ 没选过送达日又变成整行/空字符串", RULES, _missing_date_hidden, "不许整行消失"),
+    ("⑱ 「不保证准时」不再用深红胶囊", SCREEN, _warn_note_plain, "深红胶囊"),
 ]
 
 # --------------------------------------------------------------- 脚手架
