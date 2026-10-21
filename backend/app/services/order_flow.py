@@ -332,6 +332,8 @@ def split_order(
             shipper_id=order.shipper_id,
             temp_shipper_name=order.temp_shipper_name,
             order_date=order.order_date,
+            # 期望送达日跟着货走（FEAT-0028）：拆出来的还是**同一趟货**，日子不该丢。
+            delivery_date=order.delivery_date,
             delivery_description=order.delivery_description,
             address_detail=order.address_detail,
             address_lat=order.address_lat,

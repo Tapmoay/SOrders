@@ -89,6 +89,15 @@ class OrderCreate(ShowableModel, GeoInput):
 
     lines: list[OrderProductIn] = Field(..., min_length=1, max_length=10)
     order_date: date | None = None
+    #: **期望送达日**（FEAT-0028）：下单时选的那一天，与"哪天下的单"（order_date）是两件事。
+    #: ⚠️ 可空 = 没选（老版本 App、AI 下单）：那种单照常创建，这一格留 NULL ——
+    #:    ⛔ 不许在这里给默认值（默认 = 服务端替用户认下了一个日子，而他并没有选过）。
+    #: 范围校验在命令层（`commands/order.py::create_order`，早于今天当场 400）——
+    #: 那是业务规则，不是字段格式（与 SHOWABLE_FIELDS / 联系信息同一套分工）。
+    delivery_date: date | None = Field(
+        default=None,
+        description="期望送达日（YYYY-MM-DD）；空 = 没选。不许早于今天。",
+    )
     # 长度上限与**列宽**一致（`String(512)` / `String(32)`），备注类是 TEXT 用 MAX_TEXT。
     # 不加的话：本地 SQLite 照收 8000 字，生产 MySQL `Data too long`（模糊测试实测）。
     delivery_description: str = Field("", max_length=512)
@@ -187,6 +196,9 @@ class OrderOut(BaseModel):
     temp_shipper_name: str | None = None
     driver_id: int | None
     order_date: date
+    #: 期望送达日（FEAT-0028）；NULL = 这一单没选过（存量单 / 老客户端 / AI 下单）。
+    #: ⚠️ 它不是截止时刻：准时率与自动异常看的是 `expected_deliver_before`（见 models/order.py 那段）。
+    delivery_date: date | None = None
     delivery_description: str
     address_detail: str
     address_lat: Decimal | None = None

@@ -40,7 +40,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.core import outbox
-from app.core.business_time import local_stamp, utc_now_naive
+from app.core.business_time import business_today, local_stamp, utc_now_naive
 from app.core.command_id import traced_command
 from app.core.rbac import user_role_key
 from app.models import Order, User
@@ -175,6 +175,14 @@ def create_order(db: Session, *, actor: User, body: OrderCreate) -> Order:
     except ValueError as e:
         raise CommandError(str(e)) from e
     od = ensure_order_date(body.order_date)
+    # 期望送达日（FEAT-0028）：可空（老版本 App / AI 下单不传），传了就必须**不早于今天**。
+    # ⛔ 为什么这条闸在命令层而不是 Pydantic：它是业务规则（"昨天已经过去了，那单送不到"），
+    #    与上面联系信息那条同一个分工；写成字段约束的话报错会变成 422 的结构化校验文本，
+    #    而 App 那侧只会显示一句看不懂的 key。
+    # ⛔ **不给默认值**：null 就是"没选过" —— 替用户认下一个日子等于伪造他没做过的事
+    #    （与 freight_rule_snapshot"千万不要猜着补"同一条）。
+    if body.delivery_date is not None and body.delivery_date < business_today():
+        raise CommandError("送达日期不能早于今天")
     order = Order(
         order_no=new_order_no(),
         # ⛔ 初始状态写在这里、不写在路由里（第二轮 R2-02 的退出条件之一：
@@ -184,6 +192,7 @@ def create_order(db: Session, *, actor: User, body: OrderCreate) -> Order:
         shipper_id=target_shipper_id,
         temp_shipper_name=order_temp_shipper_name,
         order_date=od,
+        delivery_date=body.delivery_date,
         delivery_description=body.delivery_description,
         address_detail=body.address_detail,
         address_lat=body.address_lat,
@@ -756,6 +765,8 @@ def _create_target_order(
         shipper_id=shipper_id,
         temp_shipper_name=temp_name,
         order_date=source.order_date,
+        # 期望送达日属于"这趟货"（不是源单的钱与归属）→ 照抄（FEAT-0028）。
+        delivery_date=source.delivery_date,
         delivery_description=source.delivery_description,
         address_detail=source.address_detail,
         address_lat=source.address_lat,

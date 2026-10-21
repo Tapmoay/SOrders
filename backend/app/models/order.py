@@ -41,6 +41,20 @@ class Order(Base, TimestampMixin):
 
     order_date: Mapped[date] = mapped_column(Date, index=True)
 
+    #: **期望送达日**（FEAT-0028，2026-10-21）：下单时由货主 / 批发商 / 派单员选定"这单哪天送到"。
+    #:
+    #: 为什么**不**复用旁边的 `order_date`：后者是"哪天下的单"—— 报表按它分桶
+    #: （`services/stats_service.py:60`）、账本兜底归属日也用它。两个事实混成一列，
+    #: "提前一天下单"就再也判不出来了（下单日 = 送达日，每天看起来都合规）。
+    #:
+    #: 为什么**也**不复用 `expected_deliver_before`（约定送达截止时刻）：那一列是 SLO 的
+    #: 分母（`stats_service.py:35` 的准时率）与自动异常的触发点（`:388` 到点未送达即登记异常）。
+    #: 拿"用户选了个日期"去写它 = 替用户登记了一个截止时刻，到点这单会**自己变成异常单**。
+    #:
+    #: ⛔ 存量单是 NULL 且**不回填**：老单当时没有这个约定，猜一个日子等于伪造历史事实
+    #:    （与 `freight_rule_snapshot` 同一条口径）。NULL = 没选，不是"就是当天"。
+    delivery_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
     delivery_description: Mapped[str] = mapped_column(String(512), default="")
     address_detail: Mapped[str] = mapped_column(String(512), default="")
     address_lat: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
