@@ -31,6 +31,18 @@
 
 ## 进行中
 
+### [2026-10-21 23:3x → ⏳ 进行中] 会话：**FEAT-0028 下单时可以选「送达日期」＋ 日期选择前面那条红色提前期警示**（DSH 主会话，2026-10-21）
+
+`用户口径`（2026-10-21 逐字）：「这个功能就是货主和批发商以及派单员，他们在下单的时候……**可以选择送到的日期**，UI 我们也做好；然后我们还要加一个警示，**在那个日期选择前面加一个红色的警示**……告诉他们**订单必须提前一天下达，当天下的单不一定能准时送达**」。UI 按我们的设计样式做（用户同句：「UI 也是按照我们的设计样式进行设计」）。
+
+**改哪些文件**：后端 `app/models/order.py`（`orders.delivery_date`）、`app/migrations/036_order_delivery_date.py`（新）、`app/schemas/order.py`（`OrderCreate` / `OrderOut`）、`app/commands/order.py`（create_order 那道闸 + 转货继承）、`app/services/order_flow.py`（拆分单继承）、`backend/tests/test_order_delivery_date.py`（新）；App `data/remote/dto/Dtos.kt`、`ui/shipper/DeliveryDate.kt`（新）、`ui/shipper/OrderCreateViewModel.kt`、`ui/shipper/OrderCreateScreen.kt`、`android/app/src/test/java/com/tapmoay/sorders/ui/shipper/DeliveryDateTest.kt`（新）；判据 `_tools/qa/_check_order_delivery_date.py` + `_tools/qa/_reverse_verify_order_delivery_date.py`（均新）；文书 `docs/changes/FEAT-0028.md`（新）+ `docs/changes/README.md` + 本页。
+
+**明确不碰**：⛔ `ui/order/OrderDetailScreen.kt`（CHG-0125 在途，声明页写着"明确不碰"）、⛔ `ui/common/OrderCard.kt`（CHG-0124 在途）、⛔ `ui/theme/Color.kt`、⛔ 钱 / 状态机 / 权限 / 账本 / 库存 / 通知、⛔ `expected_deliver_before` 的语义（准时率分母与自动异常看它，⛔ 不许拿"选了个日期"去写它）、⛔ 存量单不回填、⛔ `OrderUpdate`（改单改日期另起一单）。
+
+**核心改动**：`核心改动：backend/app/services/order_flow.py —— 为什么必须动核心：拆分单是这张单的派生行，送达日不继承就会在新单上凭空消失（同一趟货两个日子），改动只有一行赋值、不动状态机。`
+
+**证据**：判据 `_check_order_delivery_date.py` **30/30**；反验 **12/12** 注入全被抓 + 6 个文件逐字节还原；后端 `tests/test_order_delivery_date.py` **3 passed**；Android 单测 `testEmuDebugUnitTest` **BUILD SUCCESSFUL in 22s，132 类 / 1812 条 / 0 失败 / 2 跳过**（`DeliveryDateTest` 7 条）；dev 库迁移到 **36** 且 `orders.delivery_date` 在列；模拟器 `SOrdersD`（5554）派单员四张截图 `_tmp/f28_05.png` / `f28_06.png` / `f28_07.png` / `f28_08.png`（红条 / 抽屉 / 日历只放今天以后 / 选完回填「后天 · 10-23」）。
+
 ### [2026-10-15 → ✅ 已完成（代码 / 判据 / 单测 / 真机走查；提交 `b8add7a8`）] 会话：**CHG-0132 退货申请两端列表卡与「改明细」弹层按设计规范重做（语义色 · 图标 · 信息层级）**（DSH `session-bd8fe093-bbe1-4814-af6d-586e0980ff81`，主会话亲自施工）
 
 - 由来：用户 2026-10-15 发来派单端「退货申请」列表与「改这张退货申请」弹层两张截图，逐字：「像这些界面和卡片并没有按照我们的设计要求进行设计啊。比如说对应的语义色以及一些图标。还有就是因为全都是…没有详细的信息啊，就是没有重点包括你那个弹窗啊，那个浮窗…非常的不美观，改一下啊，然后做完之后就提交一下git并且生成版本并且推送」⇒ 四件事：语义色 / 图标 / 详细信息与重点 / 弹层美观，做完提交 + 抬版本（`VERSION` 0.2.17 → 0.2.18）+ push。
