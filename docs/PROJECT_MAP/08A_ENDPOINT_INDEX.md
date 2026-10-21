@@ -61,7 +61,7 @@
 
 <!-- source_hash: sha256:3d5a15c2e2e23faefa767055f7dfa4a15857238208bcd11bcc2b82d337658754 -->
 
-## 全量端点（304 个，按文件分组）
+## 全量端点（305 个，按文件分组）
 
 
 ### `backend/app/api/v1/ai_operations.py` — 1 个
@@ -659,7 +659,7 @@
 |---|---|---|---|---|
 | 1 | `GET /api/v1/unit-conversion/preview` | `preview` | `backend/app/extensions/unit_conversion/api.py:42` | **公开** |
 
-### `backend/app/main.py` — 4 个
+### `backend/app/main.py` — 5 个
 
 | # | 方法与路径 | handler | 位置 | 授权 |
 |---|---|---|---|---|
@@ -667,6 +667,7 @@
 | 2 | `GET /health` | `health` | `backend/app/main.py:498` | **公开** |
 | 3 | `GET /metrics` | `metrics` | `backend/app/main.py:512` | **公开** |
 | 4 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:537` | **公开** |
+| 5 | `GET /api/v1/system/app-releases` | `app_releases` | `backend/app/main.py:550` | **公开** |
 
 ## 权限点反查（改一个权限点影响哪些端点）
 
@@ -727,7 +728,7 @@
 
 _（无重复注册）_
 
-### 2. 完全公开（无鉴权）：20 个
+### 2. 完全公开（无鉴权）：21 个
 
 | 方法与路径 | handler | 位置 |
 |---|---|---|
@@ -751,6 +752,7 @@ _（无重复注册）_
 | `GET /health` | `health` | `backend/app/main.py:498` |
 | `GET /metrics` | `metrics` | `backend/app/main.py:512` |
 | `GET /api/v1/system/app-version` | `app_version` | `backend/app/main.py:537` |
+| `GET /api/v1/system/app-releases` | `app_releases` | `backend/app/main.py:550` |
 
 ### 3. 仅登录、且检测不到任何角色/权限约束：18 个
 
