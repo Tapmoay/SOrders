@@ -352,6 +352,10 @@ DISPATCHER_ONLY_FIELDS: tuple[tuple[str, str], ...] = (
     ("address_lng", "送货地址坐标"),
     ("remark", "订单备注"),
     ("internal_notes", "内部备注"),
+    # CHG-0135：派单员可以在详情页改"哪天送到"（用户 2026-10-22：「我们的派单员是可以修改这个信息的」）。
+    # ⚠️ 它进这张表 = **货主那一扇门改不了它**（contact_only 路径撞到它就 403）：送达日期是给
+    #    司机 / 派单员履约用的，不是货主在自己手机上随手改的东西。
+    ("delivery_date", "送达日期"),
 )
 
 #: 派单员那一扇门在审计日志里记的字段 —— **就是原来那三项，一个字没动**
@@ -360,6 +364,9 @@ DISPATCHER_TRACKED_FIELDS: tuple[str, ...] = (
     "delivery_description",
     "address_detail",
     "remark",
+    # CHG-0135：送达日期也进审计 payload —— 不然"谁把日期改了"在日志里查不到
+    #（改完之后派单员与司机看到的日子与原来不一样，事后要能追）。
+    "delivery_date",
 )
 
 
@@ -425,6 +432,11 @@ def update_order(
         order.contact_dongjia_name = body.contact_dongjia_name
     if body.contact_boss_name is not None:
         order.contact_boss_name = body.contact_boss_name
+    if body.delivery_date is not None:
+        # 与下单那条闸同一条口径（⛔ 不早于今天，按**业务当地日**算）：改单也不能把日子改到昨天去。
+        if body.delivery_date < business_today():
+            raise CommandError("送达日期不能早于今天")
+        order.delivery_date = body.delivery_date
     if body.remark is not None:
         order.remark = body.remark
     if body.internal_notes is not None:

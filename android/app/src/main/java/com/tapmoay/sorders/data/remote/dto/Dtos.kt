@@ -563,6 +563,11 @@ data class OrderCreateRequest(
 
 @Serializable
 data class OrderUpdateRequest(
+    /**
+     * 送达日期（CHG-0135）：派单员在订单详情里改"哪天送到"。
+     * ⚠️ null = **这一项不改**（PATCH 的缺席语义）；⛔ 不用它去清空已有日期。
+     */
+    @SerialName("delivery_date") val deliveryDate: String? = null,
     @SerialName("delivery_description") val deliveryDescription: String? = null,
     @SerialName("address_detail") val addressDetail: String? = null,
     @SerialName("address_lat") val addressLat: String? = null,

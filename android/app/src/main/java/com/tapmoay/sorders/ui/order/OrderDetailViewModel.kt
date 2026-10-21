@@ -1033,6 +1033,8 @@ class OrderDetailViewModel(
         editDrafts[OrderEditField.BOSS_NAME] = o.contactBossName
         editDrafts[OrderEditField.BOSS_PHONE] = o.contactBossPhone
         editDrafts[OrderEditField.REMARK_TEXT] = o.remark
+        // 送达日期（CHG-0135）：草稿铺的是这一单现在的日子；空（老单没选过）= 空串。
+        editDrafts[OrderEditField.DELIVERY_DATE] = o.deliveryDate.orEmpty()
         // 坐标与地址文字**一起**铺草稿（CHG-0133）：坐标不是地址文字的附属品，它是司机最终照着
         // 走的那个点 —— 改文字时不能顺手把它弄丢（[saveEdit] 里另有一道 fail-closed 闸守着）。
         editDrafts[OrderEditField.ADDRESS_LAT] = o.addressLat.orEmpty()
@@ -1112,6 +1114,9 @@ class OrderDetailViewModel(
                         // 地址库 / 地图选点 /「我就在这里」三条路最后都汇到这两个字段上（CHG-0133）。
                         addressLat = latDraft.ifBlank { null },
                         addressLng = lngDraft.ifBlank { null },
+                        // 送达日期（CHG-0135）：只有派单员那条路会走到这里（货主那扇门是 saveContactOnly）。
+                        // ⚠️ 空串 = 这一格没选过 → 报 null = "不给就不改"（⛔ 不用它去清空已有日期）。
+                        deliveryDate = draft(OrderEditField.DELIVERY_DATE).trim().ifBlank { null },
                         internalNotes = o.internalNotes,
                     ),
                 )

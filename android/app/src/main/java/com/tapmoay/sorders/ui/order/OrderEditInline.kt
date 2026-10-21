@@ -1,12 +1,13 @@
 package com.tapmoay.sorders.ui.order
+
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,41 +15,52 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.foundation.layout.width
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SelectableDates
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.tapmoay.sorders.core.AppContainer
-import androidx.compose.ui.unit.dp
 import com.tapmoay.sorders.core.Capabilities
 import com.tapmoay.sorders.core.InputRules
 import com.tapmoay.sorders.data.remote.dto.ContactDto
 import com.tapmoay.sorders.data.remote.dto.OrderProductDto
 import com.tapmoay.sorders.ui.common.ContactPickerSheet
+import com.tapmoay.sorders.ui.common.deliveryDateDisplay
+import com.tapmoay.sorders.ui.common.deliveryDateSelectable
+import com.tapmoay.sorders.ui.dispatcher.isoDateOfMillis
+import com.tapmoay.sorders.ui.dispatcher.isoDateToMillis
 import com.tapmoay.sorders.ui.common.FormErrorLine
 import com.tapmoay.sorders.ui.common.FormInputRow
 import com.tapmoay.sorders.ui.common.FormTextAreaRow
+import com.tapmoay.sorders.ui.nav.Role
 import com.tapmoay.sorders.ui.shipper.HereResult
 import com.tapmoay.sorders.ui.shipper.hereResultOf
 import kotlinx.coroutines.delay
-import com.tapmoay.sorders.ui.nav.Role
 
 /**
  * 订单详情页「点哪块信息就改哪块」（CHG-0041）。
@@ -100,6 +112,7 @@ interface OrderEditHost {
 
     /** 存这一个编辑块（地址/收货人/下单人/备注 一起报，内部备注原样带回）。 */
     fun saveEdit()
+
     // ---- 改「地点信息」走地点库 / 地图 / 「我就在这里」（CHG-0133）----
 
     /**
@@ -141,7 +154,6 @@ interface OrderEditHost {
      * 界面只负责画出来 —— 与 [editError] 同一条分工。
      */
     val addressCoordNotice: String?
-
 
     // ---- 改一件货（数量 / 单价 / 删掉）----
 
@@ -252,6 +264,7 @@ object OrderEditField {
      */
     const val CONTACT = "contact"
 
+    const val ADDRESS_DETAIL = "addressDetail"
 
     /**
      * 收货地址的**坐标**（CHG-0133）。
@@ -262,33 +275,68 @@ object OrderEditField {
      */
     const val ADDRESS_LAT = "addressLat"
     const val ADDRESS_LNG = "addressLng"
-    const val ADDRESS_DETAIL = "addressDetail"
     const val DONGJIA_NAME = "contactDongjiaName"
     const val DONGJIA_PHONE = "contactDongjiaPhone"
     const val BOSS_NAME = "contactBossName"
     const val BOSS_PHONE = "contactBossPhone"
     const val REMARK_TEXT = "remark"
+    /**
+     * 送达日期（CHG-0135）：派单员在订单详情里改"哪天送到"。
+     * 走的是同一条 PATCH（[OrderEditHost.saveEdit]），⛔ 不另开一扇门。
+     */
+    const val DELIVERY_DATE = "deliveryDate"
 }
 
 /**
- * 行尾那颗「改」（只给改得动的人画）。
+ * 行尾那颗「改」（只给改得动的人画）—— 2026-10-08 用户点名：**换成铅笔图标**。
  *
- * ⛔ 不用铅笔图标：这一页把「信息行」与「动作」分得很清，收货人/下单人那两行的点击
- * 已经是**拨号**（2026-09-20/22 定的），行尾再摆一个没有文字的图标，用户分不清
- * 点哪个是拨号、哪个是改。一个「改」字最省事，也与派单池那张卡片上的那颗一致。
+ * ## 为什么原来是字、现在是图标（CHG-0125）
+ * 从前这里用「改」字，理由是「这一页把信息行与动作分得很清：收货人/下单人那两行的点击已经是
+ * **拨号**，行尾再摆一个没有文字的图标，用户分不清点哪个是拨号、哪个是改」（CHG-0041 的注释）。
+ * 用户看过真机之后仍要铅笔 —— 于是分工改由**位置**承担：行首那条细竖杠（见 [EditRail]）
+ * 说的是「这一行改得动」，行尾这支铅笔说的是「点这里开始改」。各有各的记号，不再靠文字区分。
+ *
+ * ⛔ 签名与四个调用点一个字节都没动：`label` 仍是中文「改」，它现在的角色是**无障碍描述**
+ *    （TalkBack 念出来的还是「改」）。
+ * ⛔ 点击行为一个字节都没动：还是自己带 `clickable`，热区＝图标＋padding（不是整行）。
+ * ⛔ 铅笔用库里既有的 `Icons.Default.Edit`（32 处在用），没有引入任何新图标依赖。
  */
 @Composable
 fun EditHint(onClick: () -> Unit, label: String = "改") {
-    Text(
-        label,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.primary,
+    Icon(
+        Icons.Default.Edit,
+        contentDescription = label,
+        tint = MaterialTheme.colorScheme.primary,
         modifier = Modifier
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .size(18.dp),
     )
 }
 
+/**
+ * 行首那条细竖杠：**这一行改得动**（CHG-0125）。
+ *
+ * 用户配着详情页截图的原话：「可以改的行，在行首图标前面加一条细竖杠（颜色沿用详情页已有的
+ * 语义色/主题色；只显示、不可点击，不能新增可点区域）」。
+ *
+ * ⛔ 这个组件里**不许出现 clickable / onClick / 任何按钮**：它只显示。有些行本来就整行可点
+ *    （地点行＝看地图、收货人/下单人行＝拨号），那是**原来就有的**热区，这里一个像素都不加。
+ * ⛔ 颜色与行尾那支铅笔**同一个来源**（主题色 primary）：同一件事的两半，颜色一分叉，
+ *    用户会以为它们是两个功能。
+ * ⛔ 与行首图标之间的固定间距由**本组件自己带**（padding end 8dp）：调用点只加一行裸调用，
+ *    间距不写在调用点上（四处各写一次＝迟早有一处不一样）。
+ */
+@Composable
+fun EditRail(modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .padding(end = 8.dp)
+            .width(3.dp)
+            .height(18.dp)
+            .background(MaterialTheme.colorScheme.primary),
+    )
+}
 
 /** [AddressEditBlock] 那颗「我就在这里」的兜底时限（CHG-0133）。 */
 private const val DETAIL_HERE_TIMEOUT_MS = 20_000L
@@ -321,6 +369,7 @@ private const val DETAIL_HERE_TIMEOUT_MS = 20_000L
  * `if (!locatingHere) return@collect`（与 `ui/shipper/AddressScreen.kt:203-212` 同一道闸）。
  */
 @Composable
+fun AddressEditBlock(edit: OrderEditHost, modifier: Modifier = Modifier) {
     val container = edit.appContainer
     val context = LocalContext.current
     var locatingHere by remember { mutableStateOf(false) }
@@ -392,7 +441,6 @@ private const val DETAIL_HERE_TIMEOUT_MS = 20_000L
     val latDraft = edit.draft(OrderEditField.ADDRESS_LAT).trim()
     val lngDraft = edit.draft(OrderEditField.ADDRESS_LNG).trim()
 
-fun AddressEditBlock(edit: OrderEditHost, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth()) {
         EditBox(
             label = "收货地址",
@@ -400,6 +448,7 @@ fun AddressEditBlock(edit: OrderEditHost, modifier: Modifier = Modifier) {
             onValue = { edit.setDraft(OrderEditField.ADDRESS_DETAIL, it) },
             minLines = 2,
             singleLine = false,
+        )
         // 下面三颗＝同一层的三个选择（手动选点 / 从库里挑 / 就在这儿），
         // 与下单页那张「收货地址」卡逐字一致（`OrderCreateScreen.kt:406-440`）。
         Spacer(Modifier.height(10.dp))
@@ -464,7 +513,6 @@ fun AddressEditBlock(edit: OrderEditHost, modifier: Modifier = Modifier) {
                 color = Color(0xFFF59C00),
             )
         }
-        )
         EditActions(
             error = edit.editError,
             busy = edit.editBusy,
@@ -595,6 +643,64 @@ fun ContactFillPanel(edit: OrderEditHost, modifier: Modifier = Modifier) {
             creating = edit.creatingContact,
             createError = edit.contactSaveError,
         )
+    }
+}
+
+/**
+ * 改送达日期（CHG-0135）：派单员在订单详情里改"哪天送到"。
+ *
+ * 用户 2026-10-22：「我们的**派单员是可以修改**这个信息的」。
+ *
+ * ⚠️ 只有一个入口（M3 日历），选择层就**封顶今天**（与下单页同一条规则：
+ *    `deliveryDateSelectable` 来自 `ui/common/DeliveryDate.kt`，⛔ 不在这里另写一份）。
+ * ⚠️ 报的是同一条 PATCH（`saveEdit`）：⛔ 不新开端点、不新开字段表。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DeliveryDateEditBlock(edit: OrderEditHost, modifier: Modifier = Modifier) {
+    var picking by remember { mutableStateOf(false) }
+    Column(modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Event, contentDescription = null, tint = Color(0xFF00A4CE), modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("送达日期", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text(
+                deliveryDateDisplay(edit.draft(OrderEditField.DELIVERY_DATE), ""),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            TextButton(onClick = { picking = true }) { Text("选日期") }
+        }
+        EditActions(
+            error = edit.editError,
+            busy = edit.editBusy,
+            saveLabel = "保存送达日期",
+            onSave = { edit.saveEdit() },
+            onCancel = { edit.cancelEdit() },
+        )
+    }
+    if (picking) {
+        val dpState = rememberDatePickerState(
+            initialSelectedDateMillis = isoDateToMillis(edit.draft(OrderEditField.DELIVERY_DATE)),
+            selectableDates = object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean = deliveryDateSelectable(utcTimeMillis)
+            },
+        )
+        DatePickerDialog(
+            onDismissRequest = { picking = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    val picked = dpState.selectedDateMillis
+                    // 兜底：草稿里本来就有一个过期日子时它是选中态、选择层拦不住 —— 那种值不许写回。
+                    if (picked != null && deliveryDateSelectable(picked)) {
+                        edit.setDraft(OrderEditField.DELIVERY_DATE, isoDateOfMillis(picked))
+                    }
+                    picking = false
+                }) { Text("就用这天") }
+            },
+            dismissButton = { TextButton(onClick = { picking = false }) { Text("取消") } },
+        ) {
+            DatePicker(state = dpState)
+        }
     }
 }
 

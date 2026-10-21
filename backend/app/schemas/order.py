@@ -152,6 +152,10 @@ class OrderCreate(ShowableModel, GeoInput):
 
 
 class OrderUpdate(ShowableModel, GeoInput):
+    #: 送达日期（CHG-0135）：派单员可以在订单详情里改它（PATCH 语义：None = 这一项不改）。
+    #: ⚠️ 只改"哪天送到"，不碰 `order_date`（哪天下的单）与 `expected_deliver_before`（SLO 截止时刻）。
+    #: ⛔ 传 None 表示"不动"；想清空成"未选择"目前**不支持**（那是另一件事，要单独拍板）。
+    delivery_date: date | None = None
     #: 同 `OrderCreate.SHOWABLE_FIELDS`（PATCH 语义：`None` = 这一项不改，闸对 None 直接放行）。
     SHOWABLE_FIELDS = (
         "delivery_description",

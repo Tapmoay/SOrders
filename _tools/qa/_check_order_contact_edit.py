@@ -124,8 +124,10 @@ WANT_ONLY = [
     ('address_lng', '送货地址坐标'),
     ('remark', '订单备注'),
     ('internal_notes', '内部备注'),
+    # CHG-0135：送达日期由派单员在详情页改（货主那扇门撞到它就 403）
+    ('delivery_date', '送达日期'),
 ]
-WANT_TRACKED = ['delivery_description', 'address_detail', 'remark']
+WANT_TRACKED = ['delivery_description', 'address_detail', 'remark', 'delivery_date']
 
 #: 被点名的文件都必须在（少一个就先报红，不静默空转）。
 REQUIRED = [
@@ -318,12 +320,12 @@ def main() -> int:
     fields = order_update_fields()
     ok('CONTACT_FIELDS 就是那四个字段（姓名两对，顺序即入参顺序）',
        contact_items == WANT_CONTACT, str(contact_items))
-    ok('DISPATCHER_ONLY_FIELDS 六项逐字（这张表就是两条门的分界线本身）',
+    ok('DISPATCHER_ONLY_FIELDS 七项逐字（这张表就是两条门的分界线本身）',
        only_items == WANT_ONLY, str(only_items))
-    ok('DISPATCHER_TRACKED_FIELDS 三项（派单员那条路的审计字段行为冻结）',
+    ok('DISPATCHER_TRACKED_FIELDS 四项（CHG-0135 把送达日期也记进审计）',
        tracked_items == WANT_TRACKED, str(tracked_items))
-    ok('OrderUpdate 的字段清单自己算出来是 10 个', len(fields) == 10, str(fields))
-    ok('自算补集：六个派单员专属字段 ∪ 四个联系字段 == OrderUpdate 的全部字段（漏一个就是红的）',
+    ok('OrderUpdate 的字段清单自己算出来是 11 个', len(fields) == 11, str(fields))
+    ok('自算补集：七个派单员专属字段 ∪ 四个联系字段 == OrderUpdate 的全部字段（漏一个就是红的）',
        {f[0] for f in only_items} | set(contact_items) == set(fields),
        str(sorted(set(fields) - ({f[0] for f in only_items} | set(contact_items)))))
     ok('两张表不相交（同一个字段不许同时属于两条门）',
@@ -349,7 +351,7 @@ def main() -> int:
        -1 < i1 < i2 < i3, f'{i1}/{i2}/{i3}')
     ok('审计字段按路选：tracked = CONTACT_FIELDS if contact_only else DISPATCHER_TRACKED_FIELDS',
        'tracked = CONTACT_FIELDS if contact_only else DISPATCHER_TRACKED_FIELDS' in fn)
-    ok('before/after 都用 tracked（不再写死那三项）',
+    ok('before/after 都用 tracked（不再写死那几项）',
        'before = {f: getattr(order, f) for f in tracked}' in fn
        and 'after = {f: getattr(order, f) for f in tracked}' in fn)
     ok('推送条件：终态单在补联系信息这条路不推（司机早跑完了）',
@@ -486,8 +488,9 @@ def main() -> int:
     section('8. 别人的东西没碰（Must Not Change）')
     ok('账本页零新增（L-31 只作动机，ShipperLedgerScreen.kt 不动）',
        'contactRisk' not in kt(LEDGER) and 'order:edit_contact' not in kt(LEDGER))
-    ok('详情页四处 EditHint( 还在（CHG-0041 那四处提示没被挪窝）',
-       kt(DETAIL).count('EditHint(') == 4)
+    # CHG-0135 把「送达日期」也变成可改的一格 ⇒ 第五处（原先 CHG-0041 那四处一处没挪窝）。
+ok('详情页五处 EditHint( 还在（CHG-0041 那四处没被挪窝 ＋ CHG-0135 的送达日期）',
+   kt(DETAIL).count('EditHint(') == 5)
     ok('canEditInfo / canEditLines 两道老门仍在（整张单的编辑权没被放宽）',
        'val canEditInfo = ' in kt(DETAIL) and 'val canEditLines = ' in kt(DETAIL))
     ok('AI 侧不在本刀：AiWrite.kt 里没有新权限点（口径钉在这里）',

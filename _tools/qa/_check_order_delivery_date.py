@@ -52,6 +52,8 @@ SCREEN = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderC
 RULES = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/common/DeliveryDate.kt"
 CARD = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/common/OrderCard.kt"
 DETAIL = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailScreen.kt"
+DETAIL_VM = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailViewModel.kt"
+EDIT_INLINE = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderEditInline.kt"
 #: 毫秒换算的**唯一**那一份（车辆年检页与下单页共用；FEAT-0028 顺带把它从设备时区改成 UTC 零点）。
 SHARED_MILLIS = ROOT / "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleInspection.kt"
 
@@ -330,14 +332,14 @@ def main() -> int:
     )
     _need(
         "订单详情有一行「送达日期」",
-        re.search(r"InfoRow\(\"" + u"\u9001\u8fbe\u65e5\u671f" + r"\"", detail) is not None,
+        re.search(r"\"送达日期　\" \+ deliveryDateDisplay\(", detail) is not None,
         "详情页是三方都要看的那一页（货主 / 派单员 / 司机）",
     )
     _need(
         "没选过的单**明说**「未选择送达日期」，不许整行消失",
         '"未选择送达日期"' in rules
         and re.search(r"deliveryDateDisplay\(order\.deliveryDate, order\.status\)", card) is not None
-        and re.search(r"InfoRow\(\"送达日期\", deliveryDateDisplay\(", detail) is not None,
+        and re.search(r"\"送达日期　\" \+ deliveryDateDisplay\(", detail) is not None,
         "用户 2026-10-22：「如果他没选择的话，订单里就有一条信息说他没有选择送达日期」",
     )
     _need(
@@ -352,6 +354,40 @@ def main() -> int:
         "if (status.uppercase() in FINISHED_STATUS) return md" in rules
         and '"DELIVERED"' in rules and '"CANCELLED"' in rules and '"RETURNED"' in rules,
         "已送达的单上写「还有 1 天」会被读成「还没到」",
+    )
+
+    print("6. 派单员能在详情页改它（CHG-0135）")
+    vmdetail = _code_only(_read(DETAIL_VM))
+    _need(
+        "入参 OrderUpdate 也收 delivery_date（PATCH 语义：None = 不改）",
+        "class OrderUpdate(" in schema and re.search(r"class OrderUpdate\([\s\S]*?\bdelivery_date:\s*date \| None", schema) is not None,
+    )
+    _need(
+        "它进了 DISPATCHER_ONLY_FIELDS（货主那扇「只补联系信息」的门撞到它要 403）",
+        '("delivery_date", "送达日期")' in cmd,
+        "少了这一行 = 货主能改送达日期，那是把派单员的编辑权让出去",
+    )
+    _need(
+        "改单那道闸也拒「早于今天」（与下单同一条口径，两处各有一个判断）",
+        "if body.delivery_date is not None and body.delivery_date < business_today():" in cmd
+        and "if body.delivery_date < business_today():" in cmd
+        and cmd.count("送达日期不能早于今天") == 2,
+    )
+    _need(
+        "VM 的 saveEdit 会把它报上去（空串 = null = 不改，⛔ 不拿它去清空）",
+        "deliveryDate = draft(OrderEditField.DELIVERY_DATE).trim().ifBlank { null }" in vmdetail,
+    )
+    _need(
+        "详情页那一行有**图标 + 语义色**，且只有派单员看得到竖杠与铅笔",
+        "TintedIcon(Icons.Default.Event" in detail
+        and "EditHint(onClick = { edit.startEdit(OrderEditField.DELIVERY_DATE) })" in detail
+        and "if (canEditInfo) EditRail()" in detail,
+        "用户 2026-10-22：「要有对应的图标和语义色……我们的派单员是可以修改这个信息的」",
+    )
+    _need(
+        "改日期弹层存在，且选择层就封顶今天（复用同一条规则）",
+        "fun DeliveryDateEditBlock(" in _code_only(_read(EDIT_INLINE))
+        and "deliveryDateSelectable(utcTimeMillis)" in _code_only(_read(EDIT_INLINE)),
     )
 
     print()

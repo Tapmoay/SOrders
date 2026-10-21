@@ -1192,7 +1192,26 @@ private fun DetailBody(
                 // ⚠️ 只读：它**不是**可以就地改的那几格之一（改单改日期另起一单）。
                 // ⚠️ 没选过送达日的老单**也要画这一行**，写「未选择送达日期」——
                 //    用户 2026-10-22：「如果他没选择的话，订单里就有一条信息说他没有选择送达日期」。
-                InfoRow("送达日期", deliveryDateDisplay(order.deliveryDate, order.status))
+                // 送达日期（CHG-0135）：与订单卡片同一套语义色与图标；**派单员可以改**
+                // （用户 2026-10-22：「要有对应的图标和语义色……我们的派单员是可以修改这个信息的」）。
+                // ⚠️ 只读的人（货主 / 批发商 / 司机）只看不改：⛔ 不给竖杠、不给铅笔 ——
+                //    竖杠与铅笔在本页的含义就是"这一格改得动"（CHG-0125 定的形）。
+                if (edit.editingField == OrderEditField.DELIVERY_DATE) {
+                    DeliveryDateEditBlock(edit)
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (canEditInfo) EditRail()
+                        TintedIcon(Icons.Default.Event, Color(0xFF00A4CE), size = 14.dp, container = 26.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Box(Modifier.weight(1f)) {
+                            Text(
+                                "送达日期　" + deliveryDateDisplay(order.deliveryDate, order.status),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        if (canEditInfo) EditHint(onClick = { edit.startEdit(OrderEditField.DELIVERY_DATE) })
+                    }
+                }
                 if (edit.editingField == OrderEditField.REMARK) {
                     RemarkEditBlock(edit)
                 } else if (order.remark.isNotBlank() || canEditInfo) {

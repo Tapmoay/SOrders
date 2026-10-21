@@ -31,6 +31,18 @@
 
 ## 进行中
 
+### [2026-10-22 05:3x → ⏳ 进行中] 会话：**CHG-0135 订单详情「送达日期」按设计规范重做 ＋ 派单员可以改**（DSH 主会话，2026-10-22）
+
+`用户口径`（2026-10-22，对着详情截图）：「我们这个订单详情页送达日期……你的设计并没有按我们的设计样式进行设计啊，**要有对应的图标和语义色**……而且**我们的派单员是可以修改这个信息的**」。
+
+**改哪些文件**：App —— `ui/order/OrderDetailScreen.kt`（那一行换成 竖杠 + 图标 + 语义色 + 铅笔；编辑态挂 `DeliveryDateEditBlock`）、`ui/order/OrderEditInline.kt`（`OrderEditField.DELIVERY_DATE` ＋ 新块，**只追加**，不重排 CHG-0125 的行）、`ui/order/OrderDetailViewModel.kt`（草稿铺值 + `saveEdit` 上报）、`data/remote/dto/Dtos.kt`（`OrderUpdateRequest.deliveryDate`）；后端 `app/schemas/order.py`（`OrderUpdate.delivery_date`）、`app/commands/order.py`（进两张表 + 写库那道闸）；判据 `_tools/qa/_check_order_delivery_date.py`（45→51 项）、`_reverse_verify_order_delivery_date.py`（21→24 条）、`_check_order_contact_edit.py`（七项 / 11 个字段 / 五处 EditHint 随动）；文书 `docs/changes/CHG-0135.md`（新）+ 登记行 + 本页。
+
+**明确不碰**：⛔ `order_date` / `expected_deliver_before` 的语义；⛔ 钱 / 状态机 / 账本 / 库存 / 通知；⛔ 货主那扇门仍然只能补四个联系字段；⛔ 早于今天一律拒；⛔ 只读角色（货主 / 批发商 / 司机）看不到竖杠与铅笔。
+
+**核心改动**：不适用（没有碰 `_tools/qa/_core_files.txt` 里任何文件）。
+
+**证据**：判据 `_check_order_delivery_date.py` **51/51**；反验 **24/24**（10 个文件逐字节还原）；`_check_order_contact_edit.py` **通过 136 项**；单测 `testEmuDebugUnitTest` **132 类 / 1815 条 / 0 失败 / 2 跳过**；模拟器 5554 两张截图 `_tmp/f35_01_detail.png`（那一行）/ `f35_02_edit.png`（改日期块）。
+
 ### [2026-10-22 05:2x → ⏳ 进行中] 会话：**FEAT-0029 「我的 → 更新日志」：每个版本改了什么，App 里直接查得到**（DSH 主会话，2026-10-22）
 
 `用户口径`（2026-10-22 语音）：「更新日志啊，就是每次办完更新了什么可以查看的……就在我们那个更新那个入口里有个更新日志，查看每个版本更新了什么」。

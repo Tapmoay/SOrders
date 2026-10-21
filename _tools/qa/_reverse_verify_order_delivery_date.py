@@ -41,6 +41,7 @@ SCREEN = "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateSc
 RULES = "android/app/src/main/java/com/tapmoay/sorders/ui/common/DeliveryDate.kt"
 CARD = "android/app/src/main/java/com/tapmoay/sorders/ui/common/OrderCard.kt"
 DETAIL = "android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailScreen.kt"
+DETAIL_VM = "android/app/src/main/java/com/tapmoay/sorders/ui/order/OrderDetailViewModel.kt"
 INSPECTION = "android/app/src/main/java/com/tapmoay/sorders/ui/dispatcher/VehicleInspection.kt"
 VM = "android/app/src/main/java/com/tapmoay/sorders/ui/shipper/OrderCreateViewModel.kt"
 
@@ -173,8 +174,8 @@ def _card_hides_date(s: str) -> str:
 def _detail_hides_date(s: str) -> str:
     """订单详情不画送达日期。"""
     return s.replace(
-        'InfoRow("送达日期", deliveryDateDisplay(order.deliveryDate, order.status))',
-        'InfoRow("下单日期", deliveryDateDisplay(order.deliveryDate, order.status))',
+        '"送达日期　" + deliveryDateDisplay(order.deliveryDate, order.status)',
+        '"下单日期　" + deliveryDateDisplay(order.deliveryDate, order.status)',
         1,
     )
 
@@ -201,6 +202,22 @@ def _hint_loses_amber(s: str) -> str:
 def _recommend_not_green(s: str) -> str:
     """「推荐」没有深绿底了（用户点名要给绿色推荐一个深绿底）。"""
     return s.replace("iso == recommended -> Color(ThemeGreenDeep)", "iso == recommended -> null", 1)
+
+
+def _guard_loses_date(s: str) -> str:
+    """DISPATCHER_ONLY_FIELDS 少了送达日期（货主那扇门撞到它不再 403 = 货主能改日期）。"""
+    return s.replace('    ("delivery_date", "送达日期"),' + NL, "", 1)
+
+
+def _vm_does_not_send_date(s: str) -> str:
+    """改单时不再把送达日期报上去（界面上改了、库里没变）。"""
+    return s.replace(
+        "deliveryDate = draft(OrderEditField.DELIVERY_DATE).trim().ifBlank { null }," + NL, "", 1)
+
+
+def _detail_row_not_editable(s: str) -> str:
+    """详情页那一行不再给铅笔（派单员改不了）。"""
+    return s.replace("if (canEditInfo) EditHint(onClick = { edit.startEdit(OrderEditField.DELIVERY_DATE) })", "", 1)
 
 
 def _split_drops_date(s: str) -> str:
@@ -237,6 +254,9 @@ CASES = [
     ("⑱ 「不保证准时」不再用深红胶囊", SCREEN, _warn_note_plain, "深红胶囊"),
     ("⑲ 「推荐」没有深绿胶囊了", SCREEN, _recommend_not_green, "深绿胶囊"),
     ("⑳ 提示的警示黄底色没了", SCREEN, _hint_loses_amber, "警示黄底色"),
+    ("㉑ 货主那扇门又能改送达日期了", COMMAND, _guard_loses_date, "DISPATCHER_ONLY_FIELDS"),
+    ("㉒ 改单时不把送达日期报上去", DETAIL_VM, _vm_does_not_send_date, "saveEdit 会把它报上去"),
+    ("㉓ 详情页那一行不给铅笔（改不了）", DETAIL, _detail_row_not_editable, "竖杠与铅笔"),
 ]
 
 # --------------------------------------------------------------- 脚手架
