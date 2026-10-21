@@ -246,6 +246,12 @@ def main() -> int:
         "用户 2026-10-22：「那你也给那个绿色的推荐搞一个绿色深绿色的底啊」",
     )
     _need(
+        "抽屉里那句提示有**黄橙底色**（与下面的红区分开，且底色挂在 Hint 上）",
+        "background(Color(0xFFFFF7DE), RoundedCornerShape(10.dp))" in screen
+        and re.search(r"Hint\([\s\S]{0,120}?提前一天下单，才排得进明天的车", screen) is not None,
+        "用户 2026-10-22：「把这个提示用黄橙色的警示底色……与下面那个红色做个区分」",
+    )
+    _need(
         "抽屉里把「明天」标成**推荐**（还是让用户自己点，⛔ 不预选）",
         'val recommended = defaultDeliveryDate()' in screen and '"推荐"' in screen,
     )
