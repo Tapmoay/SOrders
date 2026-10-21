@@ -59,9 +59,20 @@ def main() -> int:
         "司机与派单员自己不需要这句 —— 他们本来就能改",
     )
     _need(
-        "它走 Hint（解释句），不是裸 Text",
-        re.search(r'Hint\("要改订单信息', src) is not None,
-        "这是\"怎么办\"的说明，属于提示总开关管的那一类",
+        "它是一张**独立小卡片**（SectionCard），不是底部一行小字",
+        re.search(r"SectionCard \{[\s\S]{0,400}?要改订单信息", src) is not None,
+        "用户 2026-10-22：「在这两个卡片之间插一个信息……插一个小卡片吧，那个卡片就是信息」",
+    )
+    _need(
+        "位置在**单号卡之后、收货信息卡之前**（用户指着那块空白说的）",
+        src.find("要改订单信息") > src.find("#\" + order.orderNo")
+        and src.find("要改订单信息") < src.find("\"收货信息\""),
+        "放到底部（第一版）用户否掉了：那是页面最后，读完整个订单才看到",
+    )
+    _need(
+        "它走 Text（操作指引必须一直看得见），⛔ 不是 Hint",
+        re.search(r'Text\(\s*"要改订单信息', src) is not None,
+        "提示总开关关掉时，货主在界面上就找不到任何\"怎么改单\"的答案",
     )
     _need(
         "⛔ 它不是按钮（没有 onClick / Button）",

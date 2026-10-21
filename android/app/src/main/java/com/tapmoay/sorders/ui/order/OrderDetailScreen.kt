@@ -978,6 +978,30 @@ private fun DetailBody(
             }
         }
 
+        // 货主 / 批发商：**要改单请打电话给派单员**（CHG-0136，用户 2026-10-22）
+        //
+        // 用户原话（第二轮，指着单号卡与收货信息卡之间那块空白）：「不要在这里面，在这两个卡片之间
+        // 插一个信息……插一个小卡片吧，那个卡片就是信息」。⇒ 它现在是一张**独立小卡片**，
+        // 位置就在**单号卡下面、收货信息卡上面** —— 那是"看完这是哪张单、要动它"的第一眼位置。
+        // ⚠️ 只给货主/批发商：派单员自己就能改、司机不该看到这句。
+        // ⚠️ 用 Text 而不是 Hint：这是**操作指引**（提示总开关关掉时也必须看得见 —— 不然货主
+        //    在界面上找不到任何"怎么改单"的答案）；⛔ 别做成按钮，点了也拨不出去（派单员是谁因单而异）。
+        if (role == Role.SHIPPER) {
+            item {
+                SectionCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TintedIcon(Icons.Default.Phone, Color(ThemeGreen), size = 14.dp, container = 26.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "要改订单信息，请打电话给派单员。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+
         item {
             SectionCard {
                 SectionTitle(Icons.Default.Place, Color(ShipperTeal), "收货信息")
@@ -1964,26 +1988,6 @@ private fun DetailBody(
             }
         }
         item { Spacer(Modifier.height(8.dp)) }
-        // 货主 / 批发商：**要改单请打电话给派单员**（CHG-0136，用户 2026-10-22）
-        //
-        // 用户原话：「不让货主和批发商自己去改订单信息了，但是在订单详情下面加一句提示 ——
-        // 要改订单信息请打电话给派单员；因为我们派单员要知道他到底要改什么信息，
-        // 不然他在没收到信息的情况下胡乱改，司机就很难判断到底送什么、送多少、送到哪。」
-        // ⚠️ 所以这一句不是客套：它是**改单的唯一入口说明**（货主端没有任何编辑入口）。
-        // ⚠️ 用 Hint（解释句）而不是 Text：它是"怎么办"的说明，属于提示总开关管的那一类；
-        //    ⛔ 别做成按钮 —— 点了也拨不出去（派单员是谁因单而异，这里没有"哪个人"的答案）。
-        if (role == Role.SHIPPER) {
-            item {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TintedIcon(Icons.Default.Phone, Color(ThemeGreen), size = 14.dp, container = 26.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Hint("要改订单信息，请打电话给派单员。")
-                }
-            }
-        }
         // ── 送达备注（司机 · 拍照送达这条链路）2026-10-07 台账 L-50 / CHG-0080 ──────────
         // 用户原话（m26029）：「然后那个备注啊，全部都放在下面就这样子的」。⇒ 送达备注**不再**躺在
         // 「送达凭证」那张卡里 —— 那张卡随 L-50 一起解散（照片预览搬到了拍照按钮上面、完成按钮搬到了
