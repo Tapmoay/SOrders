@@ -51,6 +51,7 @@ import com.tapmoay.sorders.ui.theme.MgrGreen
 import com.tapmoay.sorders.ui.theme.MoneyOrange
 import com.tapmoay.sorders.ui.theme.ShipperTeal
 import com.tapmoay.sorders.ui.theme.ThemeGreenDeep
+import com.tapmoay.sorders.ui.theme.WarningAmber
 import coil.compose.AsyncImage
 import com.tapmoay.sorders.util.formatMoney
 import kotlinx.coroutines.launch
@@ -1834,18 +1835,19 @@ private fun DeliveryDateSheet(
             Text("选择送达日期", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(6.dp))
             // 解释句（"为什么要提前一天"）→ 走 Hint：总开关关掉时它跟着消失，日期本身不受影响。
-            // ⚠️ 底色用**黄橙**（CHG-0134，用户 2026-10-22：「把这个提示用黄橙色的警示底色……简单的搞一下底色，
-            //    用黄橙色是为了与下面那个红色做个区分」）：它就是同一页那条"一次性提示"的琥珀配色
-            //    （0xFFFFF7DE 底 + 0xFF8F6C00 字），⛔ 别用红 —— 红已经代表"会晚到"了。
+            // ⚠️ 底色用**全 App 的警示黄** WarningAmber（CHG-0134，用户 2026-10-22：「呃算了，那个颜色就搞黄色吧，
+            //    就是我们常用的警示黄色」）：⛔ 别自己调一个黄 —— "提醒 / 待处理"这个语义色不许在这一页
+            //    变成第二个值；⛔ 也别用红 —— 红已经代表"会晚到"了。
             // ⛔ 底色挂在 Hint 自己的 modifier 上：提示总开关关掉时整块（连同底色）一起消失，
             //    ⛔ 不要在外面套一层 Surface，否则会剩下一个空的黄条。
             Hint(
                 "提前一天下单，才排得进明天的车 —— 所以建议选明天。",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFFFFF7DE), RoundedCornerShape(10.dp))
+                    .background(Color(WarningAmber), RoundedCornerShape(10.dp))
                     .padding(horizontal = 10.dp, vertical = 8.dp),
-                color = Color(0xFF8F6C00),
+                // 警示黄上的字用深棕：白字在 #E19B51 上对比不够，读起来糊。
+                color = Color(0xFF3E2A00),
             )
             Spacer(Modifier.height(12.dp))
             // 「推荐」那一天来自规则文件（defaultDeliveryDate），⛔ 不在这里再写一个"明天就是今天+1"。

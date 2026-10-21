@@ -195,7 +195,7 @@ def _warn_note_plain(s: str) -> str:
 
 def _hint_loses_amber(s: str) -> str:
     """抽屉里那句提示的黄橙底色没了（与下面那片红糊成一片）。"""
-    return s.replace("background(Color(0xFFFFF7DE), RoundedCornerShape(10.dp))", "background(Color.Transparent, RoundedCornerShape(10.dp))", 1)
+    return s.replace("background(Color(WarningAmber), RoundedCornerShape(10.dp))", "background(Color.Transparent, RoundedCornerShape(10.dp))", 1)
 
 
 def _recommend_not_green(s: str) -> str:
@@ -236,7 +236,7 @@ CASES = [
     ("⑰ 没选过送达日又变成整行/空字符串", RULES, _missing_date_hidden, "不许整行消失"),
     ("⑱ 「不保证准时」不再用深红胶囊", SCREEN, _warn_note_plain, "深红胶囊"),
     ("⑲ 「推荐」没有深绿胶囊了", SCREEN, _recommend_not_green, "深绿胶囊"),
-    ("⑳ 提示的黄橙底色没了", SCREEN, _hint_loses_amber, "黄橙底色"),
+    ("⑳ 提示的警示黄底色没了", SCREEN, _hint_loses_amber, "警示黄底色"),
 ]
 
 # --------------------------------------------------------------- 脚手架
