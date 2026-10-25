@@ -57,6 +57,13 @@ class ProfileViewModel(private val container: AppContainer) : ViewModel() {
     /** 下载中的第二行字：速度 / 已下多少 / 还剩多久（见 UpdateProgress）。 */
     var downloadDetail by mutableStateOf("")
 
+    // ---- 启动提示（CHG-0137）----
+    /** 要弹的「有新版本」（null = 不弹）。⛔ 与 [updateState] 分开：那是"用户点了关于与更新"。 */
+    var launchPrompt by mutableStateOf<AppVersionDto?>(null)
+        private set
+    /** 进程内只查一次（切 Tab / 转屏 / 回首页都不再查）。 */
+    private var launchChecked = false
+
     // ---- 更新日志（FEAT-0029）----
     // 「更新那个入口里有个更新日志，可以查看每个版本更新了什么」（用户 2026-10-22）。
     /** 每版一条（新的在前）。空 + 没在拉 = 还没打开过。 */
@@ -199,16 +206,10 @@ class ProfileViewModel(private val container: AppContainer) : ViewModel() {
                     updateState = "latest"
                     return@launch
                 }
-                // 有 versionCode 就以它为准（>0 才算有效），没有才退回比版本名。
-                // 理由：安卓安装时只认 versionCode。若我们报「有新版本」而它的 versionCode
-                // 并不比本机大，用户下完只会看到系统安装失败——那比不提示更伤。
-                val theirCode = info.versionCode ?: 0
-                // ⚠️ 兜底比的是**产品版本名**（`BuildConfig.VERSION_NAME`），不是给界面看的那串
-                //    `currentVersion`（它带了构建号，如「0.2.0 · 2026092101」）——
-                //    拿显示串去比，服务端只写 `version` 时**永远不相等**，于是每次检查都报「有新版本」。
-                val isNewer = if (theirCode > 0) theirCode > BuildConfig.VERSION_CODE
-                else info.version != BuildConfig.VERSION_NAME
-                if (!isNewer) {
+                // ⚠️ 新旧判定只有一处：[isNewerThanCurrent]。手动检查（这里）与启动提示
+                //    （[checkUpdateOnLaunch]）都走它 —— 两处各写一份的话，迟早会出现
+                //    "手动说没有新版、启动却弹"这种谁也说不清的分裂。
+                if (!isNewerThanCurrent(info)) {
                     updateMessage = "当前已是最新版本（v" + currentVersion + "）"
                     updateState = "latest"
                     return@launch
@@ -220,6 +221,67 @@ class ProfileViewModel(private val container: AppContainer) : ViewModel() {
                 updateState = "latest"
             }
         }
+    }
+
+    /**
+     * 服务端这一版是不是比本机新。**唯一判定**（手动检查与启动提示都走这里）。
+     *
+     * 有 versionCode 就以它为准（>0 才算有效），没有才退回比版本名。理由：安卓安装时只认
+     * versionCode —— 若我们报「有新版本」而它的 versionCode 并不比本机大，用户下完只会看到
+     * 系统安装失败，那比不提示更伤。
+     *
+     * ⚠️ 兜底比的是**产品版本名**（BuildConfig.VERSION_NAME），不是给界面看的那串
+     *    currentVersion（它带了构建号，如「0.2.0 · 2026092101」）—— 拿显示串去比，
+     *    服务端只写 version 时**永远不相等**，于是每次检查都报「有新版本」。
+     */
+    private fun isNewerThanCurrent(info: AppVersionDto): Boolean =
+        UpdateProgress.isNewer(
+            serverVersion = info.version,
+            serverCode = info.versionCode,
+            localVersion = BuildConfig.VERSION_NAME,
+            localCode = BuildConfig.VERSION_CODE,
+        )
+
+    // ---- 启动提示（CHG-0137）----
+
+    /**
+     * 「有新版本」的**启动提示**（用户 2026-10-26：「第一次打开 App 时弹一句『有新版本了，是否更新』」）。
+     *
+     * 三条规矩：
+     * 1. **进程内只查一次**（[launchChecked]）：切 Tab、转屏、返回首页都不再查；
+     * 2. **失败静默**：检查更新失败（断网、服务端 500）⛔ 不弹任何错误框 —— 那是件"顺带的事"，
+     *    不该在用户开门第一秒拦住他；手动点「关于与更新」时才需要如实报错；
+     * 3. **同一版只提示一次**（[UpdatePromptPrefs]）：点「稍后」也记下来。
+     */
+    fun checkUpdateOnLaunch() {
+        if (launchChecked) return
+        launchChecked = true
+        viewModelScope.launch {
+            try {
+                val info = container.repo.checkUpdate()
+                if (info.version.isNullOrBlank() || info.url.isNullOrBlank()) return@launch
+                if (!isNewerThanCurrent(info)) return@launch
+                if (!container.updatePromptPrefs.shouldPrompt(info.versionCode ?: 0)) return@launch
+                launchPrompt = info
+            } catch (_: Exception) {
+                // ⛔ 静默：见上面第 2 条
+            }
+        }
+    }
+
+    /** 从启动提示直接下载（复用**同一条**下载链路） */
+    fun downloadFromLaunchPrompt(ctx: Context) {
+        val info = launchPrompt ?: return
+        container.updatePromptPrefs.markPrompted(info.versionCode ?: 0)
+        launchPrompt = null
+        latest = info
+        downloadAndInstall(ctx)
+    }
+
+    /** 点「稍后」：记下这一版，本次及以后都不再为它弹（要更新自己去「关于与更新」） */
+    fun dismissLaunchPrompt() {
+        launchPrompt?.let { container.updatePromptPrefs.markPrompted(it.versionCode ?: 0) }
+        launchPrompt = null
     }
 
     /** 下载并安装新版 APK（OkHttp 流式 → cacheDir/updates → 触发系统安装器） */

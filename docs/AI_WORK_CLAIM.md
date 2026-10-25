@@ -31,6 +31,18 @@
 
 ## 进行中
 
+### [2026-10-26 01:1x → ⏳ 进行中] 会话：**CHG-0137 冷启动「发现有新版本」提示（同一版只弹一次）**（DSH 主会话，2026-10-26）
+
+`用户口径`（2026-10-26）：「我们推送的版本，用户第一次打开 App 的时候，还是有一个弹窗提示说有新的版本了、是否更新？检查一下有没有做」；确认要做之后选了 **A 方案：同一版只弹一次，「稍后」也记下来**。
+
+**改哪些文件**：`core/UpdatePromptPrefs.kt`（新）、`core/AppContainer.kt`（一份实例）、`ui/profile/ProfileViewModel.kt`（checkUpdateOnLaunch / downloadFromLaunchPrompt / dismissLaunchPrompt；判新旧抽走）、`ui/profile/UpdateProgress.kt`（`isNewer` 纯函数）、`ui/profile/UpdateConfirmDialog.kt`（新，弹窗唯一一份）、`ui/profile/ProfileScreen.kt`（改调共用弹窗）、`ui/home/RoleHomeScreen.kt`（登录后检查 + 根层弹窗）；判据 `_tools/qa/_check_launch_update_prompt.py`（新，21 项）；单测 `UpdateProgressTest`（+2 条）；文书 `docs/changes/CHG-0137.md`（新）+ 登记行 + 本页。
+
+**明确不碰**：⛔ `version.json` 的字段与语义、⛔ 判新旧规则（versionCode 优先）、⛔ 下载/安装链路（FileProvider / 未知来源开关 / 进度文案）、⛔ 手动「关于与更新」的如实报错、⛔ 检查失败必须静默、⛔ 零新增权限。
+
+**核心改动**：不适用（没有碰 `_tools/qa/_core_files.txt`）。
+
+**证据**：判据 **21/21**；单测 `UpdateProgressTest` 通过（含"99999999 比 2026102601 小"的坑）；模拟器 `_tmp/f37_06_prompt.png`（冷启动弹出「发现新版本 v0.2.24 · 2026102701」）、`_tmp/f37_07_no_second_prompt.png`（点「稍后」后重启不再弹）；`shared_prefs/update_prompt.xml` 里 `last_prompted_code=2026102701`。
+
 ### [2026-10-22 02:0x → ⏳ 进行中] 会话：**CHG-0136 订单详情最下面加一句「要改订单信息，请打电话给派单员」**（DSH 主会话，2026-10-22）
 
 `用户口径`（2026-10-22，先要做"货主自己改单"随后收回）：「算了算了，暂时不开这个，就不让货主和批发商自己去改订单信息了。但是我们可以在订单详情下面加一句提示：**要改订单信息请打电话给派单员**。因为我们派单员要知道他到底要改什么信息 —— 不然他在没收到信息的情况下胡乱改，司机就很难判断到底送什么、送多少、送到哪。」

@@ -46,6 +46,9 @@ class AppContainer(val context: Context) {
     /** 「这条界面提示已经出现过几次」——解释性的话最多出现 3 次，同步可读（合成时要判画不画） */
     val hintPrefs by lazy { HintPrefs(appContext) }
 
+    /** 「有新版本」启动提示的记忆（同一版只弹一次，见 [UpdatePromptPrefs]） */
+    val updatePromptPrefs by lazy { UpdatePromptPrefs(appContext) }
+
     /** 系统通知出口（本 App 以前一条系统通知都不发，见 NotifyCenter 注释） */
     val notifyCenter by lazy { NotifyCenter(appContext, alertPrefs) }
 

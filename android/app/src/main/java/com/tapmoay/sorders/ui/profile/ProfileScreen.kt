@@ -482,33 +482,15 @@ fun ProfileScreen(
         ReleaseNotesDialog(vm)
     }
 
-    // 有新版 → 确认弹窗
+    // 有新版 → 确认弹窗（**唯一那一份**在 UpdateConfirmDialog.kt，启动提示也用它）
     if (vm.updateState == "confirm" && vm.latest != null) {
-        CardAlertDialog(
-            onDismissRequest = { vm.updateState = "idle" },
-            // ⚠️ **两行都要带构建号**（2026-09-23 用户报障：只显示 `0.2.3` 时，
-            //    「发现新版本 v0.2.3」与「当前版本：v0.2.3 · 2026092204」看着一模一样，
-            //    他读成"让我重装当前版本"）。判新旧本来就是 `versionCode`，就把它显示出来。
-            //    口径只有一处：`UpdateProgress.versionLabel`（有单测）。
-            title = {
-                Text("发现新版本 v" + UpdateProgress.versionLabel(vm.latest?.version, vm.latest?.versionCode))
-            },
-            text = {
-                Column {
-                    Text("当前版本：v" + vm.currentVersion)
-                    Spacer(Modifier.height(6.dp))
-                    val note = vm.latest?.note.orEmpty()
-                    if (note.isNotBlank()) Text(note, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(10.dp))
-                    Text("是否立即下载并安装更新？", style = MaterialTheme.typography.titleSmall)
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { vm.downloadAndInstall(context) }) { Text("下载并更新") }
-            },
-            dismissButton = {
-                TextButton(onClick = { vm.updateState = "idle" }) { Text("取消") }
-            },
+        UpdateConfirmDialog(
+            version = vm.latest?.version,
+            versionCode = vm.latest?.versionCode,
+            currentVersion = vm.currentVersion,
+            note = vm.latest?.note.orEmpty(),
+            onDownload = { vm.downloadAndInstall(context) },
+            onLater = { vm.updateState = "idle" },
         )
     }
 

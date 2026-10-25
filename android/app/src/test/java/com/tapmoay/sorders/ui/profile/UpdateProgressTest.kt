@@ -99,4 +99,29 @@ class UpdateProgressTest {
         // 两端空白归一，别显示成 "0.2.4  · 2026092302"
         assertEquals("0.2.4 · 2026092302", UpdateProgress.versionLabel(" 0.2.4 ", 2026092302))
     }
+
+    @Test
+    fun newerByBuildNumber() {
+        // 有构建号就只认构建号：名字怎么排都不算数（"1.0.0.9" > "1.0.0.10" 的那种坑）
+        assertTrue(UpdateProgress.isNewer("1.0.0.9", 2026092301, "1.0.0.10", 2026092201))
+        assertTrue(!UpdateProgress.isNewer("9.9.9", 2026092201, "0.2.23", 2026092301))
+        // 构建号相同 = 同一版（不管名字），⛔ 不许因为名字不同就报"有新版本"
+        assertTrue(!UpdateProgress.isNewer("0.2.23", 2026102601, "0.2.23", 2026102601))
+        // ⚠️ 构建号是 10 位日期号（2026102601）——「比它大」必须是**数值**更大。
+        //    99999999 看着"九千多万"挺大，其实只有 8 位、比 20 亿的日期号小 ⇒ **不算新版**。
+        //    （2026-10-26 我在模拟器上就踩过这个坑：造了个 99999999 的假版本，App 不提示是对的。）
+        assertTrue(!UpdateProgress.isNewer("0.2.99", 99999999, "0.2.23", 2026102601))
+        assertTrue(UpdateProgress.isNewer("0.2.24", 2026102701, "0.2.23", 2026102601))
+    }
+
+    @Test
+    fun newerFallsBackToVersionNameWithoutBuildNumber() {
+        // 老后端没有 versionCode → 只能比版本名
+        assertTrue(UpdateProgress.isNewer("0.2.24", null, "0.2.23", 2026102601))
+        assertTrue(UpdateProgress.isNewer("0.2.24", 0, "0.2.23", 2026102601))
+        // 同名 = 同一版；空名字 ⛔ 不许当成"有新版本"
+        assertTrue(!UpdateProgress.isNewer("0.2.23", null, "0.2.23", 2026102601))
+        assertTrue(!UpdateProgress.isNewer(null, null, "0.2.23", 2026102601))
+        assertTrue(!UpdateProgress.isNewer("  ", 0, "0.2.23", 2026102601))
+    }
 }

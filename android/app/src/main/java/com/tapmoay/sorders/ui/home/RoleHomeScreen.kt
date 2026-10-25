@@ -37,7 +37,10 @@ import com.tapmoay.sorders.ui.nav.Role
 import com.tapmoay.sorders.ui.dispatcher.DispatcherPoolScreen
 import com.tapmoay.sorders.ui.driver.DriverOrdersScreen
 import com.tapmoay.sorders.ui.nav.Routes
+import com.tapmoay.sorders.ui.common.appViewModel
 import com.tapmoay.sorders.ui.profile.ProfileScreen
+import com.tapmoay.sorders.ui.profile.ProfileViewModel
+import com.tapmoay.sorders.ui.profile.UpdateConfirmDialog
 import com.tapmoay.sorders.ui.theme.ThemeMode
 import com.tapmoay.sorders.ui.theme.aiBrandBrush
 import kotlinx.coroutines.launch
@@ -52,6 +55,17 @@ fun RoleHomeScreen(
     onNavigate: (String) -> Unit,
 ) {
     val session by container.tokenStore.sessionFlow.collectAsState(initial = null)
+
+    // 启动提示：**有新版本**就弹一次（CHG-0137）。
+    //
+    // 用户 2026-10-26：「第一次打开 App 的时候还是有一个弹窗提示说有新的版本了，是否更新？」
+    // ⚠️ 挂在这里（登录后的主界面）而不是「我的」页：后者只有用户切到那个 Tab 才组合，
+    //    等于"要用户先想到去看更新，才告诉他该更新了"。
+    // ⚠️ VM 与「我的」页是**同一个实例**（同一个 Activity 级 ViewModelStore）：
+    //    下载进度、已下载的包都共用，⛔ 不会出现两套更新链路。
+    val updateVm: ProfileViewModel = appViewModel { ProfileViewModel(container) }
+    val contextForUpdate = LocalContext.current
+    LaunchedEffect(Unit) { updateVm.checkUpdateOnLaunch() }
 
     // 登录后基础权限引导：定位 / 通知 / 相机 / 存储（按系统版本动态组装，缺失才请求）
     val permContext = LocalContext.current
@@ -319,6 +333,18 @@ fun RoleHomeScreen(
                 )
             }
         }
+    }
+
+    // 启动提示：有新版本（同一版只弹一次；「稍后」也记下来）—— CHG-0137
+    updateVm.launchPrompt?.let { info ->
+        UpdateConfirmDialog(
+            version = info.version,
+            versionCode = info.versionCode,
+            currentVersion = updateVm.currentVersion,
+            note = info.note.orEmpty(),
+            onDownload = { updateVm.downloadFromLaunchPrompt(contextForUpdate) },
+            onLater = { updateVm.dismissLaunchPrompt() },
+        )
     }
 
     // 通知权限没开 → 硬提示。文案与「我的 → 消息提醒」那张卡片同一个口径（说清"不做会怎样"），

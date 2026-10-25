@@ -87,4 +87,23 @@ object UpdateProgress {
         val v = version.orEmpty().trim().ifBlank { "未知版本" }
         return if (code != null && code > 0) "$v · $code" else v
     }
+
+    /**
+     * 服务端这一版是不是比本机新 —— **唯一判定**（手动「关于与更新」与冷启动提示都走这里）。
+     *
+     * 规则：**有构建号就以构建号为准**（> 0 才算有），没有才退回比产品版本名。
+     * 理由：安卓安装时只认 versionCode —— 报「有新版本」而 versionCode 并不更大，用户下完
+     * 只会看到系统安装失败，那比不提示更伤。
+     *
+     * ⚠️ 兜底比的是**产品版本名**（如 0.2.23），不是带构建号的显示串（如「0.2.23 · 2026102601」）：
+     *    拿显示串去比，服务端只写 version 时**永远不相等**，于是每次检查都报「有新版本」。
+     * ⚠️ 纯函数（不碰 Android API），所以有 JVM 单测 —— CHG-0137 就是靠它证明"99999999 比
+     *    2026102601 新"这种一眼看不出错的情况是对的。
+     */
+    fun isNewer(serverVersion: String?, serverCode: Int?, localVersion: String, localCode: Int): Boolean {
+        val theirCode = serverCode ?: 0
+        if (theirCode > 0) return theirCode > localCode
+        val v = serverVersion.orEmpty().trim()
+        return v.isNotEmpty() && v != localVersion
+    }
 }
